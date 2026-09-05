@@ -9,6 +9,7 @@ const isDev = !app.isPackaged;
 
 let backendProcess = null;
 let mainWindow = null;
+let splashWindow = null;
 let logStream = null;
 
 const logFile = () =>
@@ -137,6 +138,48 @@ function waitForBackend(port, timeoutMs = 180000) {
   });
 }
 
+/**
+ * The frozen backend needs up to ~70s on a cold start (Python bootstrap plus
+ * Chromium and Copilot probes). Without this the app shows nothing at all and
+ * looks hung, so put a window up immediately and report progress.
+ */
+function createSplash() {
+  splashWindow = new BrowserWindow({
+    width: 460,
+    height: 260,
+    frame: false,
+    resizable: false,
+    center: true,
+    backgroundColor: "#1e1b4b",
+    show: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+
+  const html = `
+    <html><body style="margin:0;height:100vh;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;background:#1e1b4b;color:#e0e7ff;
+      font-family:Segoe UI,system-ui,sans-serif;-webkit-user-select:none">
+      <div style="font-size:26px;font-weight:600;letter-spacing:-0.5px">shot2code</div>
+      <div id="msg" style="margin-top:10px;font-size:13px;opacity:.75">Starting…</div>
+      <div style="margin-top:22px;width:240px;height:4px;background:#312e81;border-radius:2px;overflow:hidden">
+        <div style="width:40%;height:100%;background:#818cf8;border-radius:2px;
+          animation:s 1.1s ease-in-out infinite"></div>
+      </div>
+      <div style="margin-top:18px;font-size:11px;opacity:.45">First launch takes a little longer</div>
+      <style>@keyframes s{0%{margin-left:-40%}100%{margin-left:100%}}</style>
+    </body></html>`;
+
+  splashWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+  splashWindow.on("closed", () => {
+    splashWindow = null;
+  });
+}
+
+function closeSplash() {
+  if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
+  splashWindow = null;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -152,7 +195,10 @@ function createWindow() {
     },
   });
 
-  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.once("ready-to-show", () => {
+    closeSplash();
+    mainWindow.show();
+  });
 
   // Keep external links in the user's browser, not in the app shell.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -203,6 +249,8 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     ipcMain.handle("shot2code:open-logs", () => shell.openPath(logFile()));
 
+    createSplash();
+
     try {
       const port = await findFreePort();
       process.env.SHOT2CODE_BACKEND_HTTP = `http://127.0.0.1:${port}`;
@@ -213,6 +261,7 @@ if (!app.requestSingleInstanceLock()) {
       log(`backend ready on ${port}`);
     } catch (err) {
       log(`startup failed: ${err.message}`);
+      closeSplash();
       dialog.showErrorBox(
         "shot2code could not start",
         `The backend failed to start.\n\n${err.message}\n\nLog file:\n${logFile()}`
