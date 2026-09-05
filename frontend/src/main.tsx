@@ -3,7 +3,12 @@ import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { Toaster } from "react-hot-toast";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import {
+  BrowserRouter,
+  HashRouter,
+  Routes,
+  Route,
+} from "react-router-dom";
 import RunEvalsPage from "./components/evals/RunEvalsPage.tsx";
 import BestOfNEvalsPage from "./components/evals/BestOfNEvalsPage.tsx";
 import AllEvalsPage from "./components/evals/AllEvalsPage.tsx";
@@ -12,6 +17,14 @@ import PromptReportsPage from "./components/evals/PromptReportsPage.tsx";
 import AgentRunsPage from "./components/evals/AgentRunsPage.tsx";
 import EvalSessionsPage from "./components/evals/EvalSessionsPage.tsx";
 import EvalComparePage from "./components/evals/EvalComparePage.tsx";
+
+// The desktop build loads the UI from disk, where location.pathname is the
+// file's path (/C:/.../index.html). BrowserRouter matches no route there and
+// the app renders blank, so fall back to hash routing off the web.
+const Router =
+  typeof window !== "undefined" && window.location.protocol === "file:"
+    ? HashRouter
+    : BrowserRouter;
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

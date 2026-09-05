@@ -200,6 +200,21 @@ function createWindow() {
     mainWindow.show();
   });
 
+  // Surface renderer failures in the log. Without these a blank window gives
+  // no clue why it is blank.
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_e, errorCode, errorDescription, validatedURL) => {
+      log(`renderer failed to load ${validatedURL}: ${errorDescription} (${errorCode})`);
+    }
+  );
+  mainWindow.webContents.on("render-process-gone", (_e, details) => {
+    log(`renderer process gone: ${JSON.stringify(details)}`);
+  });
+  mainWindow.webContents.on("console-message", (_e, level, message, line, sourceId) => {
+    if (level >= 2) log(`renderer console [${level}] ${message} (${sourceId}:${line})`);
+  });
+
   // Keep external links in the user's browser, not in the app shell.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -285,3 +300,4 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", stopBackend);
   process.on("exit", stopBackend);
 }
+
