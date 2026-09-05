@@ -35,9 +35,27 @@ async def log_debug_mode() -> None:
 async def probe_screenshot_preview_on_startup() -> None:
     # Detect (and warm up) headless Chromium so the screenshot_preview tool is
     # only offered when it can actually run. Logs the outcome.
-    from preview_screenshot import probe_screenshot_preview
+    # Screenshot preview is optional, so no failure here may take the backend
+    # down with it - including an encoding error raised while logging.
+    try:
+        from preview_screenshot import probe_screenshot_preview
 
-    await probe_screenshot_preview()
+        await probe_screenshot_preview()
+    except Exception as exc:
+        print(f"[startup] screenshot preview probe failed, tool disabled: {exc!r}")
+
+
+@app.on_event("startup")
+async def probe_copilot_on_startup() -> None:
+    # Warm the Copilot credential cache in the background. The first probe
+    # spawns the bundled Copilot CLI and can take ~15s, which would otherwise
+    # stall the first /api/capabilities call the Settings dialog makes.
+    # Deliberately not awaited so it never delays startup.
+    import asyncio
+
+    from copilot_auth import probe_copilot_auth
+
+    asyncio.create_task(probe_copilot_auth())
 
 # Configure CORS settings
 app.add_middleware(

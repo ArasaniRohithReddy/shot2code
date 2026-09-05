@@ -1,0 +1,7 @@
+# Electron build output
+dist/
+node_modules/
+
+# Staged payloads produced by the release build
+renderer/
+backend-dist/

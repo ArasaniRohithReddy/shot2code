@@ -1,0 +1,99 @@
+name: Release desktop app
+
+# Publishes the Windows installers to the repo's Releases page.
+# Tag a commit to cut a release:  git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.1.0). Publishes a draft release."
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --frozen
+
+      - name: Freeze backend with PyInstaller
+        working-directory: backend
+        run: |
+          uv run pyinstaller shot2code-backend.spec --noconfirm --distpath dist-pyinstaller
+
+      - name: Bundle Chromium for the screenshot preview tool
+        working-directory: backend
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}\backend\dist-pyinstaller\shot2code-backend\ms-playwright
+        # Only the headless shell: the app always launches headless, and the
+        # full headed Chromium would add ~427MB to the installer for nothing.
+        run: uv run playwright install chromium-headless-shell
+
+      - name: Stage payloads for electron-builder
+        shell: pwsh
+        run: |
+          $desktop = "desktop"
+          Remove-Item -Recurse -Force "$desktop/renderer","$desktop/backend-dist" -ErrorAction SilentlyContinue
+          Copy-Item -Recurse frontend/dist "$desktop/renderer"
+          Copy-Item -Recurse backend/dist-pyinstaller/shot2code-backend "$desktop/backend-dist"
+          "renderer files: $((Get-ChildItem "$desktop/renderer" -Recurse -File).Count)"
+          "backend files:  $((Get-ChildItem "$desktop/backend-dist" -Recurse -File).Count)"
+
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $pkg.version = $v
+          $pkg | ConvertTo-Json -Depth 20 | Set-Content package.json
+          "version set to $v"
+
+      - name: Build and publish installers
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm install
+          npx electron-builder --win nsis msi zip --publish always
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shot2code-windows
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.msi
+            desktop/dist/*.zip
+          if-no-files-found: warn

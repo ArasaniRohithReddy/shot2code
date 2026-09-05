@@ -48,12 +48,15 @@ class PlaywrightBackend:
         """
         try:
             await self._get_browser()
-            print("[screenshot_preview] Chromium available — tool enabled.")
+            print("[screenshot_preview] Chromium available - tool enabled.")
             return True
         except Exception as exc:
+            # Keep this message ASCII-only: it embeds the upstream error, and a
+            # non-encodable character here would raise inside the except block.
             print(
-                "[screenshot_preview] Chromium unavailable — tool disabled. "
-                f"Install it with `playwright install chromium`. Cause: {exc}"
+                "[screenshot_preview] Chromium unavailable - tool disabled. "
+                "Install it with `playwright install chromium`. "
+                f"Cause: {type(exc).__name__}"
             )
             return False
 

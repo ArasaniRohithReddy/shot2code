@@ -32,6 +32,7 @@ dev = [
     "pytest>=7.4.3,<8.0.0",
     "pyright>=1.1.352,<2.0.0",
     "pytest-asyncio>=0.21,<0.22",
+    "pyinstaller>=6.11.0,<7.0.0",
 ]
 
 [tool.uv]

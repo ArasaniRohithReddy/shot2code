@@ -8,8 +8,23 @@ const SAME_ORIGIN_HTTP =
     : "http://127.0.0.1:5173";
 const SAME_ORIGIN_WS = SAME_ORIGIN_HTTP.replace(/^http/, "ws");
 
+// In the desktop app the backend runs on a port chosen at startup, so Electron
+// injects the resolved URLs via preload. Vite bakes env vars at build time and
+// cannot know that port, so this takes priority over both.
+interface InjectedBackend {
+  http?: string;
+  ws?: string;
+}
+const injectedBackend: InjectedBackend =
+  (typeof window !== "undefined" &&
+    (window as unknown as { __SHOT2CODE_BACKEND__?: InjectedBackend })
+      .__SHOT2CODE_BACKEND__) ||
+  {};
+
 export const WS_BACKEND_URL =
-  import.meta.env.VITE_WS_BACKEND_URL || SAME_ORIGIN_WS;
+  injectedBackend.ws || import.meta.env.VITE_WS_BACKEND_URL || SAME_ORIGIN_WS;
 
 export const HTTP_BACKEND_URL =
-  import.meta.env.VITE_HTTP_BACKEND_URL || SAME_ORIGIN_HTTP;
+  injectedBackend.http ||
+  import.meta.env.VITE_HTTP_BACKEND_URL ||
+  SAME_ORIGIN_HTTP;

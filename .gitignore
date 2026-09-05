@@ -24,3 +24,8 @@ frontend/.env.local
 
 # Walkthrough demo videos
 walkthrough/
+
+# Desktop build artifacts
+backend/dist-pyinstaller/
+backend/build-pyinstaller/
+frontend/dist/
