@@ -31,6 +31,8 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# ...but ours is hand-written and must be tracked so CI can build the desktop app.
+!shot2code-backend.spec
 
 # Installer logs
 pip-log.txt
