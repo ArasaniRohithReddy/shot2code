@@ -83,9 +83,13 @@ jobs:
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
         run: |
           npm install
-          npx electron-builder --win nsis msi zip --publish always
+          # Only a tag cuts a real release; a manual run is a build check that
+          # leaves any existing release untouched.
+          $publish = if ("${{ github.ref_type }}" -eq "tag") { "always" } else { "never" }
+          npx electron-builder --win nsis msi zip --publish $publish
 
       - name: Upload build artifacts
         if: always()
