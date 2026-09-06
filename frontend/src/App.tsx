@@ -93,6 +93,7 @@ function App() {
       geminiApiKey: null,
       screenshotOneApiKey: null,
       copilotGithubToken: null,
+      copilotModels: [],
       isImageGenerationEnabled: true,
       editorTheme: EditorTheme.COBALT,
       generatedCodeConfig: Stack.HTML_TAILWIND,

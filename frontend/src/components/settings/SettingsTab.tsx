@@ -26,6 +26,9 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   >(null);
   const [copilotAvailable, setCopilotAvailable] = useState<boolean | null>(null);
   const [copilotLogin, setCopilotLogin] = useState<string | null>(null);
+  const [copilotModels, setCopilotModels] = useState<
+    { id: string; vision: boolean }[]
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +41,9 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
         if (!cancelled && data && typeof data.copilot === "boolean") {
           setCopilotAvailable(data.copilot);
           setCopilotLogin(data.copilot_login ?? null);
+          setCopilotModels(
+            Array.isArray(data.copilot_models) ? data.copilot_models : []
+          );
         }
       })
       .catch(() => {
@@ -178,12 +184,76 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
 
               <div>
                 <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                  Models
+                </p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+                  {copilotModels.length > 0
+                    ? "Pick which models to generate with. Each generation produces one variant per selected model. Leave all unchecked to let shot2code choose."
+                    : "Sign in to see the models your Copilot plan offers."}
+                </p>
+
+                {copilotModels.length > 0 && (
+                  <div className="mt-3 max-h-64 space-y-1 overflow-y-auto rounded-md border border-gray-200 p-2 dark:border-zinc-700">
+                    {copilotModels
+                      .filter((m) => m.vision)
+                      .map((m) => {
+                        const value = `copilot/${m.id}`;
+                        const checked = settings.copilotModels.includes(value);
+                        return (
+                          <label
+                            key={m.id}
+                            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50 dark:hover:bg-zinc-800"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) =>
+                                setSettings((s) => ({
+                                  ...s,
+                                  copilotModels: e.target.checked
+                                    ? [...s.copilotModels, value]
+                                    : s.copilotModels.filter((v) => v !== value),
+                                }))
+                              }
+                            />
+                            <span className="notranslate" translate="no">
+                              {m.id}
+                            </span>
+                          </label>
+                        );
+                      })}
+                  </div>
+                )}
+
+                {copilotModels.some((m) => !m.vision) && (
+                  <p className="mt-2 text-xs text-gray-400 dark:text-zinc-500">
+                    {copilotModels.filter((m) => !m.vision).length} model(s)
+                    hidden because they can't read images, which shot2code
+                    requires.
+                  </p>
+                )}
+
+                {settings.copilotModels.length > 0 && (
+                  <button
+                    type="button"
+                    className="mt-2 text-xs text-violet-600 hover:underline dark:text-violet-400"
+                    onClick={() =>
+                      setSettings((s) => ({ ...s, copilotModels: [] }))
+                    }
+                  >
+                    Clear selection ({settings.copilotModels.length} selected)
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
                   GitHub token (optional)
                 </p>
                 <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
                   Only needed if you aren't already signed in. Use a
                   fine-grained token with the "Copilot Requests" permission.
-                  Only stored in your browser.
+                  Stored on this device only.
                 </p>
                 <Input
                   id="copilot-github-token"
@@ -215,7 +285,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   OpenAI API key
                 </p>
                 <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                  Only stored in your browser. Never stored on servers. Overrides
+                  Stored on this device only. Overrides
                   your .env config.
                 </p>
                 <Input
@@ -261,7 +331,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   Anthropic API key
                 </p>
                 <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                  Only stored in your browser. Never stored on servers. Overrides
+                  Stored on this device only. Overrides
                   your .env config.
                 </p>
                 <Input
@@ -283,7 +353,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   Gemini API key
                 </p>
                 <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                  Only stored in your browser. Never stored on servers. Overrides
+                  Stored on this device only. Overrides
                   your .env config.
                 </p>
                 <Input
@@ -306,7 +376,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                     Replicate API key
                   </p>
                   <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                    Only stored in your browser. Never stored on servers. Overrides
+                    Stored on this device only. Overrides
                     your .env config for image generation and editing.
                   </p>
                   <Input

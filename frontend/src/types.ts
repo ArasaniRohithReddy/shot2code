@@ -25,6 +25,7 @@ export interface Settings {
   anthropicApiKey: string | null;
   geminiApiKey: string | null;
   copilotGithubToken: string | null;
+  copilotModels: string[];
 }
 
 export interface DesignSystem {

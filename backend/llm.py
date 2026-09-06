@@ -55,20 +55,32 @@ class Llm(Enum):
     GEMINI_3_6_FLASH_LOW = "gemini-3.6-flash (low thinking)"
     GEMINI_3_6_FLASH_MINIMAL = "gemini-3.6-flash (minimal thinking)"
     # GitHub Copilot - routed through the Copilot SDK using the user's own
-    # Copilot subscription (or BYOK). Prefixed to keep them distinct from the
-    # same underlying models reached via a direct provider API key.
-    COPILOT_CLAUDE_OPUS_5_HIGH = "copilot/claude-opus-5 (high effort)"
-    COPILOT_CLAUDE_OPUS_5_MEDIUM = "copilot/claude-opus-5 (medium effort)"
+    # Copilot subscription (or BYOK). All are vision-capable, which
+    # screenshot-to-code requires.
     COPILOT_CLAUDE_SONNET_5 = "copilot/claude-sonnet-5"
+    COPILOT_CLAUDE_OPUS_5 = "copilot/claude-opus-5"
+    COPILOT_CLAUDE_OPUS_4_8 = "copilot/claude-opus-4.8"
+    COPILOT_CLAUDE_OPUS_4_7 = "copilot/claude-opus-4.7"
+    COPILOT_CLAUDE_OPUS_4_6 = "copilot/claude-opus-4.6"
     COPILOT_CLAUDE_SONNET_4_6 = "copilot/claude-sonnet-4.6"
     COPILOT_CLAUDE_HAIKU_4_5 = "copilot/claude-haiku-4.5"
-    COPILOT_GPT_6_ASTRA_HIGH = "copilot/gpt-6-astra (high thinking)"
-    COPILOT_GPT_5_6_SOL_HIGH = "copilot/gpt-5.6-sol (high thinking)"
-    COPILOT_GPT_5_6_SOL_MEDIUM = "copilot/gpt-5.6-sol (medium thinking)"
-    COPILOT_GPT_5_5_HIGH = "copilot/gpt-5.5 (high thinking)"
-    COPILOT_GEMINI_3_8_FLASH_HIGH = "copilot/gemini-3.8-flash (high thinking)"
-    COPILOT_GEMINI_3_6_FLASH_HIGH = "copilot/gemini-3.6-flash (high thinking)"
-    COPILOT_GROK_4_6_HIGH = "copilot/grok-4.6 (high thinking)"
+    COPILOT_GPT_6_ASTRA = "copilot/gpt-6-astra"
+    COPILOT_GPT_5_6_SOL = "copilot/gpt-5.6-sol"
+    COPILOT_GPT_5_6_SOL_FAST = "copilot/gpt-5.6-sol-fast"
+    COPILOT_GPT_5_6_TERRA = "copilot/gpt-5.6-terra"
+    COPILOT_GPT_5_6_LUNA = "copilot/gpt-5.6-luna"
+    COPILOT_GPT_5_5 = "copilot/gpt-5.5"
+    COPILOT_GPT_5_4 = "copilot/gpt-5.4"
+    COPILOT_GPT_5_4_MINI = "copilot/gpt-5.4-mini"
+    COPILOT_GPT_5_3_CODEX = "copilot/gpt-5.3-codex"
+    COPILOT_GPT_5_MINI = "copilot/gpt-5-mini"
+    COPILOT_GEMINI_3_8_FLASH = "copilot/gemini-3.8-flash"
+    COPILOT_GEMINI_3_7_FLASH = "copilot/gemini-3.7-flash"
+    COPILOT_GEMINI_3_6_FLASH = "copilot/gemini-3.6-flash"
+    COPILOT_GEMINI_3_5_FLASH = "copilot/gemini-3.5-flash"
+    COPILOT_GROK_4_6 = "copilot/grok-4.6"
+    COPILOT_GROK_4_5 = "copilot/grok-4.5"
+    COPILOT_MAI_CODE_1_1_FLASH = "copilot/mai-code-1.1-flash"
 
 
 class Completion(TypedDict):
@@ -131,18 +143,30 @@ MODEL_PROVIDER: dict[Llm, str] = {
     Llm.GEMINI_3_6_FLASH_LOW: "gemini",
     Llm.GEMINI_3_6_FLASH_MINIMAL: "gemini",
     # GitHub Copilot models
-    Llm.COPILOT_CLAUDE_OPUS_5_HIGH: "copilot",
-    Llm.COPILOT_CLAUDE_OPUS_5_MEDIUM: "copilot",
     Llm.COPILOT_CLAUDE_SONNET_5: "copilot",
+    Llm.COPILOT_CLAUDE_OPUS_5: "copilot",
+    Llm.COPILOT_CLAUDE_OPUS_4_8: "copilot",
+    Llm.COPILOT_CLAUDE_OPUS_4_7: "copilot",
+    Llm.COPILOT_CLAUDE_OPUS_4_6: "copilot",
     Llm.COPILOT_CLAUDE_SONNET_4_6: "copilot",
     Llm.COPILOT_CLAUDE_HAIKU_4_5: "copilot",
-    Llm.COPILOT_GPT_6_ASTRA_HIGH: "copilot",
-    Llm.COPILOT_GPT_5_6_SOL_HIGH: "copilot",
-    Llm.COPILOT_GPT_5_6_SOL_MEDIUM: "copilot",
-    Llm.COPILOT_GPT_5_5_HIGH: "copilot",
-    Llm.COPILOT_GEMINI_3_8_FLASH_HIGH: "copilot",
-    Llm.COPILOT_GEMINI_3_6_FLASH_HIGH: "copilot",
-    Llm.COPILOT_GROK_4_6_HIGH: "copilot",
+    Llm.COPILOT_GPT_6_ASTRA: "copilot",
+    Llm.COPILOT_GPT_5_6_SOL: "copilot",
+    Llm.COPILOT_GPT_5_6_SOL_FAST: "copilot",
+    Llm.COPILOT_GPT_5_6_TERRA: "copilot",
+    Llm.COPILOT_GPT_5_6_LUNA: "copilot",
+    Llm.COPILOT_GPT_5_5: "copilot",
+    Llm.COPILOT_GPT_5_4: "copilot",
+    Llm.COPILOT_GPT_5_4_MINI: "copilot",
+    Llm.COPILOT_GPT_5_3_CODEX: "copilot",
+    Llm.COPILOT_GPT_5_MINI: "copilot",
+    Llm.COPILOT_GEMINI_3_8_FLASH: "copilot",
+    Llm.COPILOT_GEMINI_3_7_FLASH: "copilot",
+    Llm.COPILOT_GEMINI_3_6_FLASH: "copilot",
+    Llm.COPILOT_GEMINI_3_5_FLASH: "copilot",
+    Llm.COPILOT_GROK_4_6: "copilot",
+    Llm.COPILOT_GROK_4_5: "copilot",
+    Llm.COPILOT_MAI_CODE_1_1_FLASH: "copilot",
 }
 
 # Convenience sets for membership checks
@@ -155,39 +179,30 @@ COPILOT_MODELS = {m for m, p in MODEL_PROVIDER.items() if p == "copilot"}
 # effort to request. All of these are vision-capable, which screenshot-to-code
 # requires.
 COPILOT_MODEL_CONFIG: dict[Llm, dict[str, str]] = {
-    Llm.COPILOT_CLAUDE_OPUS_5_HIGH: {
-        "api_name": "claude-opus-5",
-        "reasoning_effort": "high",
-    },
-    Llm.COPILOT_CLAUDE_OPUS_5_MEDIUM: {
-        "api_name": "claude-opus-5",
-        "reasoning_effort": "medium",
-    },
     Llm.COPILOT_CLAUDE_SONNET_5: {"api_name": "claude-sonnet-5"},
+    Llm.COPILOT_CLAUDE_OPUS_5: {"api_name": "claude-opus-5"},
+    Llm.COPILOT_CLAUDE_OPUS_4_8: {"api_name": "claude-opus-4.8"},
+    Llm.COPILOT_CLAUDE_OPUS_4_7: {"api_name": "claude-opus-4.7"},
+    Llm.COPILOT_CLAUDE_OPUS_4_6: {"api_name": "claude-opus-4.6"},
     Llm.COPILOT_CLAUDE_SONNET_4_6: {"api_name": "claude-sonnet-4.6"},
     Llm.COPILOT_CLAUDE_HAIKU_4_5: {"api_name": "claude-haiku-4.5"},
-    Llm.COPILOT_GPT_6_ASTRA_HIGH: {
-        "api_name": "gpt-6-astra",
-        "reasoning_effort": "high",
-    },
-    Llm.COPILOT_GPT_5_6_SOL_HIGH: {
-        "api_name": "gpt-5.6-sol",
-        "reasoning_effort": "high",
-    },
-    Llm.COPILOT_GPT_5_6_SOL_MEDIUM: {
-        "api_name": "gpt-5.6-sol",
-        "reasoning_effort": "medium",
-    },
-    Llm.COPILOT_GPT_5_5_HIGH: {"api_name": "gpt-5.5", "reasoning_effort": "high"},
-    Llm.COPILOT_GEMINI_3_8_FLASH_HIGH: {
-        "api_name": "gemini-3.8-flash",
-        "reasoning_effort": "high",
-    },
-    Llm.COPILOT_GEMINI_3_6_FLASH_HIGH: {
-        "api_name": "gemini-3.6-flash",
-        "reasoning_effort": "high",
-    },
-    Llm.COPILOT_GROK_4_6_HIGH: {"api_name": "grok-4.6", "reasoning_effort": "high"},
+    Llm.COPILOT_GPT_6_ASTRA: {"api_name": "gpt-6-astra"},
+    Llm.COPILOT_GPT_5_6_SOL: {"api_name": "gpt-5.6-sol"},
+    Llm.COPILOT_GPT_5_6_SOL_FAST: {"api_name": "gpt-5.6-sol-fast"},
+    Llm.COPILOT_GPT_5_6_TERRA: {"api_name": "gpt-5.6-terra"},
+    Llm.COPILOT_GPT_5_6_LUNA: {"api_name": "gpt-5.6-luna"},
+    Llm.COPILOT_GPT_5_5: {"api_name": "gpt-5.5"},
+    Llm.COPILOT_GPT_5_4: {"api_name": "gpt-5.4"},
+    Llm.COPILOT_GPT_5_4_MINI: {"api_name": "gpt-5.4-mini"},
+    Llm.COPILOT_GPT_5_3_CODEX: {"api_name": "gpt-5.3-codex"},
+    Llm.COPILOT_GPT_5_MINI: {"api_name": "gpt-5-mini"},
+    Llm.COPILOT_GEMINI_3_8_FLASH: {"api_name": "gemini-3.8-flash"},
+    Llm.COPILOT_GEMINI_3_7_FLASH: {"api_name": "gemini-3.7-flash"},
+    Llm.COPILOT_GEMINI_3_6_FLASH: {"api_name": "gemini-3.6-flash"},
+    Llm.COPILOT_GEMINI_3_5_FLASH: {"api_name": "gemini-3.5-flash"},
+    Llm.COPILOT_GROK_4_6: {"api_name": "grok-4.6"},
+    Llm.COPILOT_GROK_4_5: {"api_name": "grok-4.5"},
+    Llm.COPILOT_MAI_CODE_1_1_FLASH: {"api_name": "mai-code-1.1-flash"},
 }
 
 

@@ -17,12 +17,13 @@ from config import COPILOT_GITHUB_TOKEN
 
 _cached_available: Optional[bool] = None
 _cached_login: Optional[str] = None
+_cached_models: list[dict[str, object]] = []
 _probe_lock = asyncio.Lock()
 
 
 async def probe_copilot_auth(force: bool = False) -> bool:
     """Return whether usable Copilot credentials exist, caching the result."""
-    global _cached_available, _cached_login
+    global _cached_available, _cached_login, _cached_models
 
     if _cached_available is not None and not force:
         return _cached_available
@@ -41,6 +42,8 @@ async def probe_copilot_auth(force: bool = False) -> bool:
             status = await client.get_auth_status()
             _cached_available = bool(getattr(status, "isAuthenticated", False))
             _cached_login = getattr(status, "login", None)
+            if _cached_available:
+                _cached_models = await _collect_models(client)
         except Exception as exc:
             print(f"[copilot] auth probe failed: {exc}")
             _cached_available = False
@@ -52,6 +55,33 @@ async def probe_copilot_auth(force: bool = False) -> bool:
                 pass
 
     return _cached_available
+
+
+async def _collect_models(client: "copilot.CopilotClient") -> list[dict[str, object]]:
+    """Model ids the signed-in account can use, with vision support flagged."""
+    models: list[dict[str, object]] = []
+    try:
+        for model in await client.list_models():
+            model_id = getattr(model, "id", None) or getattr(model, "name", None)
+            if not model_id:
+                continue
+            supports = getattr(getattr(model, "capabilities", None), "supports", None)
+            models.append(
+                {
+                    "id": model_id,
+                    # screenshot-to-code is useless without image input, so the
+                    # UI needs to distinguish these.
+                    "vision": bool(getattr(supports, "vision", False)),
+                }
+            )
+    except Exception as exc:
+        print(f"[copilot] listing models failed: {exc}")
+    return models
+
+
+def copilot_models() -> list[dict[str, object]]:
+    """Models captured by the last successful probe."""
+    return list(_cached_models)
 
 
 def is_copilot_available() -> bool:

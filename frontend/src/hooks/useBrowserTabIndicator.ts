@@ -2,11 +2,11 @@ import { useEffect } from "react";
 
 const CODING_SETTINGS = {
   title: "Coding...",
-  favicon: "/favicon/coding.png",
+  favicon: "./favicon/coding.png",
 };
 const DEFAULT_SETTINGS = {
-  title: "Screenshot to Code",
-  favicon: "/favicon/main.png",
+  title: "shot2code",
+  favicon: "./favicon/main.png",
 };
 
 const DEV_FAVICON_COLORS = {

@@ -79,8 +79,8 @@ OPENAI_ONLY_MODELS = (
 # subscription - so this is the zero-configuration fallback when no provider
 # keys are set. All four are vision-capable.
 COPILOT_ONLY_MODELS = (
-    Llm.COPILOT_CLAUDE_OPUS_5_MEDIUM,
-    Llm.COPILOT_GPT_5_6_SOL_HIGH,
-    Llm.COPILOT_GEMINI_3_6_FLASH_HIGH,
+    Llm.COPILOT_CLAUDE_OPUS_5,
+    Llm.COPILOT_GPT_5_6_SOL,
+    Llm.COPILOT_GEMINI_3_6_FLASH,
     Llm.COPILOT_CLAUDE_SONNET_4_6,
 )

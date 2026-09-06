@@ -28,7 +28,13 @@ function prepareHtmlForNewTab(code: string) {
   const html = normalizeBabelCdn(code);
   if (/<base\s/i.test(html)) return html;
 
-  const baseTag = `<base href="${window.location.origin}/">`;
+  // Over file:// (the desktop build) location.origin is the string "null",
+  // which would produce <base href="null/"> and break every relative URL in
+  // the popped-out page. Only add a base tag when there's a real origin.
+  const origin = window.location.origin;
+  if (!origin || origin === "null") return html;
+
+  const baseTag = `<base href="${origin}/">`;
   return html.replace(/<head(\s[^>]*)?>/i, (match) => `${match}${baseTag}`);
 }
 

@@ -215,10 +215,15 @@ function createWindow() {
     if (level >= 2) log(`renderer console [${level}] ${message} (${sourceId}:${line})`);
   });
 
-  // Keep external links in the user's browser, not in the app shell.
+  // Keep real external links in the user's browser, but let the app open its
+  // own preview windows (blob:/data:/about:) internally - shell.openExternal
+  // cannot handle those schemes and would silently do nothing.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: "deny" };
+    if (/^https?:/i.test(url)) {
+      shell.openExternal(url);
+      return { action: "deny" };
+    }
+    return { action: "allow" };
   });
 
   const indexFile = path.join(__dirname, "renderer", "index.html");

@@ -23,6 +23,7 @@ from config import (
 )
 from custom_types import InputMode
 from llm import (
+    COPILOT_MODELS,
     Llm,
 )
 from typing import (
@@ -272,6 +273,7 @@ class ExtractedParams:
     asset_base_url: str = ""
     design_system: str | None = None
     copilot_github_token: str | None = None
+    copilot_models: List[Llm] | None = None
 
 
 class ParameterExtractionStage:
@@ -323,6 +325,20 @@ class ParameterExtractionStage:
         copilot_github_token = self._get_from_settings_dialog_or_env(
             params, "copilotGithubToken", COPILOT_GITHUB_TOKEN
         )
+
+        # Models the user explicitly picked in Settings. Unknown ids are
+        # dropped rather than failing the run, so a stale saved selection
+        # can't wedge generation.
+        raw_copilot_models = params.get("copilotModels")
+        copilot_models: List[Llm] | None = None
+        if isinstance(raw_copilot_models, list) and raw_copilot_models:
+            by_value = {m.value: m for m in COPILOT_MODELS}
+            picked = [
+                by_value[value]
+                for value in raw_copilot_models
+                if isinstance(value, str) and value in by_value
+            ]
+            copilot_models = picked or None
 
         # Base URL for OpenAI API
         openai_base_url: str | None = None
@@ -394,6 +410,7 @@ class ParameterExtractionStage:
             replicate_api_key=replicate_api_key,
             openai_base_url=openai_base_url,
             copilot_github_token=copilot_github_token,
+            copilot_models=copilot_models,
             generation_type=generation_type,
             prompt=prompt,
             history=history,
@@ -433,19 +450,29 @@ class ModelSelectionStage:
         anthropic_api_key: str | None,
         gemini_api_key: str | None = None,
         copilot_available: bool = False,
+        copilot_models: List[Llm] | None = None,
     ) -> List[Llm]:
         """Select appropriate models based on available API keys"""
         try:
             num_variants = 2 if generation_type == "update" else NUM_VARIANTS
-            variant_models = self._get_variant_models(
-                generation_type,
-                input_mode,
-                num_variants,
-                openai_api_key,
-                anthropic_api_key,
-                gemini_api_key,
-                copilot_available,
-            )
+
+            # An explicit Copilot choice in Settings wins over auto-selection,
+            # except for video which only Gemini can do.
+            if copilot_models and input_mode != "video":
+                variant_models = [
+                    copilot_models[i % len(copilot_models)]
+                    for i in range(num_variants)
+                ]
+            else:
+                variant_models = self._get_variant_models(
+                    generation_type,
+                    input_mode,
+                    num_variants,
+                    openai_api_key,
+                    anthropic_api_key,
+                    gemini_api_key,
+                    copilot_available,
+                )
 
             # Print the variant models (one per line)
             print("Variant models:")
@@ -826,6 +853,7 @@ class CodeGenerationMiddleware(Middleware):
                     context.extracted_params.copilot_github_token
                 )
                 or await probe_copilot_auth(),
+                copilot_models=context.extracted_params.copilot_models,
             )
             if IS_DEBUG_ENABLED:
                 await context.send_message(
