@@ -1,21 +1,43 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Something isn't working
 title: ''
-labels: ''
+labels: bug
 assignees: ''
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+**What happened**
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+**What you expected instead**
 
-**Screenshots of backend AND frontend terminal logs**
-If applicable, add screenshots to help explain your problem.
+**Steps to reproduce**
+1.
+2.
+
+**How are you running shot2code?**
+- [ ] Desktop app (installer)
+- [ ] Desktop app (portable zip)
+- [ ] From source (`pnpm dev` + `uv run uvicorn`)
+
+Version (Settings, or the installer filename):
+
+**Which model provider?**
+- [ ] GitHub Copilot
+- [ ] OpenAI
+- [ ] Anthropic
+- [ ] Gemini
+
+**Logs**
+
+For the desktop app, attach the tail of:
+
+```
+%APPDATA%\shot2code-desktop\shot2code-backend.log
+```
+
+It records backend startup, renderer load failures, crashes and console errors,
+and is usually enough to identify the cause. Redact any API keys before posting.
+
+**Screenshots**
+If the problem is visual, a screenshot helps a lot.

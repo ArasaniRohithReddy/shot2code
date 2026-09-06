@@ -1,4 +1,12 @@
-const { app, BrowserWindow, shell, dialog, ipcMain } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  shell,
+  dialog,
+  ipcMain,
+  session,
+  desktopCapturer,
+} = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
@@ -180,6 +188,95 @@ function closeSplash() {
   splashWindow = null;
 }
 
+/**
+ * Screen recording. navigator.mediaDevices.getDisplayMedia() is rejected in
+ * Electron unless the main process answers the request, which is why "Record
+ * Screen" reported "Could not start screen recording". Prefer the OS picker so
+ * the user chooses what to share, and fall back to the primary screen.
+ */
+function enableScreenCapture() {
+  const handler = async (_request, callback) => {
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ["screen", "window"],
+      });
+      if (!sources.length) {
+        log("screen capture: no sources available");
+        return callback({});
+      }
+      const screenSource =
+        sources.find((s) => s.id.startsWith("screen:")) || sources[0];
+      log(`screen capture: sharing ${screenSource.name}`);
+      callback({ video: screenSource });
+    } catch (err) {
+      log(`screen capture failed: ${err.message}`);
+      callback({});
+    }
+  };
+
+  try {
+    // Windows 10+ can show its own picker; the handler above is the fallback
+    // when that isn't available.
+    session.defaultSession.setDisplayMediaRequestHandler(handler, {
+      useSystemPicker: true,
+    });
+  } catch {
+    session.defaultSession.setDisplayMediaRequestHandler(handler);
+  }
+}
+
+/**
+ * Auto-update.
+ *
+ * Note: release assets on a *private* repository require an authorization
+ * token, which a shipped desktop app cannot hold safely. Until the repo is
+ * public (or a self-hosted feed exists) the check will fail with 404; that is
+ * logged and otherwise ignored so it can never block startup.
+ */
+function initAutoUpdate() {
+  if (isDev) {
+    log("auto-update: skipped in dev");
+    return;
+  }
+
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require("electron-updater"));
+  } catch (err) {
+    log(`auto-update: electron-updater unavailable (${err.message})`);
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.logger = { info: log, warn: log, error: log, debug: () => {} };
+
+  autoUpdater.on("update-available", (info) =>
+    log(`auto-update: ${info.version} available, downloading`)
+  );
+  autoUpdater.on("update-not-available", () => log("auto-update: up to date"));
+  autoUpdater.on("error", (err) =>
+    log(`auto-update: check failed (${err && err.message})`)
+  );
+  autoUpdater.on("update-downloaded", async (info) => {
+    log(`auto-update: ${info.version} downloaded`);
+    const { response } = await dialog.showMessageBox({
+      type: "info",
+      buttons: ["Restart now", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Update ready",
+      message: `shot2code ${info.version} has been downloaded.`,
+      detail: "Restart to finish installing, or it will apply next time you quit.",
+    });
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+
+  autoUpdater.checkForUpdates().catch((err) => {
+    log(`auto-update: ${err.message}`);
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -270,6 +367,8 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle("shot2code:open-logs", () => shell.openPath(logFile()));
 
     createSplash();
+    enableScreenCapture();
+    initAutoUpdate();
 
     try {
       const port = await findFreePort();

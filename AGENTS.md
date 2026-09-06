@@ -49,6 +49,52 @@ engine, which resolves it via `append_tool_results`. Notes:
   *request* count, not dollars; reporting it as USD trips
   `GENERATION_MAX_COST_USD` and aborts normal runs.
 
+## Desktop app
+
+`desktop/` is an Electron shell that starts the frozen backend on a free port,
+waits for `/api/health`, then loads the built frontend from disk.
+
+The UI is served over `file://` in the packaged app but over `http://` in dev,
+and that difference has caused every desktop-only bug so far. When touching
+anything in this list, verify it in the packaged app, not just `pnpm dev`:
+
+- **Routing.** `location.pathname` is the file's path on disk, so
+  `BrowserRouter` matches nothing and the window renders blank. `main.tsx`
+  picks `HashRouter` when `protocol === "file:"`.
+- **Asset paths.** Absolute paths like `/favicon/main.png` resolve to the drive
+  root. Use relative paths.
+- **`location.origin`** is the string `"null"`. Anything interpolating it into
+  markup (a `<base>` tag, a fetch URL) silently breaks.
+- **`window.open`.** The shell only sends `http(s)` to the OS browser; other
+  schemes (`blob:`, `data:`) must open in-app, because `shell.openExternal`
+  cannot handle them.
+- **`getDisplayMedia`** is rejected unless the main process registers a
+  display-media handler.
+- **Env vars** are baked in by Vite at build time, so the backend port cannot
+  come from `import.meta.env`. It is injected through preload and read in
+  `config.ts`.
+
+A blank or missing window is diagnosed from the log, not the console:
+
+```
+%APPDATA%\shot2code-desktop\shot2code-backend.log
+```
+
+It captures backend startup, `did-fail-load`, renderer crashes and console
+errors.
+
+Packaging notes:
+
+- The backend is frozen with PyInstaller (`backend/shot2code-backend.spec`).
+  The stock Python `.gitignore` excludes `*.spec`; ours is hand-written and must
+  stay tracked.
+- Only `chromium-headless-shell` is bundled. Full Chromium adds ~427MB and the
+  app always launches headless.
+- Never round-trip `desktop/package.json` through `ConvertFrom-Json`/
+  `ConvertTo-Json` - it drops fields. Edit it as text.
+- Auto-update is wired but inert while the repo is private: release assets need
+  an authorization token that a shipped app cannot hold safely.
+
 ## Environment caveats
 
 Services (see `README.md` for the canonical commands):

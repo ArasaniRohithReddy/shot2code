@@ -1,8 +1,8 @@
 {
   "name": "shot2code-desktop",
   "private": true,
-  "version": "0.1.3",
-  "description": "Convert screenshots and mockups into clean code using AI",
+  "version": "0.1.4",
+  "description": "Turn screenshots, mockups and screen recordings into clean code using AI",
   "author": "Arasani Rohith Reddy",
   "license": "MIT",
   "main": "main.js",
@@ -15,5 +15,8 @@
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   }
 }

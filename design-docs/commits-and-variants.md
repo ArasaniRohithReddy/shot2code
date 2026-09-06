@@ -1,6 +1,6 @@
 # Commits and Non-Blocking Variants
 
-This document explains how the commit system and non-blocking variant generation work in screenshot-to-code.
+This document explains how the commit system and non-blocking variant generation work in shot2code.
 
 ## Commit System
 

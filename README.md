@@ -1,8 +1,37 @@
 # shot2code
 
-Convert screenshots, mockups, Figma designs, and screen recordings into clean, functional code using AI.
+Turn screenshots, mockups, designs and screen recordings into clean, working
+code — using AI, on your own machine.
 
-Supported stacks:
+shot2code is a **desktop app for Windows**. Everything runs locally: your
+screenshots, your code and your API keys never leave your computer.
+
+## Install
+
+Download the latest build from
+[Releases](https://github.com/ArasaniRohithReddy/shot2code/releases/latest):
+
+| File | Use |
+|---|---|
+| `shot2code-<version>-x64.exe` | **Recommended.** Installer with shortcuts |
+| `shot2code-<version>-x64.msi` | For managed/enterprise deployment |
+| `shot2code-<version>-x64.zip` | Portable — unzip and run `shot2code.exe` |
+
+> **Windows will warn you.** The builds aren't code-signed, so you'll see
+> *"Windows protected your PC"*. Click **More info → Run anyway**, or right-click
+> the file → **Properties** → **Unblock** → **Apply**. See
+> [Troubleshooting](Troubleshooting.md).
+
+First launch takes about a minute while the bundled backend starts. Later
+launches are quicker.
+
+## Using it
+
+Give shot2code a screenshot, a URL, a text description, or a screen recording,
+and it generates a working page. It produces several variants in parallel so you
+can pick the best one, then refine it by describing what to change.
+
+Supported output stacks:
 
 - HTML + Tailwind
 - HTML + CSS
@@ -11,78 +40,63 @@ Supported stacks:
 - Bootstrap
 - Ionic + Tailwind
 
-## 🛠 Getting Started
+Other things it can do:
 
-shot2code has a React/Vite frontend and a FastAPI backend. Everything runs on
-your machine — your screenshots and API keys never leave it.
+- **Select an element and edit it** by describing the change
+- **Version history** — every generation is a commit you can step back through
+- **Screenshot preview** — the agent renders its own output in a headless
+  browser and visually checks its work
+- **Asset extraction** — reuses the real logos and images from your screenshot
+  (needs a Gemini key)
+- **Image generation and editing** (needs a Replicate key)
 
-### Prerequisites
+## Choosing a model
 
-- [uv](https://docs.astral.sh/uv/) for the Python backend
-- [pnpm](https://pnpm.io/) and Node 18+ for the frontend
+You need **one** provider. GitHub Copilot is easiest because it needs no API key.
 
-### Choosing a model provider
+| Provider | Setup | Notes |
+|---|---|---|
+| **GitHub Copilot** ⭐ | `gh auth login` (or `copilot`) — needs an active Copilot subscription | Claude, GPT, Gemini and Grok through one sign-in |
+| Gemini | API key | Also powers asset extraction and **video input** |
+| Anthropic | API key | |
+| OpenAI | API key | |
+| Replicate | API key | Image generation, editing, background removal |
 
-You need **one** of the following. GitHub Copilot is the easiest because it
-needs no API key at all.
+Keys go in **Settings** (gear icon) and are stored on your device only.
+Replicate is the exception — it must be set in `backend/.env`.
 
-| Provider | Setup | What it unlocks |
-|-----|-----------|-----------------|
-| **GitHub Copilot** ⭐ | Just `gh auth login` (or `copilot`) — needs an active Copilot subscription | Claude, GPT, Gemini and Grok models through one sign-in, no API key |
-| `GEMINI_API_KEY` | API key | Gemini variants; extracts real assets from the screenshot; **required for video mode** |
-| `ANTHROPIC_API_KEY` | API key | Claude variants |
-| `OPENAI_API_KEY` | API key | GPT variants |
-| `REPLICATE_API_KEY` | API key | Image editing, background removal, image generation |
+### GitHub Copilot
 
-With more providers configured, shot2code automatically picks a stronger mix of
-models per variant.
-
-#### Using GitHub Copilot
-
-shot2code talks to Copilot through the official
-[GitHub Copilot SDK](https://github.com/github/copilot-sdk), which discovers
+shot2code uses the official
+[GitHub Copilot SDK](https://github.com/github/copilot-sdk), which finds
 credentials in this order:
 
-1. A token you paste into the Settings dialog
+1. A token in Settings
 2. `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`
 3. A stored `copilot` CLI login
 4. A stored `gh auth login`
 
-So if you already use the GitHub CLI, it works with no configuration. Settings
-shows which account is signed in. To use a token instead, create a fine-grained
-PAT with the **Copilot Requests** permission.
+So if you already use the GitHub CLI, it just works — Settings shows which
+account was picked up. Otherwise create a fine-grained token with the
+**Copilot Requests** permission.
 
-Copilot models appear in the model picker prefixed with `Copilot:`.
+Settings lists the models your plan actually offers. Tick the ones you want and
+each generation produces one variant per selected model; leave them unchecked to
+let shot2code choose. Models that can't read images are hidden, since turning a
+screenshot into code requires image input.
 
-### Run the backend
+## Running from source
+
+Requires [uv](https://docs.astral.sh/uv/), [pnpm](https://pnpm.io/) and Node 18+.
 
 ```bash
+# Backend
 cd backend
 uv sync
-# Install the Chromium browser used by the screenshot preview tool.
-# On Linux, use `uv run playwright install --with-deps chromium`.
-uv run playwright install chromium
+uv run playwright install chromium      # optional: screenshot preview
 uv run uvicorn main:app --reload --port 7001
-```
 
-API keys are optional in `backend/.env`:
-
-```bash
-echo "GEMINI_API_KEY=your-key" > .env
-echo "REPLICATE_API_KEY=r8_your-key" >> .env
-```
-
-You can also set OpenAI, Anthropic, Gemini and GitHub tokens in the Settings
-dialog (gear icon). Replicate must be configured in `backend/.env`.
-
-> **Screenshot preview** (optional) lets the agent render its own generated page
-> in a headless browser and visually check its work. It's enabled automatically
-> once Chromium is installed. If Chromium is missing, the app just skips the
-> tool — the Settings dialog shows whether it's available.
-
-### Run the frontend
-
-```bash
+# Frontend (in another terminal)
 cd frontend
 pnpm install
 pnpm dev
@@ -90,41 +104,56 @@ pnpm dev
 
 Open http://localhost:5173.
 
-If you run the backend on a different port, update `VITE_WS_BACKEND_URL` in
-`frontend/.env.local`.
+On macOS/Linux, `bash scripts/install.sh` installs everything in one go.
 
-## Docker
+### Docker
 
 ```bash
 echo "GEMINI_API_KEY=your-key" > .env
 docker-compose up -d --build
 ```
 
-The app will be at http://localhost:5173. File changes won't trigger a rebuild
-with this setup.
-
-To build a much smaller backend image without Chromium (the screenshot preview
-tool is then unavailable):
+For a much smaller image without the screenshot-preview tool:
 
 ```bash
 docker build --build-arg INSTALL_CHROMIUM=false -t shot2code-backend ./backend
 ```
 
-## Development
+### Building the desktop app
 
 ```bash
-cd backend && uv run pytest     # backend tests
-cd backend && uv run pyright    # backend type check
-cd frontend && pnpm test        # frontend tests
-cd frontend && pnpm lint        # frontend lint
+cd frontend && pnpm build && cd ..
+cd backend && uv run pyinstaller shot2code-backend.spec --noconfirm --distpath dist-pyinstaller
+PLAYWRIGHT_BROWSERS_PATH=backend/dist-pyinstaller/shot2code-backend/ms-playwright \
+  uv run --project backend playwright install chromium-headless-shell
+
+cp -r frontend/dist desktop/renderer
+cp -r backend/dist-pyinstaller/shot2code-backend desktop/backend-dist
+
+cd desktop && npm install && npx electron-builder --win nsis zip --publish never
 ```
 
-## 🙋‍♂️ FAQs
+Pushing a `v*` tag builds and publishes all three formats to Releases via
+GitHub Actions.
 
-- **How do I get an OpenAI API key?** See [Troubleshooting.md](Troubleshooting.md).
-- **How can I configure an OpenAI proxy?** Set `OPENAI_BASE_URL` in `backend/.env` or in the settings dialog. Make sure the URL has `v1` in the path, e.g. `https://xxx.xxxxx.xxx/v1`.
-- **How can I change the backend host the frontend connects to?** Configure `VITE_HTTP_BACKEND_URL` and `VITE_WS_BACKEND_URL` in `frontend/.env.local`.
-- **Seeing UTF-8 errors when running the backend?** On Windows, open `.env` with Notepad++, then go to Encoding and select UTF-8.
+## Documentation
+
+- [Troubleshooting](Troubleshooting.md) — install warnings, blank windows, sign-in
+- [Testing](TESTING.md) — how to run tests and type checks
+- [Evaluation](Evaluation.md) — comparing models and prompts
+- [design-docs/](design-docs/) — how the agent, variants and history work
+- [AGENTS.md](AGENTS.md) — conventions for working in this repo
+
+## Architecture
+
+A React + Vite frontend and a FastAPI backend. Generation streams over a
+WebSocket; everything else is plain HTTP. In the desktop app, Electron starts
+the backend on a free local port and passes the URL to the UI.
+
+The backend runs an agent loop: the model calls tools (`create_file`,
+`edit_file`, `extract_assets`, `screenshot_preview`, image tools) and shot2code
+executes them and feeds results back. Providers live in
+`backend/agent/providers/`.
 
 ## License
 

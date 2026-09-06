@@ -5,7 +5,7 @@ import { Input } from "../../ui/input";
 import { toast } from "react-hot-toast";
 import { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
 import { Stack } from "../../../lib/stacks";
-import ScreenshotToCodeControls from "../ScreenshotToCodeControls";
+import GenerationControls from "../GenerationControls";
 
 interface Props {
   screenshotOneApiKey: string | null;
@@ -163,7 +163,7 @@ function UrlTab({
         </div>
       </div>
 
-      <ScreenshotToCodeControls
+      <GenerationControls
         textPrompt={textPrompt}
         onTextPromptChange={setTextPrompt}
         textInputRef={textInputRef}

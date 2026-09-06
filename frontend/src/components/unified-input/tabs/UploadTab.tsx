@@ -6,7 +6,7 @@ import { ScreenRecorderState } from "../../../types";
 import ScreenRecorder from "../../recording/ScreenRecorder";
 import { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
 import { Stack } from "../../../lib/stacks";
-import ScreenshotToCodeControls from "../ScreenshotToCodeControls";
+import GenerationControls from "../GenerationControls";
 
 function fileToDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -453,7 +453,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
             )}
           </div>
 
-          <ScreenshotToCodeControls
+          <GenerationControls
             textPrompt={textPrompt}
             onTextPromptChange={setTextPrompt}
             textInputRef={textInputRef}

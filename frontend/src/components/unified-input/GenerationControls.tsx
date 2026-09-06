@@ -58,7 +58,7 @@ function AssetToggle({
   );
 }
 
-export default function ScreenshotToCodeControls({
+export default function GenerationControls({
   textPrompt,
   onTextPromptChange,
   textInputRef,

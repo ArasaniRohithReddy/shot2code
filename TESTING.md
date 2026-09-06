@@ -1,79 +1,85 @@
-# Testing Guide
+# Testing
 
-This guide explains how to run tests for the Screenshot to Code project.
+## Backend
 
-## Backend Tests
-
-The backend uses pytest for testing. All tests are located in the `backend/tests` directory.
-
-### Prerequisites
-
-Make sure you have Poetry installed and have installed all dependencies:
+The backend uses [uv](https://docs.astral.sh/uv/). Install dependencies once:
 
 ```bash
 cd backend
-poetry install
+uv sync
 ```
 
-### Running Tests
+Run the whole suite:
 
-#### Run all tests
 ```bash
-cd backend
-poetry run pytest
+uv run pytest
 ```
 
-#### Run tests with verbose output
+Useful variations:
+
 ```bash
-poetry run pytest -vv
+uv run pytest -vv                                   # verbose
+uv run pytest tests/test_screenshot.py              # one file
+uv run pytest tests/test_screenshot.py::TestNormalizeUrl   # one class
+uv run pytest -k copilot                            # match by name
+uv run pytest --cov=routes                          # coverage
 ```
 
-#### Run a specific test file
+Type checking (must stay clean for files you touch):
+
 ```bash
-poetry run pytest tests/test_screenshot.py
+uv run pyright
 ```
 
-#### Run a specific test class
+## Frontend
+
 ```bash
-poetry run pytest tests/test_screenshot.py::TestNormalizeUrl
+cd frontend
+pnpm install
+pnpm test        # jest unit tests
+pnpm lint        # eslint, runs with --max-warnings 0
+pnpm exec tsc --noEmit   # type check
 ```
 
-#### Run a specific test method
+`pnpm lint` reports a handful of pre-existing errors (mostly
+`@typescript-eslint/no-explicit-any`). Those are baseline; just make sure your
+change doesn't add new ones.
+
+## Desktop app
+
+The desktop shell is plain Node, so a syntax check catches most mistakes:
+
 ```bash
-poetry run pytest tests/test_screenshot.py::TestNormalizeUrl::test_url_without_protocol
+cd desktop
+node --check main.js
+node --check preload.js
 ```
 
-#### Run tests with coverage report
+To run the shell against the source tree (it starts the backend through uv and
+loads `desktop/renderer` if present, otherwise the Vite dev server):
+
 ```bash
-poetry run pytest --cov=routes
+cd frontend && pnpm build && cd ..
+Remove-Item -Recurse -Force desktop/renderer -ErrorAction SilentlyContinue
+Copy-Item -Recurse frontend/dist desktop/renderer
+cd desktop && npx electron .
 ```
 
-#### Run tests in parallel (requires pytest-xdist)
-```bash
-poetry install --with dev pytest-xdist  # Install if not already installed
-poetry run pytest -n auto
+Startup problems are written to the app log, which is the first place to look
+when the window is blank or never appears:
+
+```
+%APPDATA%\shot2code-desktop\shot2code-backend.log
 ```
 
-### Test Configuration
+It records backend startup, renderer load failures, crashes and console errors.
 
-The pytest configuration is defined in `backend/pytest.ini`:
-- Tests are discovered in the `tests` directory
-- Test files must match the pattern `test_*.py`
-- Test classes must start with `Test`
-- Test functions must start with `test_`
-- Verbose output and short traceback format are enabled by default
+## What to run before committing
 
-### Writing New Tests
+- Touched backend code: `uv run pytest` and `uv run pyright`
+- Touched frontend code: `pnpm exec tsc --noEmit` and `pnpm lint`
+- Touched both: all of the above
 
-1. Create a new test file in `backend/tests/` following the naming convention `test_<module>.py`
-2. Import the functions/classes you want to test
-3. Write test functions or classes following pytest conventions
-
-Example:
-```python
-import pytest
-from routes.screenshot import normalize_url
-
-def test_url_normalization():
-    assert normalize_url("example.com") == "https://example.com"
-```
+Anything that changes how the UI is loaded (routing, asset paths, `window.open`)
+should also be checked in the packaged app, not just `pnpm dev`. Several bugs
+have only ever appeared under `file://`.
