@@ -27,6 +27,21 @@ from llm import (
 from preview_screenshot import is_screenshot_preview_available
 
 
+def _contains_video(messages: list[ChatCompletionMessageParam]) -> bool:
+    """True when a prompt carries a video, which Copilot receives as frames."""
+    for message in messages:
+        content = message.get("content", "")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict) or part.get("type") != "image_url":
+                continue
+            url = (part.get("image_url") or {}).get("url", "")
+            if isinstance(url, str) and url.startswith("data:video/"):
+                return True
+    return False
+
+
 def create_provider_session(
     model: Llm,
     prompt_messages: list[ChatCompletionMessageParam],
@@ -90,6 +105,18 @@ def create_provider_session(
         )
 
     if model in COPILOT_MODELS:
+        # A video becomes several frames, and Copilot enforces a per-request
+        # image limit. screenshot_preview returns yet more images which
+        # accumulate across turns and push the request over that limit, so drop
+        # it for video runs specifically.
+        if _contains_video(prompt_messages):
+            canonical_tools = canonical_tool_definitions(
+                image_generation_enabled=should_generate_images,
+                image_editing_enabled=bool(replicate_api_key or REPLICATE_API_KEY),
+                asset_extraction_enabled=should_extract_assets and bool(gemini_api_key),
+                screenshot_enabled=False,
+            )
+
         # No key check: an explicit token is optional. Without one the SDK
         # discovers credentials itself (stored Copilot CLI login, then gh CLI),
         # which is the documented way to reuse an existing GitHub sign-in.

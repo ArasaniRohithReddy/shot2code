@@ -472,6 +472,7 @@ class ModelSelectionStage:
                     anthropic_api_key,
                     gemini_api_key,
                     copilot_available,
+                    copilot_models,
                 )
 
             # Print the variant models (one per line)
@@ -498,15 +499,25 @@ class ModelSelectionStage:
         anthropic_api_key: str | None,
         gemini_api_key: str | None,
         copilot_available: bool = False,
+        copilot_models: List[Llm] | None = None,
     ) -> List[Llm]:
         """Simple model cycling that scales with num_variants"""
 
-        # Video mode requires Gemini - 2 variants for comparison
+        # Video mode: Gemini reads video natively and is the better path, so it
+        # stays the default. Copilot can also do it - the provider samples the
+        # recording into frames - but only when explicitly chosen, since the
+        # SDK cannot accept video itself.
         if input_mode == "video":
+            if copilot_models:
+                return [
+                    copilot_models[i % len(copilot_models)]
+                    for i in range(NUM_VARIANTS_VIDEO)
+                ]
             if not gemini_api_key:
                 raise Exception(
-                    "Video mode requires a Gemini API key. "
-                    "Please add GEMINI_API_KEY to backend/.env or in the settings dialog"
+                    "Video mode needs either a Gemini API key or Copilot models "
+                    "selected in Settings. Add GEMINI_API_KEY to backend/.env, "
+                    "or pick Copilot models to use your Copilot subscription."
                 )
             return list(VIDEO_VARIANT_MODELS)
 

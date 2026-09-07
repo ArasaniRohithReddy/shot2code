@@ -36,6 +36,7 @@ from agent.tools import CanonicalToolDefinition, ToolCall
 from costs.token_usage import TokenUsage
 from fs_logging.agent_runs import AgentRunRecorder
 from llm import Llm, get_copilot_api_name, get_copilot_reasoning_effort
+from video import extract_evenly_spaced_frames
 
 
 # Queue item tags used to serialize everything the SDK emits into one ordered
@@ -99,13 +100,35 @@ def _split_data_url(url: str) -> Optional[Tuple[str, str]]:
     return mime_type, data
 
 
+# Copilot rejects requests with too many images (gemini-3.6-flash allows 10).
+# Prompts can already carry images before frames are added, so cap the total
+# and drop the middle of the frame sequence rather than failing the request.
+_MAX_IMAGE_ATTACHMENTS = 5
+
+
+def _cap_attachments(attachments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if len(attachments) <= _MAX_IMAGE_ATTACHMENTS:
+        return attachments
+    # Keep the first and last, which carry the start and end UI state.
+    keep = _MAX_IMAGE_ATTACHMENTS
+    step = (len(attachments) - 1) / (keep - 1)
+    picked = [attachments[round(i * step)] for i in range(keep)]
+    print(
+        f"[copilot] trimmed {len(attachments)} images to {len(picked)} to stay "
+        "within the provider's per-request image limit"
+    )
+    return picked
+
+
 def _build_prompt_and_attachments(
     messages: List[ChatCompletionMessageParam],
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """Flatten non-system messages into one prompt plus image attachments.
 
     The SDK takes a single prompt string per ``send``; images ride along as
-    blob attachments rather than inline parts.
+    blob attachments rather than inline parts. Video is flattened into sampled
+    frames first: the SDK's attachment pipeline only carries images, so a video
+    blob reaches the model as nothing at all.
     """
     text_chunks: List[str] = []
     attachments: List[Dict[str, Any]] = []
@@ -137,13 +160,39 @@ def _build_prompt_and_attachments(
                 if not url:
                     continue
                 decoded = _split_data_url(url)
-                image_index += 1
                 if decoded is None:
                     # Remote URLs can't be attached as blobs; let the model
                     # see the link rather than dropping the image silently.
+                    image_index += 1
                     text_chunks.append(f"[image {image_index}: {url}]")
                     continue
+
                 mime_type, data = decoded
+
+                if mime_type.startswith("video/"):
+                    frames = extract_evenly_spaced_frames(base64.b64decode(data))
+                    if not frames:
+                        text_chunks.append(
+                            "[a video was provided but could not be decoded]"
+                        )
+                        continue
+                    text_chunks.append(
+                        f"The following {len(frames)} images are frames sampled "
+                        "in order from a screen recording. Treat them as a "
+                        "sequence showing how the interface changes over time."
+                    )
+                    for frame_number, frame in enumerate(frames, start=1):
+                        attachments.append(
+                            {
+                                "type": "blob",
+                                "data": base64.b64encode(frame).decode("ascii"),
+                                "mimeType": "image/png",
+                                "displayName": f"frame-{frame_number:02d}.png",
+                            }
+                        )
+                    continue
+
+                image_index += 1
                 attachments.append(
                     {
                         "type": "blob",
@@ -153,7 +202,10 @@ def _build_prompt_and_attachments(
                     }
                 )
 
-    return "\n\n".join(chunk for chunk in text_chunks if chunk), attachments
+    return (
+        "\n\n".join(chunk for chunk in text_chunks if chunk),
+        _cap_attachments(attachments),
+    )
 
 
 def _extract_event_text(event: Any) -> str:
