@@ -316,6 +316,12 @@ function createWindow() {
   // own preview windows (blob:/data:/about:) internally - shell.openExternal
   // cannot handle those schemes and would silently do nothing.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // CodePen is opened by POSTing a form to /pen/define. Handing that to the
+    // OS browser would drop the body and open an empty pen, so let it open
+    // in-app where the POST survives.
+    if (/^https:\/\/codepen\.io\//i.test(url)) {
+      return { action: "allow" };
+    }
     if (/^https?:/i.test(url)) {
       shell.openExternal(url);
       return { action: "deny" };

@@ -19,21 +19,50 @@ function CodeTab({ code, setCode, settings }: Props) {
   }, [code]);
 
   const doOpenInCodepenio = useCallback(async () => {
-    // TODO: Update CSS and JS external links depending on the framework being used
+    // CodePen loads externals itself, so pick them from what the generated
+    // page actually uses rather than assuming Tailwind + Ionic.
+    const cssExternals: string[] = [
+      "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css",
+    ];
+    const jsExternals: string[] = [];
+
+    if (code.includes("cdn.tailwindcss.com")) {
+      jsExternals.push("https://cdn.tailwindcss.com");
+    }
+    if (code.includes("<ion-")) {
+      cssExternals.push("https://cdn.jsdelivr.net/npm/@ionic/core/css/ionic.bundle.css");
+      jsExternals.push(
+        "https://cdn.jsdelivr.net/npm/@ionic/core/dist/ionic/ionic.esm.js",
+        "https://cdn.jsdelivr.net/npm/@ionic/core/dist/ionic/ionic.js"
+      );
+    }
+    if (code.includes("bulma")) {
+      cssExternals.push("https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css");
+    }
+    if (code.includes("daisyui")) {
+      cssExternals.push(
+        "https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css"
+      );
+    }
+    if (code.includes("bootstrap")) {
+      cssExternals.push(
+        "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+      );
+    }
+    if (code.includes("alpinejs")) {
+      jsExternals.push("https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js");
+    }
+    if (code.includes("htmx.org")) {
+      jsExternals.push("https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js");
+    }
+
     const data = {
       html: code,
       editors: "100", // 1: Open HTML, 0: Close CSS, 0: Close JS
       layout: "left",
-      css_external:
-        "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" +
-        (code.includes("<ion-")
-          ? ",https://cdn.jsdelivr.net/npm/@ionic/core/css/ionic.bundle.css"
-          : ""),
-      js_external:
-        "https://cdn.tailwindcss.com " +
-        (code.includes("<ion-")
-          ? ",https://cdn.jsdelivr.net/npm/@ionic/core/dist/ionic/ionic.esm.js,https://cdn.jsdelivr.net/npm/@ionic/core/dist/ionic/ionic.js"
-          : ""),
+      // CodePen expects a comma-separated list with no stray whitespace.
+      css_external: cssExternals.join(","),
+      js_external: jsExternals.join(","),
     };
 
     // Create a hidden form and submit it to open the code in CodePen
@@ -51,6 +80,7 @@ function CodeTab({ code, setCode, settings }: Props) {
 
     document.body.appendChild(form);
     form.submit();
+    form.remove();
   }, [code]);
 
   return (
