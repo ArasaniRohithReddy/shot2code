@@ -7,6 +7,7 @@ import UrlTab from "./tabs/UrlTab";
 import TextTab from "./tabs/TextTab";
 import ImportTab from "./tabs/ImportTab";
 import { DesignSystemSelectorProps } from "../settings/DesignSystemSelector";
+import { ModelSelectorProps } from "../settings/ModelSelector";
 
 interface Props {
   doCreate: (
@@ -60,6 +61,12 @@ function UnifiedInputPane({
     onManage: onManageDesignSystems,
   };
 
+  const modelSelectorProps: ModelSelectorProps = {
+    selectedModels: settings.copilotModels ?? [],
+    setSelectedModels: (models) =>
+      setSettings((s) => ({ ...s, copilotModels: models })),
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto px-4">
       <Tabs
@@ -108,6 +115,7 @@ function UnifiedInputPane({
             stack={settings.generatedCodeConfig}
             setStack={setStack}
             designSystem={designSystemSelectorProps}
+            modelSelector={modelSelectorProps}
           />
         </TabsContent>
 
@@ -118,6 +126,7 @@ function UnifiedInputPane({
             stack={settings.generatedCodeConfig}
             setStack={setStack}
             designSystem={designSystemSelectorProps}
+            modelSelector={modelSelectorProps}
           />
         </TabsContent>
 
@@ -127,6 +136,7 @@ function UnifiedInputPane({
             stack={settings.generatedCodeConfig}
             setStack={setStack}
             designSystem={designSystemSelectorProps}
+            modelSelector={modelSelectorProps}
           />
         </TabsContent>
 

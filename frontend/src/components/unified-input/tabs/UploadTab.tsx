@@ -5,6 +5,7 @@ import { Cross2Icon, ImageIcon } from "@radix-ui/react-icons";
 import { ScreenRecorderState } from "../../../types";
 import ScreenRecorder from "../../recording/ScreenRecorder";
 import { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
+import { ModelSelectorProps } from "../../settings/ModelSelector";
 import { Stack } from "../../../lib/stacks";
 import GenerationControls from "../GenerationControls";
 
@@ -53,9 +54,10 @@ interface Props {
   stack: Stack;
   setStack: (stack: Stack) => void;
   designSystem: DesignSystemSelectorProps;
+  modelSelector?: ModelSelectorProps;
 }
 
-function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
+function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: Props) {
   const [files, setFiles] = useState<FileWithPreview[]>([]);
   const [uploadedDataUrls, setUploadedDataUrls] = useState<string[]>([]);
   const [uploadedInputMode, setUploadedInputMode] = useState<
@@ -461,6 +463,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
             stack={stack}
             setStack={setStack}
             designSystem={designSystem}
+          modelSelector={modelSelector}
             showAssetExtraction={uploadedInputMode === "image"}
             isAssetExtractionEnabled={isAssetExtractionEnabled}
             onAssetExtractionChange={setIsAssetExtractionEnabled}

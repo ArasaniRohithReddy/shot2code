@@ -4,6 +4,9 @@ import { Textarea } from "../../ui/textarea";
 import toast from "react-hot-toast";
 import OutputSettingsSection from "../../settings/OutputSettingsSection";
 import { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
+import ModelSelector, {
+  ModelSelectorProps,
+} from "../../settings/ModelSelector";
 import { Stack } from "../../../lib/stacks";
 
 interface Props {
@@ -11,6 +14,7 @@ interface Props {
   stack: Stack;
   setStack: (stack: Stack) => void;
   designSystem: DesignSystemSelectorProps;
+  modelSelector?: ModelSelectorProps;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -20,7 +24,7 @@ const EXAMPLE_PROMPTS = [
   "A music streaming app with now-playing, recommended playlists, and recent listens",
 ];
 
-function TextTab({ doCreateFromText, stack, setStack, designSystem }: Props) {
+function TextTab({ doCreateFromText, stack, setStack, designSystem, modelSelector }: Props) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -110,6 +114,7 @@ function TextTab({ doCreateFromText, stack, setStack, designSystem }: Props) {
               setStack={setStack}
               designSystem={designSystem}
             />
+            {modelSelector && <ModelSelector {...modelSelector} />}
 
             <Button
               onClick={handleGenerate}

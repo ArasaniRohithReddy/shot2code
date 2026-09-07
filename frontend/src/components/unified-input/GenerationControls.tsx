@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  LuBrain,
   LuChevronDown,
   LuImage,
   LuLayers,
@@ -9,6 +10,9 @@ import { Checkbox } from "../ui/checkbox";
 import { Button } from "../ui/button";
 import OutputSettingsSection from "../settings/OutputSettingsSection";
 import { DesignSystemSelectorProps } from "../settings/DesignSystemSelector";
+import ModelSelector, {
+  ModelSelectorProps,
+} from "../settings/ModelSelector";
 import { Stack } from "../../lib/stacks";
 
 interface Props {
@@ -19,6 +23,7 @@ interface Props {
   stack: Stack;
   setStack: (stack: Stack) => void;
   designSystem: DesignSystemSelectorProps;
+  modelSelector?: ModelSelectorProps;
   showAssetExtraction: boolean;
   isAssetExtractionEnabled: boolean;
   onAssetExtractionChange: (enabled: boolean) => void;
@@ -66,6 +71,7 @@ export default function GenerationControls({
   stack,
   setStack,
   designSystem,
+  modelSelector,
   showAssetExtraction,
   isAssetExtractionEnabled,
   onAssetExtractionChange,
@@ -105,6 +111,20 @@ export default function GenerationControls({
             />
           </div>
         </div>
+
+        {modelSelector && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-gray-100 px-4 py-2 dark:border-zinc-800 sm:px-5">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-400 dark:bg-zinc-800 dark:text-zinc-500">
+              <LuBrain className="h-3.5 w-3.5" />
+            </span>
+            <span className="text-sm font-medium text-gray-600 dark:text-zinc-300">
+              Models
+            </span>
+            <div className="ml-auto">
+              <ModelSelector {...modelSelector} />
+            </div>
+          </div>
+        )}
 
         <div className="border-t border-gray-100 dark:border-zinc-800">
           <button

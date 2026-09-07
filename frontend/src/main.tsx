@@ -17,6 +17,7 @@ import PromptReportsPage from "./components/evals/PromptReportsPage.tsx";
 import AgentRunsPage from "./components/evals/AgentRunsPage.tsx";
 import EvalSessionsPage from "./components/evals/EvalSessionsPage.tsx";
 import EvalComparePage from "./components/evals/EvalComparePage.tsx";
+import ErrorBoundary from "./components/ErrorBoundary.tsx";
 
 // The desktop build loads the UI from disk, where location.pathname is the
 // file's path (/C:/.../index.html). BrowserRouter matches no route there and
@@ -28,22 +29,24 @@ const Router =
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <Router>
-      <Routes>
-        <Route path="/" element={<App />} />
-        <Route path="/evals" element={<AllEvalsPage />} />
-        <Route path="/evals/best-of-n" element={<BestOfNEvalsPage />} />
-        <Route path="/evals/run" element={<RunEvalsPage />} />
-        <Route
-          path="/evals/openai-input-compare"
-          element={<OpenAIInputComparePage />}
-        />
-        <Route path="/evals/prompt-reports" element={<PromptReportsPage />} />
-        <Route path="/evals/agent-runs" element={<AgentRunsPage />} />
-        <Route path="/evals/sessions" element={<EvalSessionsPage />} />
-        <Route path="/evals/compare" element={<EvalComparePage />} />
-      </Routes>
-    </Router>
+    <ErrorBoundary>
+      <Router>
+        <Routes>
+          <Route path="/" element={<App />} />
+          <Route path="/evals" element={<AllEvalsPage />} />
+          <Route path="/evals/best-of-n" element={<BestOfNEvalsPage />} />
+          <Route path="/evals/run" element={<RunEvalsPage />} />
+          <Route
+            path="/evals/openai-input-compare"
+            element={<OpenAIInputComparePage />}
+          />
+          <Route path="/evals/prompt-reports" element={<PromptReportsPage />} />
+          <Route path="/evals/agent-runs" element={<AgentRunsPage />} />
+          <Route path="/evals/sessions" element={<EvalSessionsPage />} />
+          <Route path="/evals/compare" element={<EvalComparePage />} />
+        </Routes>
+      </Router>
+    </ErrorBoundary>
     <Toaster toastOptions={{ className: "dark:bg-zinc-950 dark:text-white" }} />
   </React.StrictMode>
 );

@@ -894,6 +894,11 @@ function App() {
                       onAddNew: handleAddNewDesignSystem,
                       onManage: () => openDesignSystemsManager(),
                     }}
+                    modelSelector={{
+                      selectedModels: settings.copilotModels ?? [],
+                      setSelectedModels: (models) =>
+                        setSettings((s) => ({ ...s, copilotModels: models })),
+                    }}
                     onOpenVersions={() => {
                       setIsHistoryOpen(true);
                       setMobilePane("chat");

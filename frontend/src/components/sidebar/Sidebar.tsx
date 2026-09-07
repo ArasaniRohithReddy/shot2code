@@ -23,6 +23,9 @@ import { CodeGenerationModel } from "../../lib/models";
 import DesignSystemSelector, {
   DesignSystemSelectorProps,
 } from "../settings/DesignSystemSelector";
+import ModelSelector, {
+  ModelSelectorProps,
+} from "../settings/ModelSelector";
 
 interface SidebarProps {
   doUpdate: (instruction: string) => void;
@@ -30,6 +33,7 @@ interface SidebarProps {
   cancelCodeGeneration: () => void;
   onOpenVersions: () => void;
   designSystem: DesignSystemSelectorProps;
+  modelSelector: ModelSelectorProps;
 }
 
 const MAX_UPDATE_IMAGES = 5;
@@ -80,6 +84,7 @@ function Sidebar({
   cancelCodeGeneration,
   onOpenVersions,
   designSystem,
+  modelSelector,
 }: SidebarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const middlePaneRef = useRef<HTMLDivElement>(null);
@@ -598,6 +603,7 @@ function Sidebar({
                     <LuMousePointerClick className="w-[18px] h-[18px]" />
                   </button>
                   <DesignSystemSelector {...designSystem} compact />
+                  <ModelSelector {...modelSelector} />
                 </div>
                 <button
                   onClick={() => doUpdate(updateInstruction)}

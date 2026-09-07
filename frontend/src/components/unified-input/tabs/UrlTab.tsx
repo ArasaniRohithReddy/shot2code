@@ -4,6 +4,7 @@ import { HTTP_BACKEND_URL } from "../../../config";
 import { Input } from "../../ui/input";
 import { toast } from "react-hot-toast";
 import { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
+import { ModelSelectorProps } from "../../settings/ModelSelector";
 import { Stack } from "../../../lib/stacks";
 import GenerationControls from "../GenerationControls";
 
@@ -18,6 +19,7 @@ interface Props {
   stack: Stack;
   setStack: (stack: Stack) => void;
   designSystem: DesignSystemSelectorProps;
+  modelSelector?: ModelSelectorProps;
 }
 
 function isFigmaUrl(url: string): boolean {
@@ -30,6 +32,7 @@ function UrlTab({
   stack,
   setStack,
   designSystem,
+  modelSelector,
 }: Props) {
   const [isLoading, setIsLoading] = useState(false);
   const [referenceUrl, setReferenceUrl] = useState("");
@@ -171,6 +174,7 @@ function UrlTab({
         stack={stack}
         setStack={setStack}
         designSystem={designSystem}
+          modelSelector={modelSelector}
         showAssetExtraction
         isAssetExtractionEnabled={isAssetExtractionEnabled}
         onAssetExtractionChange={setIsAssetExtractionEnabled}

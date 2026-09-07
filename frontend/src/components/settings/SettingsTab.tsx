@@ -198,7 +198,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                       .filter((m) => m.vision)
                       .map((m) => {
                         const value = `copilot/${m.id}`;
-                        const checked = settings.copilotModels.includes(value);
+                        const checked = (settings.copilotModels ?? []).includes(value);
                         return (
                           <label
                             key={m.id}
@@ -211,8 +211,8 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                                 setSettings((s) => ({
                                   ...s,
                                   copilotModels: e.target.checked
-                                    ? [...s.copilotModels, value]
-                                    : s.copilotModels.filter((v) => v !== value),
+                                    ? [...(s.copilotModels ?? []), value]
+                                    : (s.copilotModels ?? []).filter((v) => v !== value),
                                 }))
                               }
                             />
@@ -233,7 +233,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   </p>
                 )}
 
-                {settings.copilotModels.length > 0 && (
+                {(settings.copilotModels ?? []).length > 0 && (
                   <button
                     type="button"
                     className="mt-2 text-xs text-violet-600 hover:underline dark:text-violet-400"
@@ -241,7 +241,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                       setSettings((s) => ({ ...s, copilotModels: [] }))
                     }
                   >
-                    Clear selection ({settings.copilotModels.length} selected)
+                    Clear selection ({(settings.copilotModels ?? []).length} selected)
                   </button>
                 )}
               </div>
