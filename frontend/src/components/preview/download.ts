@@ -17,7 +17,10 @@ function filenameFromContentDisposition(contentDisposition: string | null) {
   return match?.[1] ?? "screenshot-to-code-export.zip";
 }
 
-export const downloadCode = async (code: string) => {
+export const downloadCode = async (code: string, options?: {
+  splitFiles?: boolean;
+  stack?: string;
+}) => {
   try {
     const response = await fetch(`${HTTP_BACKEND_URL}/api/export`, {
       method: "POST",
@@ -27,6 +30,8 @@ export const downloadCode = async (code: string) => {
       body: JSON.stringify({
         code,
         baseUrl: window.location.href,
+        splitFiles: options?.splitFiles ?? false,
+        stack: options?.stack,
       }),
     });
 

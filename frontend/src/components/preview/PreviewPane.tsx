@@ -20,6 +20,11 @@ import { useProjectStore } from "../../store/project-store";
 import { extractHtml } from "./extractHtml";
 import PreviewComponent from "./PreviewComponent";
 import { downloadCode } from "./download";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../ui/popover";
 import { SelectAndEditToolbarButton } from "../select-and-edit/SelectAndEditControls";
 import { normalizeBabelCdn } from "../../lib/babelCdn";
 import ImageScanningPreview from "./ImageScanningPreview";
@@ -210,16 +215,48 @@ function PreviewPane({ settings, onOpenVersions }: Props) {
                 <SelectAndEditToolbarButton />
               )}
             {(appState === AppState.CODE_READY || isSelectedVariantComplete) && (
-              <Button
-                onClick={() => downloadCode(previewCode)}
-                variant="ghost"
-                size="icon"
-                title="Download Code"
-                className="h-9 w-9"
-                data-testid="download-code"
-              >
-                <LuDownload />
-              </Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Download Code"
+                    className="h-9 w-9"
+                    data-testid="download-code"
+                  >
+                    <LuDownload />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-72 p-2">
+                  <button
+                    type="button"
+                    onClick={() => downloadCode(previewCode)}
+                    className="w-full rounded px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-zinc-800"
+                  >
+                    <span className="block font-medium">Single HTML file</span>
+                    <span className="block text-xs text-gray-500 dark:text-zinc-400">
+                      One self-contained page, plus any images
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadCode(previewCode, {
+                        splitFiles: true,
+                        stack: settings.generatedCodeConfig,
+                      })
+                    }
+                    data-testid="download-project"
+                    className="w-full rounded px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-zinc-800"
+                  >
+                    <span className="block font-medium">Project folder</span>
+                    <span className="block text-xs text-gray-500 dark:text-zinc-400">
+                      Separate index.html, styles.css and script.js, with a
+                      package.json
+                    </span>
+                  </button>
+                </PopoverContent>
+              </Popover>
             )}
             <Button
               onClick={() => {

@@ -3,6 +3,7 @@ import base64
 from dataclasses import dataclass
 from io import BytesIO
 import ipaddress
+import json
 import re
 import socket
 from typing import Iterable
@@ -62,6 +63,10 @@ MAX_REDIRECTS = 5
 class ExportRequest(BaseModel):
     code: str
     baseUrl: str | None = None
+    # When true the single generated page is split into index.html, styles.css
+    # and script.js, with a package.json so it runs as a normal project.
+    splitFiles: bool = False
+    stack: str | None = None
 
 
 @dataclass(frozen=True)
@@ -439,14 +444,125 @@ def rewrite_raw_asset_urls(index_html: str, asset_path_by_url: dict[str, str]) -
     return index_html
 
 
-def create_project_zip(index_html: str, assets: Iterable[ExportedAsset]) -> bytes:
+def create_project_zip(
+    index_html: str,
+    assets: Iterable[ExportedAsset],
+    extra_files: dict[str, str] | None = None,
+) -> bytes:
     buffer = BytesIO()
     with ZipFile(buffer, "w", ZIP_DEFLATED) as zip_file:
-        zip_file.writestr("index.html", index_html)
+        if extra_files and "index.html" in extra_files:
+            # A split export supplies its own index.html alongside the
+            # extracted stylesheet and script.
+            for path, content in extra_files.items():
+                zip_file.writestr(path, content)
+        else:
+            zip_file.writestr("index.html", index_html)
+            for path, content in (extra_files or {}).items():
+                zip_file.writestr(path, content)
         for asset in assets:
             zip_file.writestr(asset.path, asset.content)
 
     return buffer.getvalue()
+
+
+def split_single_file_html(html: str) -> dict[str, str]:
+    """Split a generated page into index.html, styles.css and script.js.
+
+    Generation always produces one self-contained HTML file, because that is
+    what the preview renders and what the agent edits. People who want to keep
+    working on the result would rather have the usual separate files, so pull
+    the inline <style> and inline <script> blocks out and link them back in.
+
+    Only inline blocks move. Anything with a src/href (the CDN tags every stack
+    relies on) is left exactly where it is.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    styles: list[str] = []
+    for style_tag in soup.find_all("style"):
+        if not isinstance(style_tag, Tag):
+            continue
+        text = style_tag.get_text()
+        if text.strip():
+            styles.append(text.strip())
+        style_tag.decompose()
+
+    scripts: list[str] = []
+    for script_tag in soup.find_all("script"):
+        if not isinstance(script_tag, Tag):
+            continue
+        # Leave CDN includes and module imports alone; they must stay in the
+        # document to keep load order and module resolution working.
+        if script_tag.get("src") or script_tag.get("type") == "module":
+            continue
+        text = script_tag.get_text()
+        if text.strip():
+            scripts.append(text.strip())
+            script_tag.decompose()
+
+    if styles:
+        head = soup.head or soup
+        link = soup.new_tag("link", rel="stylesheet", href="styles.css")
+        head.append(link)
+
+    if scripts:
+        body = soup.body or soup
+        script = soup.new_tag("script", src="script.js")
+        body.append(script)
+
+    files = {"index.html": str(soup)}
+    if styles:
+        files["styles.css"] = "\n\n".join(styles) + "\n"
+    if scripts:
+        files["script.js"] = "\n\n".join(scripts) + "\n"
+    return files
+
+
+def build_project_scaffold(stack: str | None) -> dict[str, str]:
+    """package.json and README so the export runs like a normal project."""
+    name = "shot2code-export"
+    package_json = json.dumps(
+        {
+            "name": name,
+            "private": True,
+            "version": "0.1.0",
+            "scripts": {
+                "dev": "vite",
+                "build": "vite build",
+                "preview": "vite preview",
+            },
+            "devDependencies": {"vite": "^6.0.0"},
+        },
+        indent=2,
+    )
+
+    stack_line = f"Generated for the **{stack}** stack.\n\n" if stack else ""
+    readme = f"""# {name}
+
+Exported from shot2code.
+
+{stack_line}## Running it
+
+```bash
+npm install
+npm run dev
+```
+
+Or just open `index.html` in a browser - the page is self-contained and loads
+its framework from a CDN, so no build step is required.
+
+## Files
+
+- `index.html` - markup, plus the CDN tags for this stack
+- `styles.css` - styles that were inline in the generated page
+- `script.js` - scripts that were inline in the generated page
+- `assets/` - images referenced by the page, downloaded locally
+
+Inline `<script type="module">` blocks stay in `index.html`, because moving
+them would break module resolution and load order.
+"""
+    return {"package.json": package_json + "\n", "README.md": readme}
 
 
 @router.post("/api/export")
@@ -476,16 +592,23 @@ async def export_code(request: ExportRequest) -> Response:
         rewrite_html_assets(soup, asset_path_by_url)
 
     index_html = rewrite_raw_asset_urls(str(soup), asset_path_by_url)
-    zip_content = create_project_zip(index_html, assets)
+
+    extra_files: dict[str, str] = {}
+    if request.splitFiles:
+        extra_files.update(split_single_file_html(index_html))
+        extra_files.update(build_project_scaffold(request.stack))
+
+    zip_content = create_project_zip(index_html, assets, extra_files)
     print(
         "Export complete: "
         f"candidates={len(candidates)} assets={len(assets)} "
-        f"skipped={len(candidates) - len(assets)} responseBytes={len(zip_content)}"
+        f"skipped={len(candidates) - len(assets)} split={request.splitFiles} "
+        f"responseBytes={len(zip_content)}"
     )
     return Response(
         content=zip_content,
         media_type="application/zip",
         headers={
-            "Content-Disposition": 'attachment; filename="screenshot-to-code-export.zip"'
+            "Content-Disposition": 'attachment; filename="shot2code-export.zip"'
         },
     )
