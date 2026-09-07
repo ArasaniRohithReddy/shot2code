@@ -1,19 +1,16 @@
-name: Release desktop app
+name: Build desktop app
 
-# Publishes the Windows installers to the repo's Releases page.
-# Tag a commit to cut a release:  git tag v0.1.0 && git push origin v0.1.0
+# Validates that the desktop app still packages. Releases themselves are cut
+# from a locally verified build, because CI publishing raced with that and left
+# releases in an inconsistent state.
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to build (e.g. 0.1.0). Publishes a draft release."
-        required: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows:
@@ -79,25 +76,27 @@ jobs:
           $pkg | ConvertTo-Json -Depth 20 | Set-Content package.json
           "version set to $v"
 
-      - name: Build and publish installers
+      - name: Build installers
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
           npm install
-          # Only a tag cuts a real release; a manual run is a build check that
-          # leaves any existing release untouched.
-          $publish = if ("${{ github.ref_type }}" -eq "tag") { "always" } else { "never" }
-          npx electron-builder --win nsis msi zip --publish $publish
+          # Never publish from CI. electron-builder skips re-uploading an
+          # existing asset but still replaces latest.yml, which left releases
+          # with a manifest describing a binary that was no longer there and
+          # broke auto-update. Releases are published from a locally verified
+          # build; this job exists to catch breakage.
+          npx electron-builder --win nsis msi zip --publish never
 
-      - name: Upload build artifacts
+      - name: Report artifact sizes
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: shot2code-windows
-          path: |
-            desktop/dist/*.exe
-            desktop/dist/*.msi
-            desktop/dist/*.zip
-          if-no-files-found: warn
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          # The installers are far too large for actions/upload-artifact, so
+          # just record that they built and how big they are.
+          Get-ChildItem dist -File |
+            Where-Object { $_.Extension -in '.exe', '.msi', '.zip' } |
+            ForEach-Object { "{0,7} MB  {1}" -f [int]($_.Length / 1MB), $_.Name }

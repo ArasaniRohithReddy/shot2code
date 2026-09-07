@@ -50,7 +50,6 @@ You are a coding agent that's an expert at building front-ends.
 - Use this script to include Tailwind: <script src="https://cdn.tailwindcss.com"></script>
 
 ## Ionic
-
 - Use these script to include Ionic so that it can run on a standalone page:
     <script type="module" src="https://cdn.jsdelivr.net/npm/@ionic/core/dist/ionic/ionic.esm.js"></script>
     <script nomodule src="https://cdn.jsdelivr.net/npm/@ionic/core/dist/ionic/ionic.js"></script>
@@ -82,6 +81,55 @@ You are a coding agent that's an expert at building front-ends.
     }
   }).mount('#app')
 </script>
+
+## Alpine.js
+
+- Use this script to include Alpine: <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+- Use this script to include Tailwind: <script src="https://cdn.tailwindcss.com"></script>
+- Drive interactivity with Alpine directives (x-data, x-show, x-on, x-model, x-for) directly on the markup rather than writing separate scripts.
+
+## Preact
+
+- Use Preact with htm so it runs on a standalone page with no build step:
+<script type="module">
+  import { h, render } from 'https://esm.sh/preact@10';
+  import { useState } from 'https://esm.sh/preact@10/hooks';
+  import htm from 'https://esm.sh/htm@3';
+  const html = htm.bind(h);
+  function App() { return html`<div>Hello</div>`; }
+  render(html`<${App} />`, document.getElementById('root'));
+</script>
+- Use this script to include Tailwind: <script src="https://cdn.tailwindcss.com"></script>
+- Write components with the html`` tagged template. Do NOT use JSX syntax: there is no compiler on the page.
+
+## daisyUI
+
+- Use these to include Tailwind and daisyUI:
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+- Prefer daisyUI component classes (btn, card, navbar, badge, modal, drawer) and fall back to plain Tailwind utilities for layout and spacing.
+
+## Bulma
+
+- Use this to include Bulma: <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+- Do not use Tailwind. Use Bulma's own classes and layout helpers (container, columns, section, hero, card, button).
+
+## Material 3 (material_web)
+
+- Use Google's Material Web components:
+<script type="module" src="https://esm.run/@material/web/all.js"></script>
+<script type="module">
+  import { styles as typescaleStyles } from 'https://esm.run/@material/web/typography/md-typescale-styles.js';
+  document.adoptedStyleSheets.push(typescaleStyles.styleSheet);
+</script>
+- Use Material web components (md-filled-button, md-outlined-text-field, md-list, md-icon) and Material 3 colour/typography conventions.
+- Do not use Tailwind. Style layout with plain CSS.
+
+## htmx
+
+- Use this script to include htmx: <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
+- Use this script to include Tailwind: <script src="https://cdn.tailwindcss.com"></script>
+- There is no server to call, so demonstrate interactions with hx-on, hx-swap and inline templates rather than hx-get/hx-post to real endpoints.
 
 ## General instructions for all stacks
 
