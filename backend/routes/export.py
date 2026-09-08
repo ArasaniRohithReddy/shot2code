@@ -466,6 +466,167 @@ def create_project_zip(
     return buffer.getvalue()
 
 
+RENDER_CALL_RE = re.compile(
+    # Matches the whole render statement through its terminating semicolon.
+    # Deliberately loose about the arguments: an earlier attempt used [^)]* and
+    # failed on the usual createRoot(document.getElementById('root')) because of
+    # the nested parentheses.
+    r"ReactDOM\s*\.\s*(?:createRoot|render)\b.*?<\s*(?P<component>[A-Z][\w.]*)\b.*?;",
+    re.DOTALL,
+)
+
+# Hooks and helpers that are globals under the UMD build but need importing in
+# a real project.
+REACT_NAMED_IMPORTS = [
+    "useState",
+    "useEffect",
+    "useRef",
+    "useMemo",
+    "useCallback",
+    "useReducer",
+    "useContext",
+    "Fragment",
+]
+
+
+def build_react_scaffold(html: str, stack: str) -> dict[str, str] | None:
+    """Turn a CDN/Babel React page into a real Vite project.
+
+    The generated page runs React from UMD globals and compiles JSX in the
+    browser. That is right for the preview but not something anyone wants to
+    keep developing, so lift the JSX into src/App.jsx, add the imports the UMD
+    build made unnecessary, and move the render call into src/main.jsx.
+
+    Returns None when the page doesn't look like a Babel React page, so the
+    caller can fall back to the plain HTML/CSS/JS split.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    babel_scripts = [
+        tag
+        for tag in soup.find_all("script")
+        if isinstance(tag, Tag) and (tag.get("type") or "") == "text/babel"
+    ]
+    if not babel_scripts:
+        return None
+
+    source = "\n\n".join(tag.get_text().strip() for tag in babel_scripts).strip()
+    if not source:
+        return None
+
+    match = RENDER_CALL_RE.search(source)
+    root_component = match.group("component") if match else "App"
+    if match:
+        source = source[: match.start()] + source[match.end() :]
+    source = source.strip()
+
+    is_preact = stack.startswith("preact")
+    pkg = "preact/compat" if is_preact else "react"
+
+    used = [name for name in REACT_NAMED_IMPORTS if re.search(rf"\b{name}\s*\(", source)]
+    named = f", {{ {', '.join(used)} }}" if used else ""
+    imports = f'import React{named} from "{pkg}";\n'
+    if f"export default {root_component}" not in source:
+        source = f"{source}\n\nexport default {root_component};\n"
+
+    app_jsx = f"{imports}\n{source}"
+
+    title_tag = soup.title
+    title = title_tag.get_text().strip() if title_tag else "shot2code app"
+
+    # Keep whatever the page had in <body>, minus the scripts we've lifted.
+    for tag in babel_scripts:
+        tag.decompose()
+
+    main_jsx = f"""import React from "react";
+import {{ createRoot }} from "react-dom/client";
+import App from "./App.jsx";
+import "./index.css";
+
+createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+"""
+
+    index_html = f"""<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+"""
+
+    dependencies = (
+        {"preact": "^10.24.0"} if is_preact else {"react": "^18.3.1", "react-dom": "^18.3.1"}
+    )
+    dev_dependencies = {
+        "@vitejs/plugin-react": "^4.3.4",
+        "vite": "^6.0.0",
+        "tailwindcss": "^3.4.17",
+        "postcss": "^8.4.49",
+        "autoprefixer": "^10.4.20",
+    }
+
+    package_json = json.dumps(
+        {
+            "name": "shot2code-export",
+            "private": True,
+            "version": "0.1.0",
+            "type": "module",
+            "scripts": {"dev": "vite", "build": "vite build", "preview": "vite preview"},
+            "dependencies": dependencies,
+            "devDependencies": dev_dependencies,
+        },
+        indent=2,
+    )
+
+    alias = (
+        """
+  resolve: {
+    alias: { react: "preact/compat", "react-dom": "preact/compat" },
+  },"""
+        if is_preact
+        else ""
+    )
+    vite_config = f"""import {{ defineConfig }} from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({{
+  plugins: [react()],{alias}
+}});
+"""
+
+    return {
+        "index.html": index_html,
+        "src/App.jsx": app_jsx,
+        "src/main.jsx": main_jsx,
+        "src/index.css": "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n",
+        "package.json": package_json + "\n",
+        "vite.config.js": vite_config,
+        "tailwind.config.js": (
+            'export default {\n  content: ["./index.html", "./src/**/*.{js,jsx}"],\n'
+            "  theme: { extend: {} },\n  plugins: [],\n};\n"
+        ),
+        "postcss.config.js": (
+            "export default {\n  plugins: { tailwindcss: {}, autoprefixer: {} },\n};\n"
+        ),
+        "README.md": (
+            "# shot2code-export\n\nA Vite project generated from your shot2code result.\n\n"
+            "```bash\nnpm install\nnpm run dev\n```\n\n"
+            "The component lives in `src/App.jsx`. It was lifted out of the single-file\n"
+            "preview, so imports were added for the hooks that the CDN build exposed as\n"
+            "globals. If the page used other browser globals, add the matching imports.\n"
+        ),
+    }
+
+
 def split_single_file_html(html: str) -> dict[str, str]:
     """Split a generated page into index.html, styles.css and script.js.
 
@@ -595,8 +756,16 @@ async def export_code(request: ExportRequest) -> Response:
 
     extra_files: dict[str, str] = {}
     if request.splitFiles:
-        extra_files.update(split_single_file_html(index_html))
-        extra_files.update(build_project_scaffold(request.stack))
+        # React-family stacks can become a real Vite project; everything else
+        # gets the plain HTML/CSS/JS split, which works for any stack.
+        scaffold = None
+        if request.stack and request.stack.startswith(("react", "preact")):
+            scaffold = build_react_scaffold(index_html, request.stack)
+        if scaffold is not None:
+            extra_files.update(scaffold)
+        else:
+            extra_files.update(split_single_file_html(index_html))
+            extra_files.update(build_project_scaffold(request.stack))
 
     zip_content = create_project_zip(index_html, assets, extra_files)
     print(
