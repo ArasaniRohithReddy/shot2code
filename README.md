@@ -25,6 +25,11 @@ Download the latest build from
 First launch takes about a minute while the bundled backend starts. Later
 launches are quicker.
 
+Installed builds check GitHub Releases automatically. Settings shows the
+running version, update status, download progress, **Check now**, and
+**Restart & install** when an update is ready. Updates install silently after
+the backend, Copilot CLI and Chromium process tree has fully stopped.
+
 ## Using it
 
 Give shot2code a screenshot, several related screenshots, a URL, a text

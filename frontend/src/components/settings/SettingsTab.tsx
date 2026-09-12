@@ -32,6 +32,9 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
     { id: string; vision: boolean }[]
   >([]);
   const [isRefreshingCopilot, setIsRefreshingCopilot] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateState, setUpdateState] =
+    useState<Shot2CodeUpdateState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +57,25 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
       });
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const desktop = window.__SHOT2CODE_APP__;
+    if (!desktop) return;
+
+    let active = true;
+    void desktop.getAppInfo().then((info) => {
+      if (!active) return;
+      setAppVersion(info.version);
+      setUpdateState(info.update);
+    });
+    const unsubscribe = desktop.onUpdateState((state) => {
+      if (active) setUpdateState(state);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
     };
   }, []);
 
@@ -84,6 +106,40 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
     }));
   };
 
+  const checkForUpdates = async () => {
+    const desktop = window.__SHOT2CODE_APP__;
+    if (!desktop) return;
+    setUpdateState((current) =>
+      current
+        ? { ...current, status: "checking", message: null }
+        : current
+    );
+    const state = await desktop.checkForUpdates();
+    setUpdateState(state);
+  };
+
+  const updateStatusText = (() => {
+    if (!updateState) return "";
+    switch (updateState.status) {
+      case "checking":
+        return "Checking for updates…";
+      case "current":
+        return "You are up to date.";
+      case "downloading":
+        return `Downloading v${updateState.version ?? ""}${
+          updateState.progress === null ? "" : ` · ${updateState.progress}%`
+        }`;
+      case "downloaded":
+        return `v${updateState.version} is ready to install.`;
+      case "error":
+        return updateState.message || "Could not check for updates.";
+      case "unavailable":
+        return updateState.message || "Updates are unavailable.";
+      default:
+        return "Updates are checked automatically when shot2code starts.";
+    }
+  })();
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="px-4 py-4 lg:px-6 lg:py-6">
@@ -95,6 +151,60 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
         </div>
 
         <div className="mx-auto max-w-lg space-y-6">
+          {appVersion && updateState && (
+            <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+              <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
+                <h2 className="text-sm font-medium text-gray-900 dark:text-white">
+                  Version and updates
+                </h2>
+              </div>
+              <div className="flex items-center gap-4 p-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-800 dark:text-zinc-100">
+                    shot2code v{appVersion}
+                  </p>
+                  <p
+                    className={`mt-1 text-xs ${
+                      updateState.status === "error"
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-gray-500 dark:text-zinc-400"
+                    }`}
+                  >
+                    {updateStatusText}
+                  </p>
+                </div>
+                {updateState.status === "downloaded" ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void window.__SHOT2CODE_APP__?.installUpdate()
+                    }
+                    className="min-h-11 cursor-pointer rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white transition-colors duration-200 hover:bg-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2"
+                  >
+                    Restart & install
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={
+                      updateState.status === "checking" ||
+                      updateState.status === "downloading"
+                    }
+                    onClick={() => void checkForUpdates()}
+                    className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition-colors duration-200 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-wait disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    <LuRefreshCw
+                      className={`h-3.5 w-3.5 ${
+                        updateState.status === "checking" ? "animate-spin" : ""
+                      }`}
+                    />
+                    Check now
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Theme */}
           <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
             <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">

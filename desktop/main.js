@@ -7,7 +7,7 @@ const {
   session,
   desktopCapturer,
 } = require("electron");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const net = require("net");
@@ -19,6 +19,14 @@ let backendProcess = null;
 let mainWindow = null;
 let splashWindow = null;
 let logStream = null;
+let desktopUpdater = null;
+let updateState = {
+  status: isDev ? "unavailable" : "idle",
+  currentVersion: app.getVersion(),
+  version: null,
+  progress: null,
+  message: null,
+};
 
 const logFile = () =>
   path.join(app.getPath("userData"), "shot2code-backend.log");
@@ -31,9 +39,17 @@ function log(line) {
       fs.mkdirSync(app.getPath("userData"), { recursive: true });
       logStream = fs.createWriteStream(logFile(), { flags: "a" });
     }
+
     logStream.write(stamped);
   } catch {
     /* logging must never break startup */
+  }
+}
+
+function publishUpdateState(patch) {
+  updateState = { ...updateState, ...patch };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("shot2code:update-state", updateState);
   }
 }
 
@@ -228,38 +244,78 @@ function enableScreenCapture() {
 /**
  * Auto-update.
  *
- * Note: release assets on a *private* repository require an authorization
- * token, which a shipped desktop app cannot hold safely. Until the repo is
- * public (or a self-hosted feed exists) the check will fail with 404; that is
- * logged and otherwise ignored so it can never block startup.
+ * The public GitHub release feed provides latest.yml and the matching NSIS
+ * installer. The state is mirrored to Settings so updates are visible rather
+ * than existing only as log lines and a final restart dialog.
  */
 function initAutoUpdate() {
   if (isDev) {
     log("auto-update: skipped in dev");
+    publishUpdateState({
+      status: "unavailable",
+      message: "Updates are only available in the installed app.",
+    });
     return;
   }
 
-  let autoUpdater;
   try {
-    ({ autoUpdater } = require("electron-updater"));
+    ({ autoUpdater: desktopUpdater } = require("electron-updater"));
   } catch (err) {
     log(`auto-update: electron-updater unavailable (${err.message})`);
+    publishUpdateState({
+      status: "error",
+      message: "The update service is unavailable.",
+    });
     return;
   }
 
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.logger = { info: log, warn: log, error: log, debug: () => {} };
+  desktopUpdater.autoDownload = true;
+  desktopUpdater.autoInstallOnAppQuit = true;
+  desktopUpdater.logger = { info: log, warn: log, error: log, debug: () => {} };
 
-  autoUpdater.on("update-available", (info) =>
-    log(`auto-update: ${info.version} available, downloading`)
-  );
-  autoUpdater.on("update-not-available", () => log("auto-update: up to date"));
-  autoUpdater.on("error", (err) =>
-    log(`auto-update: check failed (${err && err.message})`)
-  );
-  autoUpdater.on("update-downloaded", async (info) => {
+  desktopUpdater.on("checking-for-update", () => {
+    publishUpdateState({ status: "checking", message: null });
+  });
+  desktopUpdater.on("update-available", (info) => {
+    log(`auto-update: ${info.version} available, downloading`);
+    publishUpdateState({
+      status: "downloading",
+      version: info.version,
+      progress: 0,
+      message: null,
+    });
+  });
+  desktopUpdater.on("download-progress", (progress) => {
+    publishUpdateState({
+      status: "downloading",
+      progress: Math.round(progress.percent || 0),
+    });
+  });
+  desktopUpdater.on("update-not-available", () => {
+    log("auto-update: up to date");
+    publishUpdateState({
+      status: "current",
+      version: null,
+      progress: null,
+      message: null,
+    });
+  });
+  desktopUpdater.on("error", (err) => {
+    log(`auto-update: check failed (${err && err.message})`);
+    publishUpdateState({
+      status: "error",
+      progress: null,
+      message: err?.message || "Could not check for updates.",
+    });
+  });
+  desktopUpdater.on("update-downloaded", async (info) => {
     log(`auto-update: ${info.version} downloaded`);
+    publishUpdateState({
+      status: "downloaded",
+      version: info.version,
+      progress: 100,
+      message: null,
+    });
     const { response } = await dialog.showMessageBox({
       type: "info",
       buttons: ["Restart now", "Later"],
@@ -267,12 +323,19 @@ function initAutoUpdate() {
       cancelId: 1,
       title: "Update ready",
       message: `shot2code ${info.version} has been downloaded.`,
-      detail: "Restart to finish installing, or it will apply next time you quit.",
+      detail:
+        "Restart to install it silently now, or choose Later and it will apply when you quit.",
     });
-    if (response === 0) autoUpdater.quitAndInstall();
+    if (response === 0) {
+      // The default isSilent=false opens the full NSIS setup wizard and waits
+      // for user input, which made auto-update look stuck. Install silently
+      // and force the updated app to relaunch.
+      desktopUpdater.quitAndInstall(true, true);
+    }
   });
 
-  autoUpdater.checkForUpdates().catch((err) => {
+  publishUpdateState({ status: "checking", message: null });
+  desktopUpdater.checkForUpdates().catch((err) => {
     log(`auto-update: ${err.message}`);
   });
 }
@@ -347,8 +410,15 @@ function stopBackend() {
   log("stopping backend");
   try {
     if (process.platform === "win32") {
-      // The Python process may have spawned the Copilot CLI; kill the tree.
-      spawn("taskkill", ["/pid", String(backendProcess.pid), "/f", "/t"]);
+      // The updater starts replacing resources immediately after before-quit.
+      // Waiting for the full Python/Copilot/Chromium tree to die prevents a
+      // partial install with locked native DLLs.
+      const result = spawnSync(
+        "taskkill",
+        ["/pid", String(backendProcess.pid), "/f", "/t"],
+        { windowsHide: true, encoding: "utf8" }
+      );
+      if (result.error) throw result.error;
     } else {
       backendProcess.kill("SIGTERM");
     }
@@ -371,6 +441,25 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     ipcMain.handle("shot2code:open-logs", () => shell.openPath(logFile()));
+    ipcMain.handle("shot2code:get-app-info", () => ({
+      version: app.getVersion(),
+      update: updateState,
+    }));
+    ipcMain.handle("shot2code:check-for-updates", async () => {
+      if (!desktopUpdater) return updateState;
+      publishUpdateState({ status: "checking", message: null });
+      try {
+        await desktopUpdater.checkForUpdates();
+      } catch {
+        // The updater's error event already records and publishes the cause.
+      }
+      return updateState;
+    });
+    ipcMain.handle("shot2code:install-update", () => {
+      if (!desktopUpdater || updateState.status !== "downloaded") return false;
+      setTimeout(() => desktopUpdater.quitAndInstall(true, true), 100);
+      return true;
+    });
 
     createSplash();
     enableScreenCapture();
@@ -410,4 +499,3 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", stopBackend);
   process.on("exit", stopBackend);
 }
-

@@ -10,4 +10,12 @@ contextBridge.exposeInMainWorld("__SHOT2CODE_BACKEND__", {
 
 contextBridge.exposeInMainWorld("__SHOT2CODE_APP__", {
   openLogs: () => ipcRenderer.invoke("shot2code:open-logs"),
+  getAppInfo: () => ipcRenderer.invoke("shot2code:get-app-info"),
+  checkForUpdates: () => ipcRenderer.invoke("shot2code:check-for-updates"),
+  installUpdate: () => ipcRenderer.invoke("shot2code:install-update"),
+  onUpdateState: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("shot2code:update-state", listener);
+    return () => ipcRenderer.removeListener("shot2code:update-state", listener);
+  },
 });

@@ -51,10 +51,10 @@ nsis:
 msi:
   oneClick: false
   perMachine: false
-  # Note: building the MSI locally can fail with LGHT1105 ("Validation could
-  # not run due to system policy") on locked-down machines, because WiX ICE
-  # validation needs elevated rights. CI runners are unrestricted, so the MSI
-  # is produced there. Use the NSIS .exe or the portable .zip locally.
+  # ICE validation requires elevated Windows Installer policy on locked-down
+  # machines. Skip that validation locally; the installer itself is unchanged.
+  additionalLightArgs:
+    - "-sval"
 
 # Chromium is bundled inside the PyInstaller payload, so the installer is large.
 # Skip compression tuning that would make the build far slower for little gain.

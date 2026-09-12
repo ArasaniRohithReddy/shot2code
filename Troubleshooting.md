@@ -16,6 +16,21 @@ problem with the download.
 
 It unpacks roughly 600 MB, so it can sit for a minute before showing progress.
 
+**An automatic update downloaded, but a Setup window is waiting**
+
+Versions up to v0.2.0 launched the interactive NSIS wizard after downloading.
+Complete that wizard once. v0.2.1 and later stop the backend/browser process
+tree first, install silently, and restart automatically. Settings shows the
+installed version and current update state.
+
+**"Backend did not become ready in time" after an automatic update**
+
+An older updater could replace files before the bundled backend and Chromium
+processes had fully exited, leaving native Python modules missing. Re-run the
+latest installer manually (right-click → **Properties** → **Unblock** first).
+v0.2.1 fixes the shutdown ordering so later updates cannot partially replace
+the backend.
+
 ## Starting the app
 
 **The window takes a while on first launch**

@@ -112,8 +112,12 @@ Packaging notes:
   app always launches headless.
 - Never round-trip `desktop/package.json` through `ConvertFrom-Json`/
   `ConvertTo-Json` - it drops fields. Edit it as text.
-- Auto-update is wired but inert while the repo is private: release assets need
-  an authorization token that a shipped app cannot hold safely.
+- Auto-update is active through the public GitHub Releases feed.
+- Updates must kill the backend process tree synchronously before
+  `quitAndInstall`; an asynchronous `taskkill` allowed NSIS to replace a live
+  PyInstaller tree and produced partial installs missing native `.pyd` modules.
+- `quitAndInstall()` defaults to an interactive wizard. Use
+  `quitAndInstall(true, true)` for a silent update followed by relaunch.
 
 ## Environment caveats
 
