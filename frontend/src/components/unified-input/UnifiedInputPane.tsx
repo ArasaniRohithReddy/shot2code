@@ -1,20 +1,22 @@
 import React, { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Stack } from "../../lib/stacks";
-import { DesignSystem, Settings } from "../../types";
+import { DesignSystem, MultiScreenshotMode, Settings } from "../../types";
 import UploadTab from "./tabs/UploadTab";
 import UrlTab from "./tabs/UrlTab";
 import TextTab from "./tabs/TextTab";
 import ImportTab from "./tabs/ImportTab";
 import { DesignSystemSelectorProps } from "../settings/DesignSystemSelector";
 import { ModelSelectorProps } from "../settings/ModelSelector";
+import { LuFolderOpen, LuX } from "react-icons/lu";
 
 interface Props {
   doCreate: (
     images: string[],
     inputMode: "image" | "video",
     textPrompt?: string,
-    isAssetExtractionEnabled?: boolean
+    isAssetExtractionEnabled?: boolean,
+    multiScreenshotMode?: MultiScreenshotMode
   ) => void;
   doCreateFromText: (text: string) => void;
   importFromCode: (code: string, stack: Stack) => void;
@@ -74,6 +76,36 @@ function UnifiedInputPane({
         onValueChange={(value) => setActiveTab(value as InputTab)}
         className="w-full"
       >
+        {settings.projectContext && (
+          <div
+            role="status"
+            className="mb-3 flex items-center gap-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-100"
+          >
+            <LuFolderOpen className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" />
+            <div className="min-w-0 flex-1">
+              <span className="font-medium">Using {settings.projectContext.name}</span>
+              <span className="ml-2 text-xs text-violet-700 dark:text-violet-300">
+                {settings.projectContext.component_count} components ·{" "}
+                {settings.projectContext.analyzed_file_count} files
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setSettings((previous) => ({
+                  ...previous,
+                  projectContext: null,
+                }))
+              }
+              aria-label="Clear imported project context"
+              title="Clear project context"
+              className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-violet-500 transition-colors duration-200 hover:bg-violet-100 hover:text-violet-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:hover:bg-violet-900/50 dark:hover:text-violet-100"
+            >
+              <LuX className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
         <TabsList className="grid w-full grid-cols-4 mb-6">
           <TabsTrigger
             value="upload"
@@ -141,7 +173,13 @@ function UnifiedInputPane({
         </TabsContent>
 
         <TabsContent value="import" className="mt-0">
-          <ImportTab importFromCode={importFromCode} />
+          <ImportTab
+            importFromCode={importFromCode}
+            projectContext={settings.projectContext}
+            setProjectContext={(projectContext) =>
+              setSettings((previous) => ({ ...previous, projectContext }))
+            }
+          />
         </TabsContent>
       </Tabs>
     </div>

@@ -27,9 +27,10 @@ launches are quicker.
 
 ## Using it
 
-Give shot2code a screenshot, a URL, a text description, or a screen recording,
-and it generates a working page. It produces several variants in parallel so you
-can pick the best one, then refine it by describing what to change.
+Give shot2code a screenshot, several related screenshots, a URL, a text
+description, or a screen recording, and it generates a working page. It
+produces several variants in parallel so you can pick the best one, then refine
+it by describing what to change.
 
 Supported output stacks:
 
@@ -39,6 +40,12 @@ Supported output stacks:
 - Vue + Tailwind
 - Bootstrap
 - Ionic + Tailwind
+- Alpine.js + Tailwind
+- Preact + Tailwind
+- Tailwind + daisyUI
+- Bulma
+- Material 3
+- htmx + Tailwind
 
 Other things it can do:
 
@@ -49,6 +56,39 @@ Other things it can do:
 - **Asset extraction** — reuses the real logos and images from your screenshot
   (needs a Gemini key)
 - **Image generation and editing** (needs a Replicate key)
+- **Existing-project context** — choose a folder, ZIP, or source files and
+  shot2code extracts component names, props, dependencies and design tokens
+  without executing the project. The compact summary guides later generations.
+- **Multi-screenshot modes** — choose whether screenshots are separate pages,
+  responsive views, UI states, or supporting references. Separate pages is the
+  default, and every screenshot must be represented.
+- **Project export** — React and Preact become real Vite projects; other stacks
+  export as separate HTML, CSS and JavaScript files.
+
+### Multiple screenshots
+
+When more than one screenshot is uploaded, shot2code asks how they relate:
+
+| Mode | Behaviour |
+|---|---|
+| Separate pages | One navigable route/view per screenshot; none may be omitted |
+| Responsive views | One page, with breakpoints inferred from the screenshots |
+| UI states | One interface with interactions that move between the states |
+| Supporting references | Screenshot 1 is the target; the rest clarify details |
+
+### Use an existing project as context
+
+Open **Import → Existing project context** and choose:
+
+- A project folder
+- A ZIP archive
+- Selected source files
+
+shot2code ignores `node_modules`, build output, binaries and oversized files. It
+does not execute configuration or application code. Only a bounded summary is
+stored on the device and sent as design context; raw source files are discarded
+after analysis. The active project appears above every input tab and in
+Settings, where it can be cleared.
 
 ## Choosing a model
 

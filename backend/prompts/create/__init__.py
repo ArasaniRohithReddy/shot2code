@@ -22,6 +22,7 @@ def build_create_prompt_from_input(
             text_prompt=text_prompt,
             image_generation_enabled=image_generation_enabled,
             design_system=design_system,
+            multi_image_mode=prompt.get("multi_image_mode"),
         )
     if input_mode == "text":
         return build_text_prompt_messages(

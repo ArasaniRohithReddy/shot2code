@@ -25,6 +25,7 @@ from custom_types import InputMode
 from llm import (
     COPILOT_MODELS,
     Llm,
+    get_copilot_api_name,
 )
 from typing import (
     Any,
@@ -64,6 +65,7 @@ from uploaded_assets import (
     infer_local_asset_base_url,
 )
 from agent.runner import Agent
+from copilot_auth import copilot_models as available_copilot_models
 from copilot_auth import probe_copilot_auth
 from fs_logging.agent_runs import AgentRunRecorder
 from routes.model_choice_sets import (
@@ -853,6 +855,20 @@ class CodeGenerationMiddleware(Middleware):
             assert context.extracted_params is not None
 
             # Select models (handles video mode internally)
+            copilot_available = bool(
+                context.extracted_params.copilot_github_token
+            ) or await probe_copilot_auth()
+            selected_copilot_models = context.extracted_params.copilot_models
+            if selected_copilot_models and copilot_available:
+                current_ids = {
+                    str(model["id"]) for model in available_copilot_models()
+                }
+                selected_copilot_models = [
+                    model
+                    for model in selected_copilot_models
+                    if get_copilot_api_name(model) in current_ids
+                ] or None
+
             model_selector = ModelSelectionStage(context.throw_error)
             context.variant_models = await model_selector.select_models(
                 generation_type=context.extracted_params.generation_type,
@@ -860,11 +876,8 @@ class CodeGenerationMiddleware(Middleware):
                 openai_api_key=context.extracted_params.openai_api_key,
                 anthropic_api_key=context.extracted_params.anthropic_api_key,
                 gemini_api_key=context.extracted_params.gemini_api_key,
-                copilot_available=bool(
-                    context.extracted_params.copilot_github_token
-                )
-                or await probe_copilot_auth(),
-                copilot_models=context.extracted_params.copilot_models,
+                copilot_available=copilot_available,
+                copilot_models=selected_copilot_models,
             )
             if IS_DEBUG_ENABLED:
                 await context.send_message(

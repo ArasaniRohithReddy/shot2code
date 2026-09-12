@@ -1,6 +1,9 @@
 from typing import List, Literal, TypedDict
 
 
+MultiImageMode = Literal["pages", "responsive", "states", "references"]
+
+
 class _UserTurnInputRequired(TypedDict):
     text: str
     images: List[str]
@@ -13,6 +16,7 @@ class UserTurnInput(_UserTurnInputRequired, total=False):
     # Full instruction for the model when it differs from the display text
     # (e.g. includes the selected-element reference, built by the frontend).
     full_text: str
+    multi_image_mode: MultiImageMode
 
 
 class PromptHistoryMessage(TypedDict):

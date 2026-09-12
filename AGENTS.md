@@ -49,6 +49,26 @@ engine, which resolves it via `append_tool_results`. Notes:
   *request* count, not dollars; reporting it as USD trips
   `GENERATION_MAX_COST_USD` and aborts normal runs.
 
+## Imported project context
+
+The Import tab can analyse a folder, ZIP, or selected source files through
+`backend/routes/project_context.py`.
+
+- Never execute imported code or load its configuration modules. In particular,
+  do not `require()`/import `tailwind.config.*`; parse text only.
+- The scanner rejects traversal paths, ignores dependency/build directories,
+  limits file count, per-file size, archive size, and total decoded text.
+- Raw source is not persisted. Only the compact `ProjectContext.summary` is
+  stored in frontend settings and appended to the selected manual design system
+  before prompt construction.
+- Generation previews remain self-contained. Imported component paths are
+  naming/API context, not permission to emit local imports that the preview
+  cannot resolve.
+
+Multiple screenshots carry an explicit `multiImageMode`: `pages`, `responsive`,
+`states`, or `references`. When absent with more than one image, `pages` is the
+backend default so every screenshot must be represented.
+
 ## Desktop app
 
 `desktop/` is an Electron shell that starts the frozen backend on a free port,

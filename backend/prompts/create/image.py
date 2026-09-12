@@ -1,6 +1,6 @@
 from openai.types.chat import ChatCompletionContentPartParam, ChatCompletionMessageParam
 
-from prompts.prompt_types import Stack
+from prompts.prompt_types import MultiImageMode, Stack
 from prompts import system_prompt
 from prompts.design_system import build_design_system_prompt_block
 from prompts.policies import build_selected_stack_policy, build_user_image_policy
@@ -11,10 +11,51 @@ def build_image_prompt_messages(
     text_prompt: str,
     image_generation_enabled: bool,
     design_system: str | None = None,
+    multi_image_mode: MultiImageMode | None = None,
 ) -> list[ChatCompletionMessageParam]:
     image_policy = build_user_image_policy(image_generation_enabled)
     selected_stack = build_selected_stack_policy(stack)
     design_system_block = build_design_system_prompt_block(design_system)
+    screenshot_count = len(image_data_urls)
+    effective_mode: MultiImageMode | None = (
+        multi_image_mode or "pages" if screenshot_count > 1 else None
+    )
+    multi_screenshot_instruction = ""
+    if effective_mode == "pages":
+        multi_screenshot_instruction = f"""
+The {screenshot_count} screenshots are distinct pages or views.
+
+- Build one navigable route/view for every screenshot, in the same order.
+- Screenshot 1, Screenshot 2, etc. must each have a clearly identifiable implementation.
+- Include navigation that lets the user reach every view.
+- Do not merge the screenshots into one composite page and do not omit any screenshot.
+- Before finishing, verify that the output contains exactly {screenshot_count} distinct views.
+"""
+    elif effective_mode == "responsive":
+        multi_screenshot_instruction = f"""
+The {screenshot_count} screenshots show the same page at different viewport sizes.
+
+- Build one responsive page, not duplicate pages.
+- Infer the breakpoints, wrapping, stacking and visibility changes between screenshots.
+- Preserve content and hierarchy consistently across all viewport sizes.
+"""
+    elif effective_mode == "states":
+        multi_screenshot_instruction = f"""
+The {screenshot_count} screenshots are sequential states of one interface.
+
+- Build one interface and implement the controls/state needed to move between the states.
+- Preserve elements that stay constant and model what appears, disappears or changes.
+- The initial state should match Screenshot 1.
+"""
+    elif effective_mode == "references":
+        multi_screenshot_instruction = f"""
+Screenshot 1 is the primary target. The other {screenshot_count - 1} screenshot(s)
+are supporting references for styling, components and details.
+
+- Build only the primary page.
+- Do not create extra pages for the reference screenshots.
+- Use references to resolve details that are unclear in Screenshot 1.
+"""
     user_prompt = f"""
 Generate code for a web page that looks exactly like the provided screenshot(s).
 
@@ -35,11 +76,8 @@ Generate code for a web page that looks exactly like the provided screenshot(s).
 
 ## Multiple screenshots
 
-If multiple screenshots are provided, organize them meaningfully:
+{multi_screenshot_instruction}
 
-- If they appear to be different pages in a website, make them distinct pages and link them.
-- If they look like different tabs or views in an app, connect them with appropriate navigation.
-- If they appear unrelated, create a scaffold that separates them into "Screenshot 1", "Screenshot 2", "Screenshot 3", etc. so it is easy to navigate.
 - For mobile screenshots, do not include the device frame or browser chrome; focus only on the actual UI mockups.
 """
 

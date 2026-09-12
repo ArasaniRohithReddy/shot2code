@@ -40,10 +40,17 @@ async def probe_copilot_auth(force: bool = False) -> bool:
         try:
             await client.start()
             status = await client.get_auth_status()
-            _cached_available = bool(getattr(status, "isAuthenticated", False))
-            _cached_login = getattr(status, "login", None)
-            if _cached_available:
-                _cached_models = await _collect_models(client)
+            available = bool(getattr(status, "isAuthenticated", False))
+            login = getattr(status, "login", None)
+            models = await _collect_models(client) if available else []
+
+            # Publish the cache atomically. The startup probe runs in the
+            # background; setting `_cached_available` before list_models()
+            # finished let /api/capabilities report "signed in" with an empty
+            # list, and Settings never fetched again.
+            _cached_models = models
+            _cached_login = login
+            _cached_available = available
         except Exception as exc:
             print(f"[copilot] auth probe failed: {exc}")
             _cached_available = False

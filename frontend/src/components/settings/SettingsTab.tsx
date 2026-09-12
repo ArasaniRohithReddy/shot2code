@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BsCheckCircleFill, BsExclamationTriangleFill } from "react-icons/bs";
+import { LuFolderOpen, LuRefreshCw, LuTrash2 } from "react-icons/lu";
 import { AppTheme, EditorTheme, Settings } from "../../types";
 import { capitalize } from "../../lib/utils";
 import {
@@ -11,6 +12,7 @@ import {
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { HTTP_BACKEND_URL } from "../../config";
+import toast from "react-hot-toast";
 
 interface Props {
   settings: Settings;
@@ -29,6 +31,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   const [copilotModels, setCopilotModels] = useState<
     { id: string; vision: boolean }[]
   >([]);
+  const [isRefreshingCopilot, setIsRefreshingCopilot] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +56,26 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
       cancelled = true;
     };
   }, []);
+
+  const refreshCopilotModels = async () => {
+    setIsRefreshingCopilot(true);
+    try {
+      const response = await fetch(
+        `${HTTP_BACKEND_URL}/api/capabilities?refresh=true`
+      );
+      if (!response.ok) return;
+      const data = await response.json();
+      setCopilotAvailable(Boolean(data.copilot));
+      setCopilotLogin(data.copilot_login ?? null);
+      setCopilotModels(
+        Array.isArray(data.copilot_models) ? data.copilot_models : []
+      );
+    } catch {
+      toast.error("Could not refresh Copilot models");
+    } finally {
+      setIsRefreshingCopilot(false);
+    }
+  };
 
   const handleThemeChange = (theme: EditorTheme) => {
     setSettings((s) => ({
@@ -138,6 +161,51 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
             </div>
           </div>
 
+          {settings.projectContext && (
+            <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+              <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
+                <h2 className="text-sm font-medium text-gray-900 dark:text-white">
+                  Existing project context
+                </h2>
+              </div>
+              <div className="flex items-start gap-3 p-4">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-300">
+                  <LuFolderOpen className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-gray-800 dark:text-zinc-100">
+                    {settings.projectContext.name}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                    {settings.projectContext.analyzed_file_count} source files,{" "}
+                    {settings.projectContext.component_count} components and{" "}
+                    {settings.projectContext.tokens.length} tokens/classes are
+                    guiding new generations and edits.
+                  </p>
+                  {settings.projectContext.framework_hints.length > 0 && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+                      {settings.projectContext.framework_hints.join(" · ")}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSettings((previous) => ({
+                      ...previous,
+                      projectContext: null,
+                    }))
+                  }
+                  aria-label="Clear imported project context"
+                  title="Clear project context"
+                  className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg text-gray-400 transition-colors duration-200 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+                >
+                  <LuTrash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* GitHub Copilot */}
           <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
             <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
@@ -159,7 +227,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                       <span className="notranslate" translate="no">
                         Copilot:
                       </span>{" "}
-                      model above.
+                      model below.
                     </p>
                   </div>
                 </div>
@@ -183,13 +251,30 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
               )}
 
               <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                  Models
-                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                    Models
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void refreshCopilotModels()}
+                    disabled={isRefreshingCopilot}
+                    className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-xs text-violet-600 transition-colors duration-200 hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-wait disabled:opacity-60 dark:text-violet-400 dark:hover:bg-violet-950/30"
+                  >
+                    <LuRefreshCw
+                      className={`h-3.5 w-3.5 ${
+                        isRefreshingCopilot ? "animate-spin" : ""
+                      }`}
+                    />
+                    Refresh
+                  </button>
+                </div>
                 <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
                   {copilotModels.length > 0
                     ? "Pick which models to generate with. Each generation produces one variant per selected model. Leave all unchecked to let shot2code choose."
-                    : "Sign in to see the models your Copilot plan offers."}
+                    : copilotAvailable
+                      ? "No models are cached yet. Refresh to query the models your Copilot plan currently offers."
+                      : "Sign in to see the models your Copilot plan offers."}
                 </p>
 
                 {copilotModels.length > 0 && (

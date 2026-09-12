@@ -2,12 +2,19 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { toast } from "react-hot-toast";
 import { Cross2Icon, ImageIcon } from "@radix-ui/react-icons";
-import { ScreenRecorderState } from "../../../types";
+import { MultiScreenshotMode, ScreenRecorderState } from "../../../types";
 import ScreenRecorder from "../../recording/ScreenRecorder";
 import { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
 import { ModelSelectorProps } from "../../settings/ModelSelector";
 import { Stack } from "../../../lib/stacks";
 import GenerationControls from "../GenerationControls";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../ui/select";
 
 function fileToDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -49,7 +56,8 @@ interface Props {
     referenceImages: string[],
     inputMode: "image" | "video",
     textPrompt?: string,
-    isAssetExtractionEnabled?: boolean
+    isAssetExtractionEnabled?: boolean,
+    multiScreenshotMode?: MultiScreenshotMode
   ) => void;
   stack: Stack;
   setStack: (stack: Stack) => void;
@@ -65,6 +73,8 @@ function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: P
   >("image");
   const [textPrompt, setTextPrompt] = useState("");
   const [isAssetExtractionEnabled, setIsAssetExtractionEnabled] = useState(true);
+  const [multiScreenshotMode, setMultiScreenshotMode] =
+    useState<MultiScreenshotMode>("pages");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
   const filesRef = useRef<FileWithPreview[]>([]);
@@ -81,7 +91,8 @@ function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: P
         uploadedDataUrls,
         uploadedInputMode,
         textPrompt,
-        isAssetExtractionEnabled
+        isAssetExtractionEnabled,
+        multiScreenshotMode
       );
     }
   }, [
@@ -89,6 +100,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: P
     uploadedInputMode,
     textPrompt,
     isAssetExtractionEnabled,
+    multiScreenshotMode,
     doCreate,
   ]);
 
@@ -454,6 +466,50 @@ function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: P
               </div>
             )}
           </div>
+
+          {uploadedInputMode === "image" && files.length > 1 && (
+            <div className="w-full max-w-2xl rounded-xl border border-violet-200 bg-violet-50/70 p-4 dark:border-violet-900/60 dark:bg-violet-950/20">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1">
+                  <label
+                    htmlFor="multi-screenshot-mode"
+                    className="text-sm font-semibold text-gray-800 dark:text-zinc-100"
+                  >
+                    How are these screenshots related?
+                  </label>
+                  <p className="mt-1 text-xs leading-5 text-gray-600 dark:text-zinc-400">
+                    {multiScreenshotMode === "pages" &&
+                      "Build a distinct route or view for every screenshot. None may be omitted."}
+                    {multiScreenshotMode === "responsive" &&
+                      "Treat them as the same page at different viewport sizes and create one responsive layout."}
+                    {multiScreenshotMode === "states" &&
+                      "Treat them as states of one interface and wire the interactions that move between them."}
+                    {multiScreenshotMode === "references" &&
+                      "Use screenshot 1 as the target; use the others only for supporting details and style."}
+                  </p>
+                </div>
+                <Select
+                  value={multiScreenshotMode}
+                  onValueChange={(value) =>
+                    setMultiScreenshotMode(value as MultiScreenshotMode)
+                  }
+                >
+                  <SelectTrigger
+                    id="multi-screenshot-mode"
+                    className="min-h-11 w-full cursor-pointer bg-white sm:w-52 dark:bg-zinc-900"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pages">Separate pages</SelectItem>
+                    <SelectItem value="responsive">Responsive views</SelectItem>
+                    <SelectItem value="states">UI states</SelectItem>
+                    <SelectItem value="references">Supporting references</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
 
           <GenerationControls
             textPrompt={textPrompt}

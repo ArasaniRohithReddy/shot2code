@@ -60,6 +60,23 @@ Only models that accept images are shown, because turning a screenshot into code
 requires image input. If the list is empty, your plan may not currently include
 a vision-capable model.
 
+**An imported project has no components or tokens**
+
+The scanner reads HTML, CSS, JavaScript, TypeScript, Vue, JSON, Markdown and
+YAML. It deliberately skips `node_modules`, build output, binaries and large
+files, and it never executes `tailwind.config.js` or any other project code.
+Component discovery currently recognises exported React/TypeScript components
+and `.vue` component files; CSS variables and reusable CSS classes become
+design tokens.
+
+**Only one of several screenshots appears in the result**
+
+Upload the screenshots together and choose **Separate pages** in “How are these
+screenshots related?”. That mode requires one navigable view per screenshot and
+makes the model verify the view count. Use **Responsive views** only when the
+images are the same page at different widths, and **UI states** for before/after
+states such as an open modal.
+
 **"Could not start screen recording"**
 
 Screen capture needs the app to grant itself permission to the display. If this

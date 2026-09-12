@@ -1,6 +1,6 @@
 from typing import List, cast
 
-from prompts.prompt_types import PromptHistoryMessage, UserTurnInput
+from prompts.prompt_types import MultiImageMode, PromptHistoryMessage, UserTurnInput
 
 
 def _to_string_list(value: object) -> List[str]:
@@ -25,6 +25,10 @@ def parse_prompt_content(raw_prompt: object) -> UserTurnInput:
     full_text = prompt_dict.get("fullText")
     if isinstance(full_text, str) and full_text.strip():
         parsed["full_text"] = full_text
+
+    raw_multi_image_mode = prompt_dict.get("multiImageMode")
+    if raw_multi_image_mode in ("pages", "responsive", "states", "references"):
+        parsed["multi_image_mode"] = cast(MultiImageMode, raw_multi_image_mode)
 
     return parsed
 

@@ -1,6 +1,7 @@
 import React from "react";
 import { DesignSystem, Settings } from "../../types";
 import { Stack } from "../../lib/stacks";
+import { MultiScreenshotMode } from "../../types";
 import UnifiedInputPane from "../unified-input/UnifiedInputPane";
 
 interface Props {
@@ -8,7 +9,8 @@ interface Props {
     images: string[],
     inputMode: "image" | "video",
     textPrompt?: string,
-    isAssetExtractionEnabled?: boolean
+    isAssetExtractionEnabled?: boolean,
+    multiScreenshotMode?: MultiScreenshotMode
   ) => void;
   doCreateFromText: (text: string) => void;
   importFromCode: (code: string, stack: Stack) => void;

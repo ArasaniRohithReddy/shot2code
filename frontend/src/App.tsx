@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { generateCode } from "./generateCode";
-import { AppState, AppTheme, EditorTheme, Settings } from "./types";
+import {
+  AppState,
+  AppTheme,
+  EditorTheme,
+  MultiScreenshotMode,
+  Settings,
+} from "./types";
 import { NEW_DESIGN_SYSTEM_CONTENT } from "./lib/design-systems";
 import { OnboardingNote } from "./components/messages/OnboardingNote";
 import { usePersistedState } from "./hooks/usePersistedState";
@@ -9,6 +15,7 @@ import toast from "react-hot-toast";
 import { nanoid } from "nanoid";
 import { Stack } from "./lib/stacks";
 import { CodeGenerationModel } from "./lib/models";
+import { buildGenerationContext } from "./lib/project-context-summary";
 import useBrowserTabIndicator from "./hooks/useBrowserTabIndicator";
 import { LuChevronLeft } from "react-icons/lu";
 import {
@@ -99,6 +106,7 @@ function App() {
       generatedCodeConfig: Stack.HTML_TAILWIND,
       codeGenerationModel: CodeGenerationModel.GEMINI_3_FLASH_PREVIEW_MINIMAL,
       selectedDesignSystemId: null,
+      projectContext: null,
     },
     "setting"
   );
@@ -326,12 +334,16 @@ function App() {
     const selectedDesignSystem = designSystems.find(
       (designSystem) => designSystem.id === settings.selectedDesignSystemId
     );
+    const designContext = buildGenerationContext(
+      selectedDesignSystem?.content,
+      settings.projectContext
+    );
 
     // Merge settings with params
     const updatedParams = {
       ...settings,
       ...requestParams,
-      designSystem: selectedDesignSystem?.content ?? null,
+      designSystem: designContext,
     };
 
     // Use 4 variants for create, 2 for edits to match backend counts
@@ -570,7 +582,8 @@ function App() {
     referenceImages: string[],
     inputMode: "image" | "video",
     textPrompt: string = "",
-    isAssetExtractionEnabled = true
+    isAssetExtractionEnabled = true,
+    multiScreenshotMode?: MultiScreenshotMode
   ) {
     // Reset any existing state
     reset();
@@ -613,6 +626,10 @@ function App() {
           text: textPrompt,
           images: inputMode === "image" ? media : [],
           videos: inputMode === "video" ? media : [],
+          multiImageMode:
+            inputMode === "image" && media.length > 1
+              ? multiScreenshotMode ?? "pages"
+              : undefined,
         },
         // Asset extraction operates on still screenshots. Video data uses the
         // same transport shape for Gemini, so explicitly disable extraction

@@ -26,6 +26,7 @@ export interface Settings {
   geminiApiKey: string | null;
   copilotGithubToken: string | null;
   copilotModels: string[];
+  projectContext: ProjectContext | null;
 }
 
 export interface DesignSystem {
@@ -34,6 +35,24 @@ export interface DesignSystem {
   content: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProjectComponentSummary {
+  name: string;
+  path: string;
+  props: string[];
+}
+
+export interface ProjectContext {
+  name: string;
+  file_count: number;
+  analyzed_file_count: number;
+  component_count: number;
+  components: ProjectComponentSummary[];
+  dependencies: string[];
+  tokens: string[];
+  framework_hints: string[];
+  summary: string;
 }
 
 export enum AppState {
@@ -50,6 +69,11 @@ export enum ScreenRecorderState {
 
 export type PromptMessageRole = "user" | "assistant";
 export type PromptAssetType = "image" | "video";
+export type MultiScreenshotMode =
+  | "pages"
+  | "responsive"
+  | "states"
+  | "references";
 
 export interface PromptAsset {
   id: string;
@@ -64,6 +88,7 @@ export interface PromptContent {
   fullText?: string;
   images: string[]; // Array of data URLs
   videos?: string[]; // Array of data URLs
+  multiImageMode?: MultiScreenshotMode;
   selectedElementHtml?: string; // Raw HTML of selected element (for display only)
 }
 
