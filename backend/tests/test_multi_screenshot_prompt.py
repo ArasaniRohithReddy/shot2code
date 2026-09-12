@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 from prompts.create.image import build_image_prompt_messages
+from prompts.message_builder import build_history_message
 from prompts.request_parsing import parse_prompt_content
 
 
@@ -56,3 +57,19 @@ def test_parser_accepts_multi_image_mode_from_frontend() -> None:
     )
 
     assert parsed["multi_image_mode"] == "states"
+
+
+def test_history_preserves_multi_screenshot_relationship() -> None:
+    message = build_history_message(
+        {
+            "role": "user",
+            "text": "Match these screens",
+            "images": ["desktop", "mobile"],
+            "videos": [],
+            "multi_image_mode": "responsive",
+        }
+    )
+    content = message["content"]
+    assert isinstance(content, list)
+    text_part = next(part for part in content if part.get("type") == "text")
+    assert "one page at different responsive sizes" in text_part["text"]

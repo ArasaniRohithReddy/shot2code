@@ -50,7 +50,10 @@ nsis:
 
 msi:
   oneClick: false
-  perMachine: false
+  # MSI is the managed-deployment format. Install per-machine and let the
+  # administrator deploy upgrades; the NSIS installer remains the
+  # self-updating per-user format.
+  perMachine: true
   # ICE validation requires elevated Windows Installer policy on locked-down
   # machines. Skip that validation locally; the installer itself is unchanged.
   additionalLightArgs:

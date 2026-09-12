@@ -49,13 +49,21 @@ def parse_prompt_history(raw_history: object) -> List[PromptHistoryMessage]:
             continue
 
         text = item_dict.get("text")
-        history.append(
-            {
-                "role": role_value,
-                "text": text if isinstance(text, str) else "",
-                "images": _to_string_list(item_dict.get("images")),
-                "videos": _to_string_list(item_dict.get("videos")),
-            }
-        )
+        history_item: PromptHistoryMessage = {
+            "role": role_value,
+            "text": text if isinstance(text, str) else "",
+            "images": _to_string_list(item_dict.get("images")),
+            "videos": _to_string_list(item_dict.get("videos")),
+        }
+        if item_dict.get("multiImageMode") in (
+            "pages",
+            "responsive",
+            "states",
+            "references",
+        ):
+            history_item["multi_image_mode"] = cast(
+                MultiImageMode, item_dict["multiImageMode"]
+            )
+        history.append(history_item)
 
     return history

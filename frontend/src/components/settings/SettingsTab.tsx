@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { BsCheckCircleFill, BsExclamationTriangleFill } from "react-icons/bs";
 import { LuFolderOpen, LuRefreshCw, LuTrash2 } from "react-icons/lu";
 import { AppTheme, EditorTheme, Settings } from "../../types";
@@ -35,10 +35,23 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateState, setUpdateState] =
     useState<Shot2CodeUpdateState | null>(null);
+  const initialCopilotToken = useRef(settings.copilotGithubToken);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${HTTP_BACKEND_URL}/api/capabilities`)
+    const token = initialCopilotToken.current?.trim();
+    fetch(
+      token
+        ? `${HTTP_BACKEND_URL}/api/copilot/capabilities`
+        : `${HTTP_BACKEND_URL}/api/capabilities`,
+      token
+        ? {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          }
+        : undefined
+    )
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => {
         if (!cancelled && data && typeof data.screenshot_preview === "boolean") {
@@ -65,11 +78,16 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
     if (!desktop) return;
 
     let active = true;
-    void desktop.getAppInfo().then((info) => {
-      if (!active) return;
-      setAppVersion(info.version);
-      setUpdateState(info.update);
-    });
+    void desktop
+      .getAppInfo()
+      .then((info) => {
+        if (!active) return;
+        setAppVersion(info.version);
+        setUpdateState(info.update);
+      })
+      .catch((error) => {
+        console.error("Could not load desktop app information", error);
+      });
     const unsubscribe = desktop.onUpdateState((state) => {
       if (active) setUpdateState(state);
     });
@@ -82,8 +100,18 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   const refreshCopilotModels = async () => {
     setIsRefreshingCopilot(true);
     try {
+      const token = settings.copilotGithubToken?.trim();
       const response = await fetch(
-        `${HTTP_BACKEND_URL}/api/capabilities?refresh=true`
+        token
+          ? `${HTTP_BACKEND_URL}/api/copilot/capabilities`
+          : `${HTTP_BACKEND_URL}/api/capabilities?refresh=true`,
+        token
+          ? {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token }),
+            }
+          : undefined
       );
       if (!response.ok) return;
       const data = await response.json();
@@ -114,8 +142,19 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
         ? { ...current, status: "checking", message: null }
         : current
     );
-    const state = await desktop.checkForUpdates();
-    setUpdateState(state);
+    try {
+      const state = await desktop.checkForUpdates();
+      setUpdateState(state);
+    } catch {
+      toast.error("Could not check for updates");
+    }
+  };
+
+  const installDownloadedUpdate = async () => {
+    const installed = await window.__SHOT2CODE_APP__?.installUpdate();
+    if (installed === false) {
+      toast.error("The downloaded update is no longer available");
+    }
   };
 
   const updateStatusText = (() => {
@@ -176,9 +215,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                 {updateState.status === "downloaded" ? (
                   <button
                     type="button"
-                    onClick={() =>
-                      void window.__SHOT2CODE_APP__?.installUpdate()
-                    }
+                    onClick={() => void installDownloadedUpdate()}
                     className="min-h-11 cursor-pointer rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white transition-colors duration-200 hover:bg-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2"
                   >
                     Restart & install

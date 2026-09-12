@@ -118,6 +118,11 @@ Packaging notes:
   PyInstaller tree and produced partial installs missing native `.pyd` modules.
 - `quitAndInstall()` defaults to an interactive wizard. Use
   `quitAndInstall(true, true)` for a silent update followed by relaunch.
+- MSI is per-machine managed deployment. The shell detects Program Files and
+  disables self-update there; NSIS remains the self-updating per-user format.
+- Every release must upload the NSIS `.exe`, its `.exe.blockmap`, `latest.yml`,
+  MSI, and portable ZIP. Without the blockmap, updates fall back to downloading
+  the full installer.
 
 ## Environment caveats
 

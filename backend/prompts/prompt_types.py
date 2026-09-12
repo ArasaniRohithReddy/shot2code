@@ -1,4 +1,4 @@
-from typing import List, Literal, TypedDict
+from typing import List, Literal, NotRequired, TypedDict
 
 
 MultiImageMode = Literal["pages", "responsive", "states", "references"]
@@ -26,6 +26,7 @@ class PromptHistoryMessage(TypedDict):
     text: str
     images: List[str]
     videos: List[str]
+    multi_image_mode: NotRequired[MultiImageMode]
 
 
 PromptConstructionStrategy = Literal[

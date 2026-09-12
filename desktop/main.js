@@ -14,6 +14,13 @@ const net = require("net");
 const http = require("http");
 
 const isDev = !app.isPackaged;
+const isManagedInstall =
+  process.platform === "win32" &&
+  [process.env.ProgramFiles, process.env["ProgramFiles(x86)"]]
+    .filter(Boolean)
+    .some((root) =>
+      process.execPath.toLowerCase().startsWith(root.toLowerCase())
+    );
 
 let backendProcess = null;
 let mainWindow = null;
@@ -254,6 +261,14 @@ function initAutoUpdate() {
     publishUpdateState({
       status: "unavailable",
       message: "Updates are only available in the installed app.",
+    });
+    return;
+  }
+  if (isManagedInstall) {
+    log("auto-update: managed MSI install, updates are administrator-controlled");
+    publishUpdateState({
+      status: "unavailable",
+      message: "Updates are managed by your administrator for this MSI install.",
     });
     return;
   }

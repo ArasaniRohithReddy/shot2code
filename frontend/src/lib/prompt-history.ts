@@ -85,19 +85,22 @@ export function toRequestHistory(
     text: message.text,
     images: resolveAssetIdsToDataUrls(message.imageAssetIds, getAssetsById),
     videos: resolveAssetIdsToDataUrls(message.videoAssetIds, getAssetsById),
+    multiImageMode: message.multiImageMode,
   }));
 }
 
 export function buildUserHistoryMessage(
   text: string,
   imageAssetIds: string[] = [],
-  videoAssetIds: string[] = []
+  videoAssetIds: string[] = [],
+  multiImageMode?: PromptHistoryMessage["multiImageMode"]
 ): VariantHistoryMessage {
   return {
     role: "user",
     text,
     imageAssetIds,
     videoAssetIds,
+    multiImageMode,
   };
 }
 

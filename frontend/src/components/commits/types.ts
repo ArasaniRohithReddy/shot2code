@@ -1,4 +1,8 @@
-import { PromptContent, PromptMessageRole } from "../../types";
+import {
+  MultiScreenshotMode,
+  PromptContent,
+  PromptMessageRole,
+} from "../../types";
 
 export type CommitHash = string;
 
@@ -24,6 +28,7 @@ export type VariantHistoryMessage = {
   text: string;
   imageAssetIds: string[];
   videoAssetIds: string[];
+  multiImageMode?: MultiScreenshotMode;
 };
 
 export type Variant = {

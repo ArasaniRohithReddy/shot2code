@@ -15,6 +15,14 @@ function createGeneratingCommit(): Commit {
   };
 }
 
+test("preserves the selected multi-screenshot interpretation for retry", () => {
+  useProjectStore.getState().setMultiScreenshotMode("responsive");
+
+  expect(useProjectStore.getState().multiScreenshotMode).toBe("responsive");
+
+  useProjectStore.getState().setMultiScreenshotMode("pages");
+});
+
 describe("version navigation", () => {
   const selectedElement = { tagName: "BUTTON" } as HTMLElement;
 

@@ -3,6 +3,8 @@ import { ProjectContext } from "../types";
 
 const MAX_FILES = 400;
 const MAX_CLIENT_FILE_BYTES = 600_000;
+const MAX_TOTAL_CLIENT_BYTES = 8 * 1024 * 1024;
+const MAX_ZIP_BYTES = 30 * 1024 * 1024;
 const TEXT_EXTENSIONS = new Set([
   ".css",
   ".html",
@@ -79,6 +81,14 @@ export async function scanProjectFiles(
       "No supported source files were found. Choose HTML, CSS, JavaScript, TypeScript, Vue, JSON or Markdown files."
     );
   }
+  const totalBytes = readable.reduce((total, file) => total + file.size, 0);
+  if (totalBytes > MAX_TOTAL_CLIENT_BYTES) {
+    throw new Error(
+      `Selected source is too large. Choose at most ${
+        MAX_TOTAL_CLIENT_BYTES / (1024 * 1024)
+      } MB of text files.`
+    );
+  }
 
   const root =
     normalizedPath(readable[0]).split("/")[0] ||
@@ -103,13 +113,22 @@ export async function scanProjectZip(file: File): Promise<ProjectContext> {
   if (!file.name.toLowerCase().endsWith(".zip")) {
     throw new Error("Choose a .zip file.");
   }
+  if (file.size > MAX_ZIP_BYTES) {
+    throw new Error(
+      `ZIP is too large. Choose an archive under ${
+        MAX_ZIP_BYTES / (1024 * 1024)
+      } MB.`
+    );
+  }
 
   return parseResponse(
     await fetch(`${HTTP_BACKEND_URL}/api/project-context/scan-zip`, {
       method: "POST",
       headers: {
         "Content-Type": "application/zip",
-        "X-Project-Name": file.name.replace(/\.zip$/i, ""),
+        // Headers are ByteStrings in fetch; encode non-ASCII filenames so a
+        // project such as "设计系统.zip" does not throw before the request.
+        "X-Project-Name": encodeURIComponent(file.name.replace(/\.zip$/i, "")),
       },
       body: file,
     })

@@ -31,10 +31,21 @@ def build_history_message(item: PromptHistoryMessage) -> ChatCompletionMessagePa
                 }
             )
 
+        text = item.get("text", "")
+        mode = item.get("multi_image_mode")
+        if mode and len(image_urls) > 1:
+            descriptions = {
+                "pages": "Each screenshot is a distinct page/view; preserve every page.",
+                "responsive": "The screenshots are one page at different responsive sizes.",
+                "states": "The screenshots are sequential UI states of one interface.",
+                "references": "Screenshot 1 is primary; the others are supporting references.",
+            }
+            text = f"{text}\n\nMulti-screenshot relationship: {descriptions[mode]}"
+
         user_content.append(
             {
                 "type": "text",
-                "text": item.get("text", ""),
+                "text": text,
             }
         )
 

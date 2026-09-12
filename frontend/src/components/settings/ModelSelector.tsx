@@ -10,6 +10,7 @@ import { HTTP_BACKEND_URL } from "../../config";
 export interface ModelSelectorProps {
   selectedModels: string[];
   setSelectedModels: (models: string[]) => void;
+  githubToken?: string | null;
 }
 
 interface CopilotModel {
@@ -21,13 +22,29 @@ interface CopilotModel {
  * Compact Copilot model picker for the update toolbar, so the models can be
  * changed while iterating instead of only from Settings.
  */
-function ModelSelector({ selectedModels, setSelectedModels }: ModelSelectorProps) {
+function ModelSelector({
+  selectedModels,
+  setSelectedModels,
+  githubToken,
+}: ModelSelectorProps) {
   const [models, setModels] = useState<CopilotModel[]>([]);
   const [available, setAvailable] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${HTTP_BACKEND_URL}/api/capabilities`)
+    const token = githubToken?.trim();
+    fetch(
+      token
+        ? `${HTTP_BACKEND_URL}/api/copilot/capabilities`
+        : `${HTTP_BACKEND_URL}/api/capabilities`,
+      token
+        ? {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          }
+        : undefined
+    )
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || !data) return;
@@ -40,7 +57,7 @@ function ModelSelector({ selectedModels, setSelectedModels }: ModelSelectorProps
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [githubToken]);
 
   const visionModels = models.filter((m) => m.vision);
   if (!available || visionModels.length === 0) return null;

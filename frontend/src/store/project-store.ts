@@ -6,7 +6,7 @@ import {
   VariantHistoryMessage,
   VariantStatus,
 } from "../components/commits/types";
-import { PromptAsset } from "../types";
+import { MultiScreenshotMode, PromptAsset } from "../types";
 import { useAppStore } from "./app-store";
 
 // Store for app-wide state
@@ -18,6 +18,8 @@ interface ProjectStore {
   setReferenceImages: (images: string[]) => void;
   initialPrompt: string;
   setInitialPrompt: (prompt: string) => void;
+  multiScreenshotMode: MultiScreenshotMode;
+  setMultiScreenshotMode: (mode: MultiScreenshotMode) => void;
   assetsById: Record<string, PromptAsset>;
   upsertPromptAssets: (assets: PromptAsset[]) => void;
   resetPromptAssets: () => void;
@@ -91,6 +93,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   setReferenceImages: (images) => set({ referenceImages: images }),
   initialPrompt: "",
   setInitialPrompt: (prompt) => set({ initialPrompt: prompt }),
+  multiScreenshotMode: "pages",
+  setMultiScreenshotMode: (mode) => set({ multiScreenshotMode: mode }),
   assetsById: {},
   upsertPromptAssets: (assets) =>
     set((state) => {

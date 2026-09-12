@@ -54,6 +54,8 @@ function App() {
     setReferenceImages,
     initialPrompt,
     setInitialPrompt,
+    multiScreenshotMode,
+    setMultiScreenshotMode,
     upsertPromptAssets,
     resetPromptAssets,
 
@@ -259,6 +261,7 @@ function App() {
     // Inputs
     setInputMode("image");
     setReferenceImages([]);
+    setMultiScreenshotMode("pages");
   };
 
   const regenerate = () => {
@@ -287,7 +290,13 @@ function App() {
 
     // Re-run the initial create request.
     if (inputMode === "image" || inputMode === "video") {
-      doCreate(referenceImages, inputMode);
+      doCreate(
+        referenceImages,
+        inputMode,
+        initialPrompt,
+        true,
+        multiScreenshotMode
+      );
     } else {
       doCreateFromText(initialPrompt);
     }
@@ -591,6 +600,7 @@ function App() {
     // Set the input states
     setReferenceImages(referenceImages);
     setInputMode(inputMode);
+    setMultiScreenshotMode(multiScreenshotMode ?? "pages");
 
     // Kick off the code generation
     if (referenceImages.length > 0) {
@@ -616,8 +626,17 @@ function App() {
               nanoid
             )
           : [];
+      const effectiveMultiScreenshotMode =
+        inputMode === "image" && media.length > 1
+          ? multiScreenshotMode ?? "pages"
+          : undefined;
       const variantHistory = [
-        buildUserHistoryMessage(textPrompt, imageAssetIds, videoAssetIds),
+        buildUserHistoryMessage(
+          textPrompt,
+          imageAssetIds,
+          videoAssetIds,
+          effectiveMultiScreenshotMode
+        ),
       ];
       doGenerateCode({
         generationType: "create",
@@ -626,10 +645,7 @@ function App() {
           text: textPrompt,
           images: inputMode === "image" ? media : [],
           videos: inputMode === "video" ? media : [],
-          multiImageMode:
-            inputMode === "image" && media.length > 1
-              ? multiScreenshotMode ?? "pages"
-              : undefined,
+          multiImageMode: effectiveMultiScreenshotMode,
         },
         // Asset extraction operates on still screenshots. Video data uses the
         // same transport shape for Gemini, so explicitly disable extraction
@@ -915,6 +931,7 @@ function App() {
                       selectedModels: settings.copilotModels ?? [],
                       setSelectedModels: (models) =>
                         setSettings((s) => ({ ...s, copilotModels: models })),
+                      githubToken: settings.copilotGithubToken,
                     }}
                     onOpenVersions={() => {
                       setIsHistoryOpen(true);

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import PurePosixPath
 from typing import cast
+from urllib.parse import unquote
 from zipfile import BadZipFile, ZipFile
 
 from fastapi import APIRouter, HTTPException, Request
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 router = APIRouter()
 
 MAX_ARCHIVE_BYTES = 30 * 1024 * 1024
+MAX_ARCHIVE_ENTRIES = 5_000
 MAX_FILES = 400
 MAX_FILE_CHARS = 150_000
 MAX_TOTAL_CHARS = 2_500_000
@@ -78,13 +80,6 @@ PROPS_BLOCK_RE = re.compile(
     re.DOTALL,
 )
 PROP_NAME_RE = re.compile(r"^\s*(?P<name>[A-Za-z_$][A-Za-z0-9_$]*)\??\s*:", re.MULTILINE)
-DESTRUCTURED_PROPS_RE = re.compile(
-    r"(?:function\s+[A-Z][A-Za-z0-9_]*|const\s+[A-Z][A-Za-z0-9_]*\s*=\s*)"
-    r"\s*\(\s*\{(?P<body>[^}]*)\}",
-    re.DOTALL,
-)
-
-
 class ProjectFile(BaseModel):
     path: str
     content: str
@@ -171,16 +166,21 @@ def decode_zip_files(payload: bytes) -> tuple[str, list[ScannableFile]]:
     files: list[ScannableFile] = []
     total_chars = 0
     entries = [entry for entry in archive.infolist() if not entry.is_dir()]
-    if len(entries) > MAX_FILES:
+    if len(entries) > MAX_ARCHIVE_ENTRIES:
         raise HTTPException(
             status_code=413,
-            detail=f"ZIP contains too many files; limit is {MAX_FILES}.",
+            detail=f"ZIP contains too many entries; limit is {MAX_ARCHIVE_ENTRIES}.",
         )
 
     for entry in entries:
         path = normalize_project_path(entry.filename)
         if path is None:
             continue
+        if len(files) >= MAX_FILES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"ZIP contains more than {MAX_FILES} supported source files.",
+            )
         if entry.file_size > MAX_FILE_CHARS * 4:
             continue
 
@@ -208,12 +208,22 @@ def decode_zip_files(payload: bytes) -> tuple[str, list[ScannableFile]]:
     return project_name, files
 
 
-def component_props(content: str) -> list[str]:
+def component_props(content: str, component_name: str) -> list[str]:
     props: list[str] = []
     for match in PROPS_BLOCK_RE.finditer(content):
-        props.extend(prop.group("name") for prop in PROP_NAME_RE.finditer(match.group("body")))
+        if match.group("name") != f"{component_name}Props":
+            continue
+        props.extend(
+            prop.group("name") for prop in PROP_NAME_RE.finditer(match.group("body"))
+        )
 
-    for match in DESTRUCTURED_PROPS_RE.finditer(content):
+    destructured_re = re.compile(
+        rf"(?:function\s+{re.escape(component_name)}|"
+        rf"const\s+{re.escape(component_name)}\s*=\s*)"
+        r"\s*\(\s*\{(?P<body>[^}]*)\}",
+        re.DOTALL,
+    )
+    for match in destructured_re.finditer(content):
         for candidate in match.group("body").split(","):
             name = candidate.strip().split(":", 1)[0].split("=", 1)[0].strip()
             if re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]*", name):
@@ -233,13 +243,13 @@ def discover_components(files: list[ScannableFile]) -> list[ComponentSummary]:
         if suffix not in {".js", ".jsx", ".ts", ".tsx"}:
             continue
 
-        props = component_props(file.content)
         for match in COMPONENT_EXPORT_RE.finditer(file.content):
+            name = match.group("name")
             components.append(
                 ComponentSummary(
-                    name=match.group("name"),
+                    name=name,
                     path=file.path,
-                    props=props,
+                    props=component_props(file.content, name),
                 )
             )
             if len(components) >= MAX_COMPONENTS:
@@ -399,10 +409,17 @@ async def scan_project_files(request: ScanFilesRequest) -> ProjectContextRespons
 
 @router.post("/api/project-context/scan-zip", response_model=ProjectContextResponse)
 async def scan_project_zip(request: Request) -> ProjectContextResponse:
-    payload = await request.body()
-    name, files = decode_zip_files(payload)
+    payload = bytearray()
+    async for chunk in request.stream():
+        if len(payload) + len(chunk) > MAX_ARCHIVE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"ZIP is too large; limit is {MAX_ARCHIVE_BYTES // (1024 * 1024)} MB.",
+            )
+        payload.extend(chunk)
+    name, files = decode_zip_files(bytes(payload))
     return scan_project(
-        name=request.headers.get("x-project-name") or name,
+        name=unquote(request.headers.get("x-project-name") or name),
         files=files,
         original_file_count=len(files),
     )

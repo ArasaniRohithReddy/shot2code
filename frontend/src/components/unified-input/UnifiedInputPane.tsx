@@ -67,6 +67,7 @@ function UnifiedInputPane({
     selectedModels: settings.copilotModels ?? [],
     setSelectedModels: (models) =>
       setSettings((s) => ({ ...s, copilotModels: models })),
+    githubToken: settings.copilotGithubToken,
   };
 
   return (

@@ -65,8 +65,7 @@ from uploaded_assets import (
     infer_local_asset_base_url,
 )
 from agent.runner import Agent
-from copilot_auth import copilot_models as available_copilot_models
-from copilot_auth import probe_copilot_auth
+from copilot_auth import get_copilot_snapshot
 from fs_logging.agent_runs import AgentRunRecorder
 from routes.model_choice_sets import (
     ALL_KEYS_MODELS_DEFAULT,
@@ -855,19 +854,40 @@ class CodeGenerationMiddleware(Middleware):
             assert context.extracted_params is not None
 
             # Select models (handles video mode internally)
-            copilot_available = bool(
+            copilot_snapshot = await get_copilot_snapshot(
                 context.extracted_params.copilot_github_token
-            ) or await probe_copilot_auth()
+            )
+            copilot_available = copilot_snapshot.available
             selected_copilot_models = context.extracted_params.copilot_models
-            if selected_copilot_models and copilot_available:
-                current_ids = {
-                    str(model["id"]) for model in available_copilot_models()
-                }
+            current_ids = {
+                str(model["id"]) for model in copilot_snapshot.models
+            }
+            if selected_copilot_models and copilot_available and current_ids:
                 selected_copilot_models = [
                     model
                     for model in selected_copilot_models
                     if get_copilot_api_name(model) in current_ids
                 ] or None
+            elif (
+                not selected_copilot_models
+                and copilot_available
+                and current_ids
+                and not context.extracted_params.openai_api_key
+                and not context.extracted_params.anthropic_api_key
+                and not context.extracted_params.gemini_api_key
+            ):
+                preferred = [
+                    model
+                    for model in COPILOT_ONLY_MODELS
+                    if get_copilot_api_name(model) in current_ids
+                ]
+                remaining = [
+                    model
+                    for model in COPILOT_MODELS
+                    if get_copilot_api_name(model) in current_ids
+                    and model not in preferred
+                ]
+                selected_copilot_models = (preferred + remaining) or None
 
             model_selector = ModelSelectionStage(context.throw_error)
             context.variant_models = await model_selector.select_models(

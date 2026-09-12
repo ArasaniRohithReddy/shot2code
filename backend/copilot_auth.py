@@ -8,6 +8,8 @@ and refreshed only on request.
 """
 
 import asyncio
+import hashlib
+from dataclasses import dataclass
 from typing import Optional
 
 import copilot
@@ -18,7 +20,26 @@ from config import COPILOT_GITHUB_TOKEN
 _cached_available: Optional[bool] = None
 _cached_login: Optional[str] = None
 _cached_models: list[dict[str, object]] = []
+_token_snapshots: dict[str, "CopilotAuthSnapshot"] = {}
 _probe_lock = asyncio.Lock()
+
+
+@dataclass(frozen=True)
+class CopilotAuthSnapshot:
+    available: bool
+    login: str | None
+    models: list[dict[str, object]]
+
+
+async def _inspect_client(client: "copilot.CopilotClient") -> CopilotAuthSnapshot:
+    await client.start()
+    status = await client.get_auth_status()
+    available = bool(getattr(status, "isAuthenticated", False))
+    return CopilotAuthSnapshot(
+        available=available,
+        login=getattr(status, "login", None),
+        models=await _collect_models(client) if available else [],
+    )
 
 
 async def probe_copilot_auth(force: bool = False) -> bool:
@@ -38,19 +59,15 @@ async def probe_copilot_auth(force: bool = False) -> bool:
             log_level="error",
         )
         try:
-            await client.start()
-            status = await client.get_auth_status()
-            available = bool(getattr(status, "isAuthenticated", False))
-            login = getattr(status, "login", None)
-            models = await _collect_models(client) if available else []
+            snapshot = await _inspect_client(client)
 
             # Publish the cache atomically. The startup probe runs in the
             # background; setting `_cached_available` before list_models()
             # finished let /api/capabilities report "signed in" with an empty
             # list, and Settings never fetched again.
-            _cached_models = models
-            _cached_login = login
-            _cached_available = available
+            _cached_models = snapshot.models
+            _cached_login = snapshot.login
+            _cached_available = snapshot.available
         except Exception as exc:
             print(f"[copilot] auth probe failed: {exc}")
             _cached_available = False
@@ -62,6 +79,46 @@ async def probe_copilot_auth(force: bool = False) -> bool:
                 pass
 
     return _cached_available
+
+
+async def get_copilot_snapshot(
+    github_token: str | None = None,
+    force: bool = False,
+) -> CopilotAuthSnapshot:
+    """Inspect the effective credential without persisting or logging a token."""
+    if not github_token:
+        await probe_copilot_auth(force=force)
+        return CopilotAuthSnapshot(
+            available=bool(_cached_available),
+            login=_cached_login,
+            models=list(_cached_models),
+        )
+
+    fingerprint = hashlib.sha256(github_token.encode("utf-8")).hexdigest()
+    if not force and fingerprint in _token_snapshots:
+        return _token_snapshots[fingerprint]
+
+    async with _probe_lock:
+        if not force and fingerprint in _token_snapshots:
+            return _token_snapshots[fingerprint]
+
+        client = copilot.CopilotClient(
+            github_token=github_token,
+            use_logged_in_user=False,
+            log_level="error",
+        )
+        try:
+            snapshot = await _inspect_client(client)
+            _token_snapshots[fingerprint] = snapshot
+            return snapshot
+        except Exception as exc:
+            print(f"[copilot] token auth probe failed: {type(exc).__name__}")
+            return CopilotAuthSnapshot(available=False, login=None, models=[])
+        finally:
+            try:
+                await client.stop()
+            except Exception:
+                pass
 
 
 async def _collect_models(client: "copilot.CopilotClient") -> list[dict[str, object]]:

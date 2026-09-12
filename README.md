@@ -14,7 +14,7 @@ Download the latest build from
 | File | Use |
 |---|---|
 | `shot2code-<version>-x64.exe` | **Recommended.** Installer with shortcuts |
-| `shot2code-<version>-x64.msi` | For managed/enterprise deployment |
+| `shot2code-<version>-x64.msi` | Per-machine managed deployment; updates are administrator-controlled |
 | `shot2code-<version>-x64.zip` | Portable — unzip and run `shot2code.exe` |
 
 > **Windows will warn you.** The builds aren't code-signed, so you'll see
@@ -25,10 +25,11 @@ Download the latest build from
 First launch takes about a minute while the bundled backend starts. Later
 launches are quicker.
 
-Installed builds check GitHub Releases automatically. Settings shows the
+NSIS-installed builds check GitHub Releases automatically. Settings shows the
 running version, update status, download progress, **Check now**, and
 **Restart & install** when an update is ready. Updates install silently after
-the backend, Copilot CLI and Chromium process tree has fully stopped.
+the backend, Copilot CLI and Chromium process tree has fully stopped. MSI
+installs are per-machine and leave upgrades to the administrator.
 
 ## Using it
 

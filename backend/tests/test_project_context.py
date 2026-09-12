@@ -34,6 +34,10 @@ def test_scans_components_dependencies_and_tokens() -> None:
             export function Button({ variant, size, disabled }: ButtonProps) {
               return <button disabled={disabled} data-variant={variant} />;
             }
+            interface CardProps {
+              title: string;
+            }
+            export const Card = ({ title }: CardProps) => <article>{title}</article>;
             """,
         ),
         ProjectFile(
@@ -56,9 +60,11 @@ def test_scans_components_dependencies_and_tokens() -> None:
     result = scan_project("sample", files, len(raw_files))
 
     assert result.analyzed_file_count == 3
-    assert result.component_count == 1
+    assert result.component_count == 2
     assert result.components[0].name == "Button"
     assert result.components[0].props == ["variant", "size", "disabled"]
+    assert result.components[1].name == "Card"
+    assert result.components[1].props == ["title"]
     assert "react" in result.dependencies
     assert "React" in result.framework_hints
     assert "Tailwind CSS" in result.framework_hints
@@ -99,3 +105,21 @@ def test_scan_summary_warns_against_local_imports() -> None:
     assert "Existing components and public props" in result.summary
     assert "Panel (src/components/Panel.tsx)" in result.summary
     assert "do not import local files" in result.summary
+
+
+def test_ignored_zip_entries_do_not_consume_source_file_limit() -> None:
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
+        for index in range(401):
+            archive.writestr(
+                f"project/node_modules/pkg-{index}/index.js",
+                "module.exports = {};",
+            )
+        archive.writestr(
+            "project/src/App.tsx",
+            "export function App() { return <main />; }",
+        )
+
+    _, files = decode_zip_files(buffer.getvalue())
+
+    assert [file.path for file in files] == ["project/src/App.tsx"]

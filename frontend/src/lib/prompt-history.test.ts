@@ -123,6 +123,20 @@ describe("prompt-history helpers", () => {
     });
   });
 
+  test("preserves multi-screenshot mode in request history", () => {
+    const history = [
+      buildUserHistoryMessage("Match these", ["one", "two"], [], "responsive"),
+    ];
+    const assetsById: Record<string, PromptAsset> = {
+      one: { id: "one", type: "image", dataUrl: "data:image/one" },
+      two: { id: "two", type: "image", dataUrl: "data:image/two" },
+    };
+
+    expect(toRequestHistory(history, () => assetsById)[0]).toMatchObject({
+      multiImageMode: "responsive",
+    });
+  });
+
   test("buildUpdateGenerationRequest reruns an edit from the selected parent option", () => {
     const parentCommit: Commit = {
       hash: "parent",

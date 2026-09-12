@@ -97,6 +97,7 @@ export interface PromptHistoryMessage {
   text: string;
   images: string[];
   videos: string[];
+  multiImageMode?: MultiScreenshotMode;
 }
 
 export interface CodeGenerationParams {

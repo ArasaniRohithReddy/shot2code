@@ -31,6 +31,12 @@ latest installer manually (right-click → **Properties** → **Unblock** first)
 v0.2.1 fixes the shutdown ordering so later updates cannot partially replace
 the backend.
 
+**The MSI says updates are managed by an administrator**
+
+That is intentional. MSI is the per-machine deployment format and does not use
+the self-updater. Use the recommended `.exe` installer for per-user automatic
+updates.
+
 ## Starting the app
 
 **The window takes a while on first launch**
