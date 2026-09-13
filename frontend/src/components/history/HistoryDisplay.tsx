@@ -1,4 +1,8 @@
-import { renderHistory, RenderedHistoryItem } from "./utils";
+import {
+  HistoryVersionLink,
+  renderHistory,
+  RenderedHistoryItem,
+} from "./utils";
 import { useProjectStore } from "../../store/project-store";
 import { BsChevronDown, BsChevronRight } from "react-icons/bs";
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -107,6 +111,65 @@ function ExpandedMedia({
   );
 }
 
+interface HistoryAncestryLinksProps {
+  parentLink: HistoryVersionLink | null;
+  retrySource: HistoryVersionLink | null;
+  retryDescendants: HistoryVersionLink[];
+  onNavigate: (hash: string) => void;
+}
+
+export function HistoryAncestryLinks({
+  parentLink,
+  retrySource,
+  retryDescendants,
+  onNavigate,
+}: HistoryAncestryLinksProps) {
+  return (
+    <>
+      {retrySource && (
+        <button
+          type="button"
+          className="rounded px-1 py-0.5 text-[10px] font-medium text-violet-700 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-violet-300 dark:hover:bg-violet-900/40"
+          aria-label={`Go to retry source version ${retrySource.version}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onNavigate(retrySource.hash);
+          }}
+        >
+          Retried from v{retrySource.version}
+        </button>
+      )}
+      {parentLink && (
+        <button
+          type="button"
+          className="rounded px-1 py-0.5 text-[10px] text-gray-500 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-gray-400 dark:hover:bg-zinc-700"
+          aria-label={`Go to branch parent version ${parentLink.version}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onNavigate(parentLink.hash);
+          }}
+        >
+          Branch from v{parentLink.version}
+        </button>
+      )}
+      {retryDescendants.map((descendant) => (
+        <button
+          key={descendant.hash}
+          type="button"
+          className="rounded px-1 py-0.5 text-[10px] font-medium text-blue-700 hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-300 dark:hover:bg-blue-900/40"
+          aria-label={`Go to retry descendant version ${descendant.version}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onNavigate(descendant.hash);
+          }}
+        >
+          Retried as v{descendant.version}
+        </button>
+      ))}
+    </>
+  );
+}
+
 export default function HistoryDisplay() {
   const { commits, head, setHead } = useProjectStore();
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
@@ -137,8 +200,8 @@ export default function HistoryDisplay() {
 
   return (
     <div className="flex flex-col gap-2">
-      {[...renderedHistory].reverse().map((item, _reverseIndex) => {
-        const versionNumber = renderedHistory.length - _reverseIndex;
+      {[...renderedHistory].reverse().map((item) => {
+        const versionNumber = item.version;
         const isActive = item.hash === head;
         const isExpanded = expandedHash === item.hash;
         const hasMedia = item.images.length > 0 || item.videos.length > 0;
@@ -175,23 +238,26 @@ export default function HistoryDisplay() {
 
               {/* Summary */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <span
                     className={`text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded ${
                       item.type === "Create"
                         ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400"
-                        : item.type === "Edit"
-                          ? "bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400"
-                          : "bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                        : item.type === "Retry"
+                          ? "bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300"
+                          : item.type === "Edit"
+                            ? "bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400"
+                            : "bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
                     }`}
                   >
                     {item.type}
                   </span>
-                  {item.parentVersion !== null && (
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                      from v{item.parentVersion}
-                    </span>
-                  )}
+                  <HistoryAncestryLinks
+                    parentLink={item.parentLink}
+                    retrySource={item.retrySource}
+                    retryDescendants={item.retryDescendants}
+                    onNavigate={setHead}
+                  />
                 </div>
                 <p
                   className={`text-sm mt-0.5 line-clamp-2 ${

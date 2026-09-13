@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useProjectStore } from "../../store/project-store";
 import { BsChevronDown, BsChevronRight } from "react-icons/bs";
 import ReactMarkdown from "react-markdown";
+import { getProjectGenerationContent } from "../../lib/project-files";
 
 function getLastSentence(text: string): string {
   const sentences = text.split(/(?<=[.!?])\s+/);
@@ -27,7 +28,9 @@ function ThinkingIndicator() {
     ? currentCommit.variants[currentCommit.selectedVariantIndex]
     : null;
   const thinking = selectedVariant?.thinking || "";
-  const code = selectedVariant?.code || "";
+  const code = selectedVariant
+    ? getProjectGenerationContent(selectedVariant)
+    : "";
   const thinkingDuration = selectedVariant?.thinkingDuration;
   const isGenerating = selectedVariant?.status === "generating";
 

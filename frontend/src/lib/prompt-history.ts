@@ -3,6 +3,11 @@ import {
   VariantHistoryMessage,
 } from "../components/commits/types";
 import {
+  getProjectEntryFile,
+  getProjectFile,
+  normalizeProjectState,
+} from "./project-files";
+import {
   CodeGenerationParams,
   PromptAsset,
   PromptAssetType,
@@ -120,27 +125,42 @@ export function buildUpdateGenerationRequest({
   prompt,
   parentCommit,
   imageAssetIds,
+  videoAssetIds = [],
   getAssetsById,
+  parentVariantIndex = parentCommit.selectedVariantIndex,
+  generationTargetPath,
 }: {
   inputMode: GenerationRequest["inputMode"];
   prompt: PromptContent;
   parentCommit: Commit;
   imageAssetIds: string[];
+  videoAssetIds?: string[];
   getAssetsById: GetAssetsById;
+  parentVariantIndex?: number;
+  generationTargetPath?: string;
 }): GenerationRequest {
-  const parentVariant =
-    parentCommit.variants[parentCommit.selectedVariantIndex];
+  const parentVariant = parentCommit.variants[parentVariantIndex];
   if (!parentVariant) {
     throw new Error("The selected option from the previous version was not found");
   }
 
+  const normalizedParentVariant = normalizeProjectState(parentVariant);
+  const targetFile = generationTargetPath
+    ? getProjectFile(normalizedParentVariant, generationTargetPath)
+    : getProjectEntryFile(normalizedParentVariant);
+  const targetContent = targetFile?.content ?? "";
   const fullInstruction = prompt.fullText ?? prompt.text;
   const variantHistory = [
     ...cloneVariantHistory(parentVariant.history),
-    buildUserHistoryMessage(fullInstruction, imageAssetIds),
+    buildUserHistoryMessage(
+      fullInstruction,
+      imageAssetIds,
+      videoAssetIds,
+      prompt.multiImageMode
+    ),
   ];
   const shouldBootstrapFromFileState =
-    parentVariant.history.length === 0 && parentVariant.code.trim().length > 0;
+    parentVariant.history.length === 0 && targetContent.trim().length > 0;
 
   return {
     generationType: "update",
@@ -153,12 +173,19 @@ export function buildUpdateGenerationRequest({
     history: shouldBootstrapFromFileState
       ? []
       : toRequestHistory(variantHistory, getAssetsById),
-    optionCodes: parentCommit.variants.map((variant) => variant.code || ""),
+    optionCodes: parentCommit.variants.map((variant) => {
+      if (!targetFile) return getProjectEntryFile(variant)?.content ?? "";
+      return (
+        getProjectFile(variant, targetFile.path)?.content ??
+        getProjectEntryFile(variant)?.content ??
+        ""
+      );
+    }),
     variantHistory,
-    fileState: parentVariant.code
+    fileState: targetFile
       ? {
-          path: "index.html",
-          content: parentVariant.code,
+          path: targetFile.path,
+          content: targetFile.content,
         }
       : undefined,
   };

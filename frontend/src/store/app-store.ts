@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { AppState } from "../types";
+import type { PreviewSelection } from "../lib/preview-bridge";
 
 // Store for app-wide state
 interface AppStore {
@@ -18,8 +19,8 @@ interface AppStore {
   toggleInSelectAndEditMode: () => void;
   disableInSelectAndEditMode: () => void;
 
-  selectedElement: HTMLElement | null;
-  setSelectedElement: (element: HTMLElement | null) => void;
+  selectedElement: PreviewSelection | null;
+  setSelectedElement: (element: PreviewSelection | null) => void;
   clearSelectedElement: () => void;
 }
 
@@ -50,7 +51,7 @@ export const useAppStore = create<AppStore>((set) => ({
     set({ inSelectAndEditMode: false, selectedElement: null }),
 
   selectedElement: null,
-  setSelectedElement: (element: HTMLElement | null) =>
+  setSelectedElement: (element: PreviewSelection | null) =>
     set({ selectedElement: element }),
   clearSelectedElement: () => set({ selectedElement: null }),
 }));

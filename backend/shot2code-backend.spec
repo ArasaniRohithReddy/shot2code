@@ -41,7 +41,15 @@ for package in (
 hiddenimports += collect_submodules("uvicorn")
 
 # The app's own first-party modules are imported dynamically via the routers.
-for package in ("routes", "agent", "prompts", "codegen", "evals", "image_generation"):
+for package in (
+    "routes",
+    "agent",
+    "prompts",
+    "codegen",
+    "evals",
+    "image_generation",
+    "history",
+):
     hiddenimports += collect_submodules(package)
 
 # Prompt templates and other non-Python assets live next to the source.

@@ -46,9 +46,7 @@ function OutputSettingsSection({
         <SelectGroup>
           {Object.values(Stack).map((stack) => (
             <SelectItem key={stack} value={stack}>
-              <div className="flex items-center">
-                <StackLabel stack={stack} />
-              </div>
+              <StackLabel stack={stack} />
             </SelectItem>
           ))}
         </SelectGroup>

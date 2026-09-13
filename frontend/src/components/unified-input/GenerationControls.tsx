@@ -102,7 +102,7 @@ export default function GenerationControls({
           <span className="text-sm font-medium text-gray-600 dark:text-zinc-300">
             Stack
           </span>
-          <div className="ml-auto">
+          <div className="w-full min-w-0 sm:ml-auto sm:w-auto">
             <OutputSettingsSection
               stack={stack}
               setStack={setStack}
@@ -120,7 +120,7 @@ export default function GenerationControls({
             <span className="text-sm font-medium text-gray-600 dark:text-zinc-300">
               Models
             </span>
-            <div className="ml-auto">
+            <div className="w-full min-w-0 sm:ml-auto sm:w-auto">
               <ModelSelector {...modelSelector} />
             </div>
           </div>

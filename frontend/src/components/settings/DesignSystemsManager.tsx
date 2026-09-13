@@ -160,7 +160,7 @@ function DesignSystemsManager({
 
   return (
     <div className="space-y-5">
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <Select
           value={editingId ?? ""}
           onValueChange={setEditingId}
@@ -206,7 +206,7 @@ function DesignSystemsManager({
             >
               Name
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Input
                 id="design-system-name"
                 value={draftName}
@@ -239,7 +239,7 @@ function DesignSystemsManager({
             />
           </div>
 
-          <div className="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-zinc-800">
+          <div className="flex flex-col-reverse gap-3 border-t border-gray-100 pt-4 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between">
             <Button
               type="button"
               variant="ghost"
@@ -250,7 +250,7 @@ function DesignSystemsManager({
             >
               Delete
             </Button>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Button
                 type="button"
                 variant="outline"

@@ -62,14 +62,80 @@ Other things it can do:
 - **Asset extraction** — reuses the real logos and images from your screenshot
   (needs a Gemini key)
 - **Image generation and editing** (needs a Replicate key)
-- **Existing-project context** — choose a folder, ZIP, or source files and
-  shot2code extracts component names, props, dependencies and design tokens
-  without executing the project. The compact summary guides later generations.
+- **Existing-project import** — choose a folder, ZIP, or source files, review
+  the detected stack and safe file counts, then use the result as compact design
+  context or hand the normalized files to the editable project workflow.
 - **Multi-screenshot modes** — choose whether screenshots are separate pages,
   responsive views, UI states, or supporting references. Separate pages is the
   default, and every screenshot must be represented.
-- **Project export** — React and Preact become real Vite projects; other stacks
-  export as separate HTML, CSS and JavaScript files.
+- **Project export** — generated single-page output uses an explicit Vite
+  strategy for every supported stack, while multi-file source projects are
+  preserved without inventing unsafe framework scaffolds.
+
+### Keyboard shortcuts
+
+Press **Ctrl+/** or use the keyboard button in the app rail to open the complete
+shortcut reference. Project actions use conflict-free Ctrl+Alt combinations:
+**Ctrl+Alt+N** starts a project, **Ctrl+Alt+I** opens Import,
+**Ctrl+Alt+U** opens Upload, **Ctrl+Alt+S** opens Settings, and
+**Ctrl+Alt+E** exports the current project. Use **Ctrl+1–4** for Preview, Code,
+Chat, and Versions, and **Ctrl+Shift+Enter** to retry an AI-generated version.
+Navigation shortcuts pause while typing or while a dialog is open. In the code
+editor, Tab moves focus out and **Ctrl+]** indents.
+
+### Preview and CodePen
+
+The file tree in the Code tab is always the authoritative project source. The
+in-app preview is a derived, self-contained HTML artifact: browser-ready local
+CSS, JavaScript, images, SVGs and encoded fonts are embedded when possible. If
+a framework build or local asset cannot be represented safely, the preview
+shows a deterministic fallback/diagnostic while leaving every source file
+available for editing and project download. Generated preview documents run in
+an opaque-origin sandbox with a restrictive CSP; select-and-edit communicates
+through validated, per-preview messages instead of direct parent-window access.
+
+CodePen sharing is available only when the selected stack can run honestly in a
+browser-only Pen. The app splits document head, HTML, CSS and JavaScript, keeps
+module/defer/nomodule/import-map ordering where CodePen externals cannot express
+it, and never guesses missing framework resources. Sharing always asks first
+because code leaves the device and public Pens may be visible to others. For
+build-dependent projects, use **Project folder** download instead.
+
+### Export formats
+
+Single-HTML exports keep the generated document intact, pin the working Babel
+runtime, and bundle downloaded images/fonts under `assets/`. Project exports
+use the following explicit strategies:
+
+| Stack | Single HTML | Project folder |
+|---|---|---|
+| `html_tailwind` | Standalone HTML + Tailwind CDN | Vite HTML with safe `styles.css` / `script.js` extraction |
+| `html_css` | Standalone HTML/CSS/JS | Vite HTML with safe `styles.css` / `script.js` extraction |
+| `react_tailwind` | React UMD + pinned Babel + Tailwind CDN | Vite React when one canonical Babel block is safely transformable; otherwise documented Vite HTML fallback |
+| `bootstrap` | Standalone HTML + Bootstrap CDN | Vite HTML retaining Bootstrap resources and order |
+| `vue_tailwind` | Vue global build + Tailwind CDN | Documented Vite HTML using the working global-build app; no fake SFC extraction |
+| `ionic_tailwind` | Pinned Ionic 8 ESM/styles + Tailwind CDN | Vite HTML retaining the supported Ionic module and stylesheet without the broken nomodule URL |
+| `alpine_tailwind` | Alpine + Tailwind CDN | Vite HTML retaining directives and deferred runtime |
+| `preact_tailwind` | Preact/HTM ESM + Tailwind CDN | Vite Preact with npm imports when canonical ESM is safely transformable; otherwise documented Vite HTML fallback |
+| `tailwind_daisyui` | Tailwind + daisyUI CDNs | Vite HTML retaining matched Tailwind/daisyUI resources |
+| `bulma` | Standalone HTML + Bulma CDN | Vite HTML retaining the pinned Bulma stylesheet |
+| `material_web` | Pinned Material Web ESM + Material Symbols | Vite HTML retaining external modules, font stylesheet, and import order |
+| `htmx_tailwind` | htmx + Tailwind CDNs | Vite HTML retaining htmx behavior and runtime order |
+
+Generated HTML/CDN projects use Vite for local development and a deterministic
+static-copy production build, so external inline modules are not accidentally
+rebundled or reordered. React and Preact transformations use Vite's framework
+build path. Downloaded assets and classic `script.js` are copied into `dist/`;
+inline modules, import maps, special script/style types, and ambiguous multi-block
+resources stay in `index.html` rather than being moved unsafely.
+
+When the editor sends a multi-file project, export treats that source tree and
+its declared entry point as authoritative, even if the preview used a composed
+HTML fallback. Existing package and framework configuration is preserved. If no
+valid root `package.json` build command is present, export keeps every source
+file and adds a **Safe fallback** note instead of generating a plausible but
+potentially broken scaffold. Downloaded image/font references are rewritten
+relative to each referencing file without changing module or script order.
 
 ### Multiple screenshots
 
@@ -82,19 +148,19 @@ When more than one screenshot is uploaded, shot2code asks how they relate:
 | UI states | One interface with interactions that move between the states |
 | Supporting references | Screenshot 1 is the target; the rest clarify details |
 
-### Use an existing project as context
+### Import an existing project
 
-Open **Import → Existing project context** and choose:
+Open **Import → Folder, ZIP or source files** and choose a project folder, ZIP
+archive, or selected source files. shot2code validates paths and size limits,
+ignores dependency/build output, rejects unsafe or malformed input, and detects
+the likely framework from package metadata, source files and CDN tags without
+executing configuration or application code.
 
-- A project folder
-- A ZIP archive
-- Selected source files
-
-shot2code ignores `node_modules`, build output, binaries and oversized files. It
-does not execute configuration or application code. Only a bounded summary is
-stored on the device and sent as design context; raw source files are discarded
-after analysis. The active project appears above every input tab and in
-Settings, where it can be cleared.
+After inspection, choose **Use as design context** to persist only the bounded
+`ProjectContext` summary, or **Open editable project** when the current editor
+can consume the versioned normalized file payload. Raw source is held only for
+the active editable-import handoff; it is never added to persisted project
+context. The active context appears above every input tab and can be cleared.
 
 ## Choosing a model
 

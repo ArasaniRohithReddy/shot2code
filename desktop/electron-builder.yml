@@ -10,6 +10,7 @@ directories:
 files:
   - main.js
   - preload.js
+  - untrusted-preload.js
   - renderer/**/*
   - package.json
 

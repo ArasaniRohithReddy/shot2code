@@ -13,6 +13,8 @@ const fs = require("fs");
 const net = require("net");
 const http = require("http");
 
+const untrustedPreloadPath = path.join(__dirname, "untrusted-preload.js");
+
 const isDev = !app.isPackaged;
 const isManagedInstall =
   process.platform === "win32" &&
@@ -394,17 +396,29 @@ function createWindow() {
   // own preview windows (blob:/data:/about:) internally - shell.openExternal
   // cannot handle those schemes and would silently do nothing.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const isolatedWindow = {
+      webPreferences: {
+        preload: untrustedPreloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    };
+
     // CodePen is opened by POSTing a form to /pen/define. Handing that to the
     // OS browser would drop the body and open an empty pen, so let it open
-    // in-app where the POST survives.
+    // in-app without the privileged shot2code preload bridge.
     if (/^https:\/\/codepen\.io\//i.test(url)) {
-      return { action: "allow" };
+      return { action: "allow", overrideBrowserWindowOptions: isolatedWindow };
     }
     if (/^https?:/i.test(url)) {
       shell.openExternal(url);
       return { action: "deny" };
     }
-    return { action: "allow" };
+    if (/^(?:blob:|data:|about:blank)/i.test(url)) {
+      return { action: "allow", overrideBrowserWindowOptions: isolatedWindow };
+    }
+    return { action: "deny" };
   });
 
   const indexFile = path.join(__dirname, "renderer", "index.html");

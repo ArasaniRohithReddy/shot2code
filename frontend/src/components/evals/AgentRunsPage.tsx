@@ -4,6 +4,7 @@ import { BsBoxArrowUpRight } from "react-icons/bs";
 import { useSearchParams } from "react-router-dom";
 
 import { HTTP_BACKEND_URL } from "../../config";
+import { PREVIEW_SANDBOX } from "../../lib/preview-bridge";
 import EvalNavigation from "./EvalNavigation";
 import AgentRunTimeline, {
   ExpandMode,
@@ -527,6 +528,8 @@ function AgentRunsPage() {
                   <iframe
                     title="Captured final output"
                     src={runOutputUrl(selectedRunId)}
+                    sandbox={PREVIEW_SANDBOX}
+                    referrerPolicy="no-referrer"
                     className="h-[75vh] w-full rounded-xl border border-zinc-800 bg-white"
                   />
                 )}

@@ -1,136 +1,298 @@
 import { HTTP_BACKEND_URL } from "../config";
-import { ProjectContext } from "../types";
+import type { ProjectContext } from "../types";
+import {
+  MAX_PROJECT_ENTRIES,
+  MAX_PROJECT_FILES,
+  MAX_PROJECT_FILE_BYTES,
+  MAX_PROJECT_TOTAL_BYTES,
+  MAX_PROJECT_ZIP_BYTES,
+  isIgnoredProjectPath,
+  isSupportedProjectPath,
+  normalizeImportedProjectPath,
+  parseProjectImportAnalysis,
+  type ProjectImportAnalysis,
+  type ProjectImportSourceKind,
+} from "./project-import";
 
-const MAX_FILES = 400;
-const MAX_CLIENT_FILE_BYTES = 600_000;
-const MAX_TOTAL_CLIENT_BYTES = 8 * 1024 * 1024;
-const MAX_ZIP_BYTES = 30 * 1024 * 1024;
-const TEXT_EXTENSIONS = new Set([
-  ".css",
-  ".html",
-  ".htm",
-  ".js",
-  ".jsx",
-  ".json",
-  ".less",
-  ".md",
-  ".mjs",
-  ".scss",
-  ".ts",
-  ".tsx",
-  ".vue",
-  ".yaml",
-  ".yml",
-]);
-const SKIPPED_PARTS = new Set([
-  ".git",
-  ".next",
-  ".nuxt",
-  ".output",
-  ".svelte-kit",
-  ".venv",
-  "build",
-  "coverage",
-  "dist",
-  "node_modules",
-  "out",
-  "target",
-  "vendor",
-]);
+export type ProjectImportProgressPhase =
+  | "validating"
+  | "reading"
+  | "uploading"
+  | "analysing"
+  | "complete";
 
-function normalizedPath(file: File) {
-  const rawPath: string = file.webkitRelativePath || file.name;
-  return rawPath.replace(/\\/g, "/");
+export interface ProjectImportProgress {
+  phase: ProjectImportProgressPhase;
+  percent: number;
+  message: string;
 }
 
-function canRead(file: File) {
-  const path = normalizedPath(file);
-  const parts: string[] = path.toLowerCase().split("/");
-  const dot = path.lastIndexOf(".");
-  const extension = dot >= 0 ? path.slice(dot).toLowerCase() : "";
-  return (
-    file.size <= MAX_CLIENT_FILE_BYTES &&
-    TEXT_EXTENSIONS.has(extension) &&
-    !parts.some((part) => SKIPPED_PARTS.has(part))
-  );
+export interface ProjectSourceFileLike {
+  name: string;
+  size: number;
+  webkitRelativePath?: string;
+  text: () => Promise<string>;
+  arrayBuffer?: () => Promise<ArrayBuffer>;
 }
 
-async function parseResponse(response: Response): Promise<ProjectContext> {
-  if (response.ok) return response.json() as Promise<ProjectContext>;
+interface PreparedProjectFiles {
+  name: string;
+  files: Array<{ path: string; content: string }>;
+  readableFileCount: number;
+}
 
-  let message = `Project analysis failed (${response.status})`;
-  try {
-    const body = (await response.json()) as { detail?: string };
-    if (body.detail) message = body.detail;
-  } catch {
-    // Keep the status-based message when the backend returned non-JSON.
+type ProgressListener = (progress: ProjectImportProgress) => void;
+
+function reportProgress(
+  listener: ProgressListener | undefined,
+  phase: ProjectImportProgressPhase,
+  percent: number,
+  message: string
+) {
+  listener?.({ phase, percent, message });
+}
+
+function sourcePath(file: ProjectSourceFileLike): string {
+  return file.webkitRelativePath || file.name;
+}
+
+function projectName(
+  files: ProjectSourceFileLike[],
+  normalizedPaths: string[],
+  sourceKind: Exclude<ProjectImportSourceKind, "zip">
+): string {
+  if (sourceKind === "folder") {
+    return normalizedPaths[0]?.split("/")[0] || "Imported project";
   }
-  throw new Error(message);
+  if (files.length === 1) {
+    return files[0].name.replace(/\.[^.]+$/, "") || "Imported file";
+  }
+  return "Selected files";
 }
 
-export async function scanProjectFiles(
-  files: File[]
-): Promise<ProjectContext> {
-  const readable = files.filter(canRead);
-  if (readable.length > MAX_FILES) {
-    throw new Error(`Choose at most ${MAX_FILES} files.`);
+function appearsBinary(content: string): boolean {
+  if (content.includes("\0")) return true;
+  let controls = 0;
+  for (const character of content) {
+    const code = character.charCodeAt(0);
+    if ((code < 32 && character !== "\t" && character !== "\n" && character !== "\r") || code === 127) {
+      controls += 1;
+    }
+  }
+  return controls > Math.max(8, Math.floor(content.length / 20));
+}
+
+async function readUtf8File(file: ProjectSourceFileLike, path: string) {
+  let content: string;
+  if (file.arrayBuffer) {
+    const bytes = await file.arrayBuffer();
+    try {
+      content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch (error) {
+      const detail = error instanceof Error ? ` (${error.message})` : "";
+      throw new Error(`${path} is not valid UTF-8 text.${detail}`);
+    }
+  } else {
+    content = await file.text();
   }
 
+  const sizeBytes = new TextEncoder().encode(content).byteLength;
+  if (sizeBytes > MAX_PROJECT_FILE_BYTES) {
+    throw new Error(
+      `${path} is too large. Source files must be ${MAX_PROJECT_FILE_BYTES.toLocaleString()} bytes or smaller.`
+    );
+  }
+  if (appearsBinary(content)) {
+    throw new Error(`${path} appears to contain binary data.`);
+  }
+  return { content, sizeBytes };
+}
+
+export async function prepareProjectFiles(
+  files: ProjectSourceFileLike[],
+  sourceKind: Exclude<ProjectImportSourceKind, "zip">,
+  onProgress?: ProgressListener
+): Promise<PreparedProjectFiles> {
+  reportProgress(onProgress, "validating", 5, "Checking paths and file sizes...");
+  if (files.length > MAX_PROJECT_ENTRIES) {
+    throw new Error(`Choose at most ${MAX_PROJECT_ENTRIES.toLocaleString()} entries.`);
+  }
+
+  const normalizedPaths: string[] = [];
+  const seenPaths = new Set<string>();
+  const readable: Array<{
+    file: ProjectSourceFileLike;
+    path: string;
+    payloadIndex: number;
+  }> = [];
+  const payload = files.map((file, payloadIndex) => {
+    const path = normalizeImportedProjectPath(sourcePath(file));
+    normalizedPaths.push(path);
+    const duplicateKey = path.toLowerCase();
+    if (seenPaths.has(duplicateKey)) {
+      throw new Error(`The selection contains duplicate path ${path}.`);
+    }
+    seenPaths.add(duplicateKey);
+
+    if (isIgnoredProjectPath(path) || !isSupportedProjectPath(path)) {
+      return { path, content: "" };
+    }
+    if (file.size > MAX_PROJECT_FILE_BYTES) {
+      throw new Error(
+        `${path} is too large. Source files must be ${MAX_PROJECT_FILE_BYTES.toLocaleString()} bytes or smaller.`
+      );
+    }
+    readable.push({ file, path, payloadIndex });
+    return { path, content: "" };
+  });
+
+  if (readable.length > MAX_PROJECT_FILES) {
+    throw new Error(`Choose at most ${MAX_PROJECT_FILES} supported source files.`);
+  }
   if (readable.length === 0) {
     throw new Error(
-      "No supported source files were found. Choose HTML, CSS, JavaScript, TypeScript, Vue, JSON or Markdown files."
+      "No supported source files were found. Choose HTML, CSS, JavaScript, TypeScript, Vue, JSON, Markdown or YAML files."
     );
   }
-  const totalBytes = readable.reduce((total, file) => total + file.size, 0);
-  if (totalBytes > MAX_TOTAL_CLIENT_BYTES) {
+
+  const declaredBytes = readable.reduce(
+    (total, candidate) => total + candidate.file.size,
+    0
+  );
+  if (declaredBytes > MAX_PROJECT_TOTAL_BYTES) {
     throw new Error(
       `Selected source is too large. Choose at most ${
-        MAX_TOTAL_CLIENT_BYTES / (1024 * 1024)
-      } MB of text files.`
+        MAX_PROJECT_TOTAL_BYTES / (1024 * 1024)
+      } MiB of supported text files.`
     );
   }
 
-  const root =
-    normalizedPath(readable[0]).split("/")[0] ||
-    readable[0].name.replace(/\.[^.]+$/, "");
-  const payload = await Promise.all(
-    readable.map(async (file) => ({
-      path: normalizedPath(file),
-      content: await file.text(),
-    }))
-  );
+  let actualBytes = 0;
+  for (let index = 0; index < readable.length; index += 1) {
+    const candidate = readable[index];
+    reportProgress(
+      onProgress,
+      "reading",
+      10 + Math.round(((index + 1) / readable.length) * 45),
+      `Reading ${index + 1} of ${readable.length} source files...`
+    );
+    const result = await readUtf8File(candidate.file, candidate.path);
+    actualBytes += result.sizeBytes;
+    if (actualBytes > MAX_PROJECT_TOTAL_BYTES) {
+      throw new Error(
+        `Selected source is too large. Choose at most ${
+          MAX_PROJECT_TOTAL_BYTES / (1024 * 1024)
+        } MiB of supported text files.`
+      );
+    }
+    payload[candidate.payloadIndex].content = result.content;
+  }
 
-  return parseResponse(
-    await fetch(`${HTTP_BACKEND_URL}/api/project-context/scan-files`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: root, files: payload }),
-    })
-  );
+  return {
+    name: projectName(files, normalizedPaths, sourceKind),
+    files: payload,
+    readableFileCount: readable.length,
+  };
 }
 
-export async function scanProjectZip(file: File): Promise<ProjectContext> {
+async function responseBody(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function parseInspectionResponse(
+  response: Response
+): Promise<ProjectImportAnalysis> {
+  const body = await responseBody(response);
+  if (!response.ok) {
+    const detail =
+      body &&
+      typeof body === "object" &&
+      "detail" in body &&
+      typeof body.detail === "string"
+        ? body.detail
+        : `Project analysis failed (${response.status})`;
+    throw new Error(detail);
+  }
+  try {
+    return parseProjectImportAnalysis(body);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "invalid response";
+    throw new Error(`Project analysis returned an invalid response: ${detail}`);
+  }
+}
+
+export async function inspectProjectFiles(
+  files: File[],
+  sourceKind: Exclude<ProjectImportSourceKind, "zip"> = "files",
+  onProgress?: ProgressListener
+): Promise<ProjectImportAnalysis> {
+  const prepared = await prepareProjectFiles(files, sourceKind, onProgress);
+  reportProgress(
+    onProgress,
+    "uploading",
+    65,
+    `Sending ${prepared.readableFileCount} source files for safe analysis...`
+  );
+  const response = await fetch(
+    `${HTTP_BACKEND_URL}/api/project-context/inspect-files`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: prepared.name,
+        source_kind: sourceKind,
+        files: prepared.files,
+      }),
+    }
+  );
+  reportProgress(onProgress, "analysing", 88, "Detecting project structure and stack...");
+  const analysis = await parseInspectionResponse(response);
+  reportProgress(onProgress, "complete", 100, "Project analysis complete.");
+  return analysis;
+}
+
+export async function inspectProjectZip(
+  file: File,
+  onProgress?: ProgressListener
+): Promise<ProjectImportAnalysis> {
+  reportProgress(onProgress, "validating", 10, "Checking ZIP size and format...");
   if (!file.name.toLowerCase().endsWith(".zip")) {
     throw new Error("Choose a .zip file.");
   }
-  if (file.size > MAX_ZIP_BYTES) {
+  if (file.size > MAX_PROJECT_ZIP_BYTES) {
     throw new Error(
       `ZIP is too large. Choose an archive under ${
-        MAX_ZIP_BYTES / (1024 * 1024)
-      } MB.`
+        MAX_PROJECT_ZIP_BYTES / (1024 * 1024)
+      } MiB.`
     );
   }
 
-  return parseResponse(
-    await fetch(`${HTTP_BACKEND_URL}/api/project-context/scan-zip`, {
+  reportProgress(onProgress, "uploading", 45, "Sending ZIP for safe inspection...");
+  const response = await fetch(
+    `${HTTP_BACKEND_URL}/api/project-context/inspect-zip`,
+    {
       method: "POST",
       headers: {
         "Content-Type": "application/zip",
-        // Headers are ByteStrings in fetch; encode non-ASCII filenames so a
-        // project such as "设计系统.zip" does not throw before the request.
         "X-Project-Name": encodeURIComponent(file.name.replace(/\.zip$/i, "")),
       },
       body: file,
-    })
+    }
   );
+  reportProgress(onProgress, "analysing", 85, "Validating paths and detecting the stack...");
+  const analysis = await parseInspectionResponse(response);
+  reportProgress(onProgress, "complete", 100, "Project analysis complete.");
+  return analysis;
+}
+
+export async function scanProjectFiles(files: File[]): Promise<ProjectContext> {
+  return (await inspectProjectFiles(files)).context;
+}
+
+export async function scanProjectZip(file: File): Promise<ProjectContext> {
+  return (await inspectProjectZip(file)).context;
 }

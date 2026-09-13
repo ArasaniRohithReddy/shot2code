@@ -203,6 +203,30 @@ class TestModelSelectionOpenAIOnly:
         assert models == expected
 
 
+class TestRetryModelSelection:
+    """Retry requests reuse the exact original variant lineup."""
+
+    @pytest.mark.asyncio
+    async def test_retry_models_override_current_key_based_selection(self):
+        model_selector = ModelSelectionStage(AsyncMock())
+        retry_models = [
+            Llm.GPT_5_6_SOL_HIGH,
+            Llm.CLAUDE_OPUS_5_HIGH,
+            Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL,
+        ]
+
+        models = await model_selector.select_models(
+            generation_type="update",
+            input_mode="image",
+            openai_api_key=None,
+            anthropic_api_key=None,
+            gemini_api_key=None,
+            retry_models=retry_models,
+        )
+
+        assert models == retry_models
+
+
 class TestModelSelectionNoKeys:
     """Test model selection when no API keys are present."""
 

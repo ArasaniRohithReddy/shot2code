@@ -18,12 +18,13 @@ import AgentRunsPage from "./components/evals/AgentRunsPage.tsx";
 import EvalSessionsPage from "./components/evals/EvalSessionsPage.tsx";
 import EvalComparePage from "./components/evals/EvalComparePage.tsx";
 import ErrorBoundary from "./components/ErrorBoundary.tsx";
+import { usesHashRouting } from "./lib/router-mode.ts";
 
 // The desktop build loads the UI from disk, where location.pathname is the
 // file's path (/C:/.../index.html). BrowserRouter matches no route there and
 // the app renders blank, so fall back to hash routing off the web.
 const Router =
-  typeof window !== "undefined" && window.location.protocol === "file:"
+  typeof window !== "undefined" && usesHashRouting(window.location.protocol)
     ? HashRouter
     : BrowserRouter;
 
@@ -47,6 +48,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         </Routes>
       </Router>
     </ErrorBoundary>
-    <Toaster toastOptions={{ className: "dark:bg-zinc-950 dark:text-white" }} />
+    <Toaster
+      containerStyle={{ pointerEvents: "none" }}
+      toastOptions={{ className: "dark:bg-zinc-950 dark:text-white" }}
+    />
   </React.StrictMode>
 );

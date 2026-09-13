@@ -1,4 +1,5 @@
-import React from "react";
+import { Fragment } from "react";
+import type { FC } from "react";
 import { Stack, STACK_DESCRIPTIONS } from "../../lib/stacks";
 import { STACK_COMPONENT_LOGOS } from "./stack-icons";
 
@@ -6,35 +7,47 @@ interface StackLabelProps {
   stack: Stack;
 }
 
-const StackLabel: React.FC<StackLabelProps> = ({ stack }) => {
+const StackLabel: FC<StackLabelProps> = ({ stack }) => {
   const stackComponents = STACK_DESCRIPTIONS[stack].components;
 
   return (
-    <div className="notranslate flex items-center gap-2" translate="no">
-      <span className="flex items-center gap-1">
-        {stackComponents.map((component) => {
-          const logo = STACK_COMPONENT_LOGOS[component];
-          if (!logo) return null;
-          const Icon = logo.icon;
-          return (
-            <Icon
-              key={component}
-              className="h-3.5 w-3.5 shrink-0"
-              style={{ color: logo.color }}
-              aria-hidden="true"
-            />
-          );
-        })}
-      </span>
-      <span>
-        {stackComponents.map((component, index) => (
-          <React.Fragment key={index}>
-            <span className="font-semibold">{component}</span>
-            {index < stackComponents.length - 1 && " + "}
-          </React.Fragment>
-        ))}
-      </span>
-    </div>
+    <span
+      className="notranslate inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap align-middle"
+      translate="no"
+    >
+      {stackComponents.map((component, index) => {
+        const logo = STACK_COMPONENT_LOGOS[component];
+        if (!logo) {
+          throw new Error(`Missing stack icon for "${component}"`);
+        }
+
+        const Icon = logo.icon;
+        return (
+          <Fragment key={component}>
+            {index > 0 && (
+              <span className="shrink-0" data-stack-separator="true">
+                +
+              </span>
+            )}
+            <span
+              className="inline-flex min-w-0 items-center gap-1"
+              data-stack-component={component}
+            >
+              <Icon
+                data-stack-icon={component}
+                className="h-3.5 w-3.5 shrink-0"
+                style={{ color: logo.color }}
+                aria-hidden="true"
+                focusable="false"
+              />
+              <span className="min-w-0 truncate font-semibold">
+                {component}
+              </span>
+            </span>
+          </Fragment>
+        );
+      })}
+    </span>
   );
 };
 

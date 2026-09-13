@@ -135,18 +135,16 @@ async def process_variant_completion(index: int, task: asyncio.Task):
 The system uses a **hybrid state approach**:
 
 - **AppState**: Global generation status (`INITIAL` → `CODING` → `CODE_READY`)
-- **Variant Status**: Individual variant status (`generating` → `complete`/`cancelled`)
+- **Variant Status**: Individual variant status (`generating` → `complete`/`error`/`cancelled`)
 
 #### UI Logic
 
 ```typescript
-// UI shows update interface when either:
-const canUpdate = 
-  appState === AppState.CODE_READY ||           // All variants done
-  isSelectedVariantComplete;                    // Selected variant done
-
-// User can interact immediately when their selected variant completes
+const selectedVariant = commit.variants[commit.selectedVariantIndex];
+const canUpdate = selectedVariant?.status === "complete";
 ```
+
+The update composer follows the selected variant rather than the global app state or a fixed option count. Any completed option can be edited immediately, including option 3 and later options, while generating, failed, and cancelled options keep the composer unavailable.
 
 ### WebSocket Protocol
 
@@ -239,3 +237,43 @@ Each variant handles errors independently:
 - Backend handles connection state checking before sending messages
 
 This architecture enables a responsive, non-blocking user experience while maintaining system reliability and resource efficiency.
+
+
+## Desktop persistence
+
+The frontend mirrors project state into the desktop-local SQLite history API.
+Each project receives a stable ID and stores its title, stack, input mode,
+initial prompt, screenshot interpretation, and shared prompt-asset registry.
+Prompt and chat records reference asset IDs; large image and video data URLs are
+stored once in project metadata instead of being repeated in every message.
+
+SQLite versions are append-only. The current editable commit therefore remains
+a `draft_commit` in project metadata. When a newer commit starts, the previous
+draft is promoted to an immutable version in the same project-snapshot
+transaction that stores the new draft. This preserves the existing editor rule
+that only the latest commit is mutable without weakening database immutability.
+
+Persistence occurs immediately for project creation, generation/status/final
+milestones, and commit/variant/file selection. Streaming code and editor changes
+use a trailing debounce, so token events do not produce one database write per
+token. Failed and partially completed variants retain their code, files, status,
+model, error, chat history, and agent activity. A draft restored after an app
+restart converts any still-generating variants to interrupted/cancelled state,
+because their original WebSocket no longer exists.
+
+Retry is append-only. Each retry receives a new commit ID whose `parent_commit_id`
+and `retry_of_commit_id` both identify the selected source attempt. Replay context
+separately records the original content base and option, input mode, stack, model
+selection, asset-extraction choice, and composed design context. This lets a retry
+of a retry reproduce the same request without applying an edit twice. Starting a
+retry immediately promotes any prior draft and stores the new retry draft in one
+project-snapshot transaction. Failed or cancelled retries remain navigable, and
+the Versions UI links both `Retried from vN` and every `Retried as vN` descendant.
+Historical versions keep their option-specific files and chat histories selectable
+without rewriting the immutable SQLite version.
+
+The start pane lists recent local projects and supports open, delete (with a
+confirmation), and new-project actions. Electron remembers the active project
+and restores it on restart; choosing New records that intent so a later restart
+does not reopen an older project unexpectedly. History API failures are shown to
+the user but never block the in-memory editing workflow.

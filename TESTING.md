@@ -31,6 +31,33 @@ Type checking (must stay clean for files you touch):
 uv run pyright
 ```
 
+Export-specific validation:
+
+```bash
+uv run pytest tests/test_export.py
+uv run python scripts/validate_export_projects.py
+```
+
+The validator generates project archives for all 12 supported stacks plus
+preserved multi-file React, Preact, and Vue source payloads. It runs `npm install`
+and `npm run build` in temporary directories, verifies built HTML/assets/scripts,
+and confirms source payloads reach the archive unchanged. It requires Node.js,
+npm, and network access for package installation; it is intentionally separate
+from the normal pytest suite.
+
+Full stack browser acceptance (all 12 stacks):
+
+```bash
+RUN_STACK_E2E=true uv run pytest tests/test_stack_browser_runtime.py
+```
+
+This opt-in Playwright matrix opens the pinned standalone fixtures over
+`file://`, exercises framework interactions and computed styles, and runs the
+actual sandboxed preview bridge with nonce-validated parent/iframe messaging.
+It requires the installed Playwright Chromium browser and public CDN access.
+The deterministic prompt, editor, CodePen, export, and re-import matrices remain
+part of the normal backend/frontend test suites.
+
 ## Frontend
 
 ```bash

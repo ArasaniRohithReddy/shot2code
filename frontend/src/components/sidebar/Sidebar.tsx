@@ -19,6 +19,7 @@ import { formatCompletedGenerationDuration } from "../agent/generation-time";
 import WorkingPulse from "../core/WorkingPulse";
 import ImageLightbox from "../ImageLightbox";
 import { Commit } from "../commits/types";
+import { getSelectedVariantState } from "../commits/selectors";
 import { CodeGenerationModel } from "../../lib/models";
 import DesignSystemSelector, {
   DesignSystemSelectorProps,
@@ -34,6 +35,7 @@ interface SidebarProps {
   onOpenVersions: () => void;
   designSystem: DesignSystemSelectorProps;
   modelSelector: ModelSelectorProps;
+  historyError?: string | null;
 }
 
 const MAX_UPDATE_IMAGES = 5;
@@ -85,6 +87,7 @@ function Sidebar({
   onOpenVersions,
   designSystem,
   modelSelector,
+  historyError,
 }: SidebarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const middlePaneRef = useRef<HTMLDivElement>(null);
@@ -172,10 +175,11 @@ function Sidebar({
       ? currentCommit.inputs.videos ?? []
       : [];
   const selectedVariantIndex = currentCommit?.selectedVariantIndex ?? 0;
-  const selectedVariant = currentCommit?.variants[selectedVariantIndex];
+  const selectedVariantState = getSelectedVariantState(currentCommit);
+  const selectedVariant = selectedVariantState.variant;
   const selectedVariantEvents = selectedVariant?.agentEvents ?? [];
   const showWorkingIndicator =
-    appState === AppState.CODING &&
+    selectedVariantState.isGenerating &&
     selectedVariantEvents.length === 0 &&
     head === latestCommitHash;
   const requestStartMs =
@@ -207,25 +211,10 @@ function Sidebar({
     return index !== -1 ? index + 1 : null;
   })();
 
-  // Check if the currently selected variant is complete
-  const isSelectedVariantComplete =
-    head &&
-    commits[head] &&
-    commits[head].variants[commits[head].selectedVariantIndex].status ===
-      "complete";
-
-  // Check if the currently selected variant has an error
-  const isSelectedVariantError =
-    head &&
-    commits[head] &&
-    commits[head].variants[commits[head].selectedVariantIndex].status ===
-      "error";
-
-  // Get the error message from the selected variant
-  const selectedVariantErrorMessage =
-    head &&
-    commits[head] &&
-    commits[head].variants[commits[head].selectedVariantIndex].errorMessage;
+  const canUpdateSelectedVariant = selectedVariantState.canUpdate;
+  const isSelectedVariantError = selectedVariantState.isError;
+  const isSelectedVariantCancelled = selectedVariantState.isCancelled;
+  const selectedVariantErrorMessage = selectedVariant?.errorMessage;
 
   // Auto-resize textarea to fit content
   const autoResize = useCallback(() => {
@@ -236,17 +225,14 @@ function Sidebar({
     }
   }, []);
 
-  // Focus on the update instruction textarea when a variant is complete
+  // Focus the composer whenever a completed option becomes selected.
   useEffect(() => {
-    if (
-      (appState === AppState.CODE_READY || isSelectedVariantComplete) &&
-      textareaRef.current
-    ) {
+    if (canUpdateSelectedVariant && textareaRef.current) {
       const el = textareaRef.current;
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     }
-  }, [appState, isSelectedVariantComplete]);
+  }, [canUpdateSelectedVariant, head, selectedVariantIndex]);
 
   // Focus the textarea when an element is selected in the preview
   useEffect(() => {
@@ -288,17 +274,30 @@ function Sidebar({
   }, [head, selectedVariantIndex]);
 
   useEffect(() => {
-    if (appState !== AppState.CODING) return;
+    if (!selectedVariantState.isGenerating) return;
     const intervalId = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(intervalId);
-  }, [appState]);
-
+  }, [selectedVariantState.isGenerating]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div
+      id="selected-variant-panel"
+      role="region"
+      aria-label={`Option ${selectedVariantIndex + 1} details`}
+      className="flex h-full min-h-0 flex-col"
+    >
       <div className="shrink-0 border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-4 py-2">
         <Variants />
       </div>
+
+      {historyError && (
+        <div
+          role="alert"
+          className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100"
+        >
+          {historyError}
+        </div>
+      )}
 
       {/* Prominent banner when viewing an older version */}
       {isViewingOlderVersion && currentVersionNumber !== null && (
@@ -414,10 +413,8 @@ function Sidebar({
         )}
 
         {currentCommit?.type === "ai_create" &&
-          appState === AppState.CODING &&
+          selectedVariantState.isGenerating &&
           head === latestCommitHash &&
-          !isSelectedVariantComplete &&
-          !isSelectedVariantError &&
           isSlowModel(selectedVariant?.model) && (
           <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
             Slow, high quality model. May take 5-10 mins on some images/videos.
@@ -426,13 +423,9 @@ function Sidebar({
 
         {!isViewingOlderVersion && <AgentActivity />}
 
-        {/* Retry any AI-generated version. A completed older version can be
-            retried once no other request is running; the regenerated edit
-            branches from that version's original parent. */}
-        {canRegenerate &&
-          (appState === AppState.CODE_READY ||
-            (head === latestCommitHash &&
-              (isSelectedVariantComplete || isSelectedVariantError))) && (
+        {/* Retry any AI-generated version. The retry is a new descendant of
+            the selected source while replaying its original request context. */}
+        {canRegenerate && appState === AppState.CODE_READY && (
           <div className="mb-3 flex items-center justify-end gap-2">
             {totalGenerationTime && (
               <span
@@ -453,7 +446,7 @@ function Sidebar({
         )}
 
         {/* Show cancel button when coding */}
-        {appState === AppState.CODING && !isSelectedVariantComplete && (
+        {appState === AppState.CODING && !canUpdateSelectedVariant && (
           <div className="flex w-full">
             <Button
               onClick={cancelCodeGeneration}
@@ -496,12 +489,21 @@ function Sidebar({
             </div>
           </div>
         )}
+
+        {isSelectedVariantCancelled && (
+          <div
+            className="mb-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            role="status"
+          >
+            This option was cancelled. Select a completed option above to
+            continue editing.
+          </div>
+        )}
       </div>
 
       {/* Pinned bottom: prompt box + option selector */}
-      {(appState === AppState.CODE_READY || isSelectedVariantComplete) &&
-        !isSelectedVariantError && (
-          <div
+      {canUpdateSelectedVariant && (
+        <div
             className="shrink-0 border-t border-gray-200 bg-gray-50 dark:border-zinc-800 dark:bg-zinc-900 px-4 py-4"
             onDragEnter={() => setIsDragging(true)}
             onDragLeave={(e) => {
@@ -580,20 +582,22 @@ function Sidebar({
                   }
                 }}
                 value={updateInstruction}
+                aria-label={`Update option ${selectedVariantIndex + 1}`}
                 data-testid="update-input"
                 rows={1}
                 className="max-h-40 w-full resize-none border-0 bg-transparent px-4 pt-4 pb-6 text-[15px] leading-6 text-gray-800 placeholder:text-gray-400 focus:outline-none dark:text-zinc-100 dark:placeholder:text-zinc-500"
               />
-              <div className="flex items-center justify-between px-3 pb-3">
-                <div className="flex items-center gap-1">
+              <div className="flex items-end justify-between gap-2 px-3 pb-3">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                   <UpdateImageUpload
                     updateImages={updateImages}
                     setUpdateImages={setUpdateImages}
                   />
                   <button
                     onClick={toggleInSelectAndEditMode}
+                    aria-pressed={inSelectAndEditMode}
                     data-testid="select-edit-toggle-prompt"
-                    className={`rounded-lg p-2 transition-colors ${
+                    className={`flex h-11 w-11 items-center justify-center rounded-lg p-2 transition-colors ${
                       inSelectAndEditMode
                         ? "bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
                         : "text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
@@ -607,8 +611,9 @@ function Sidebar({
                 </div>
                 <button
                   onClick={() => doUpdate(updateInstruction)}
+                  aria-label={`Send update for option ${selectedVariantIndex + 1}`}
                   disabled={!updateInstruction.trim()}
-                  className={`rounded-xl p-2 transition-colors update-btn ${
+                  className={`update-btn flex h-11 w-11 shrink-0 items-center justify-center rounded-xl p-2 transition-colors ${
                     updateInstruction.trim()
                       ? "bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-400"
                       : "cursor-not-allowed bg-gray-200 text-gray-400 dark:bg-zinc-700 dark:text-zinc-500"
@@ -625,8 +630,8 @@ function Sidebar({
                 </div>
               )}
             </div>
-          </div>
-        )}
+        </div>
+      )}
 
       <ImageLightbox
         image={lightboxImage}

@@ -6,7 +6,15 @@ import { useAppStore } from "../../store/app-store";
 export function useEscapeToExitSelectMode() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      const target =
+        event.target instanceof HTMLElement ? event.target : null;
+      if (
+        event.defaultPrevented ||
+        event.key !== "Escape" ||
+        target?.closest("[role='dialog']")
+      ) {
+        return;
+      }
       const store = useAppStore.getState();
       if (store.inSelectAndEditMode) {
         store.disableInSelectAndEditMode();

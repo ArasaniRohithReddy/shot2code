@@ -108,11 +108,27 @@ function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: P
     if (!hasUploadedFile) return;
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        if (document.activeElement === textInputRef.current) return;
-        e.preventDefault();
-        handleGenerate();
+      if (
+        e.defaultPrevented ||
+        e.isComposing ||
+        e.key !== "Enter" ||
+        e.shiftKey
+      ) {
+        return;
       }
+
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (
+        target?.isContentEditable ||
+        target?.closest(
+          "input, textarea, select, button, a, [role='dialog'], [role='listbox'], [role='menu']"
+        )
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+      handleGenerate();
     };
 
     document.addEventListener("keydown", handleGlobalKeyDown);

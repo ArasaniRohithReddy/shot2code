@@ -116,7 +116,12 @@ function UpdateImageUpload({ updateImages, setUpdateImages }: Props) {
         type="button"
         onClick={handleButtonClick}
         disabled={isAtLimit}
-        className={`p-2 rounded-lg transition-colors ${
+        aria-label={
+          isAtLimit
+            ? `Image limit reached (${MAX_UPDATE_IMAGES})`
+            : "Add images"
+        }
+        className={`flex h-11 w-11 items-center justify-center rounded-lg p-2 transition-colors ${
           isAtLimit
             ? "text-gray-300 dark:text-zinc-600 cursor-not-allowed"
             : "text-gray-500 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200 hover:bg-gray-100 dark:hover:bg-zinc-800"

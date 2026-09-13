@@ -19,6 +19,7 @@ from routes import (
     agent_runs,
     eval_sets,
     project_context,
+    history,
 )
 from uploaded_assets import configure_uploaded_asset_routes
 
@@ -79,3 +80,4 @@ app.include_router(prompt_reports.router)
 app.include_router(agent_runs.router)
 app.include_router(eval_sets.router)
 app.include_router(project_context.router)
+app.include_router(history.router)

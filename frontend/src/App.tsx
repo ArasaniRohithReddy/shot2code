@@ -30,34 +30,70 @@ import {
 import { useAppStore } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
 import { useDesignSystems } from "./hooks/useDesignSystems";
-import {
-  buildSelectedElementInstruction,
-  describeElementContext,
-} from "./components/select-and-edit/utils";
+import { useProjectHistoryPersistence } from "./hooks/useProjectHistoryPersistence";
+import { buildSelectedElementInstruction } from "./components/select-and-edit/utils";
 import { useEscapeToExitSelectMode } from "./components/select-and-edit/useEscapeToExitSelectMode";
 import Sidebar from "./components/sidebar/Sidebar";
 import IconStrip from "./components/sidebar/IconStrip";
 import HistoryDisplay from "./components/history/HistoryDisplay";
-import PreviewPane from "./components/preview/PreviewPane";
+import PreviewPane, {
+  type PreviewTab,
+} from "./components/preview/PreviewPane";
 import StartPane from "./components/start-pane/StartPane";
 import SettingsTab from "./components/settings/SettingsTab";
 import DesignSystemsModal from "./components/settings/DesignSystemsModal";
-import { AiEditCommit, Commit } from "./components/commits/types";
+import ShortcutHelpDialog from "./components/shortcuts/ShortcutHelpDialog";
+import type { InputTab } from "./components/unified-input/UnifiedInputPane";
+import {
+  Commit,
+  CommitGenerationContext,
+} from "./components/commits/types";
 import { createCommit } from "./components/commits/utils";
+import {
+  getSelectedVariantState,
+  getVariantUpdateUnavailableMessage,
+} from "./components/commits/selectors";
+import {
+  createProjectStateFromImport,
+  type EditableProjectImportSelection,
+} from "./lib/project-import";
+import {
+  DEFAULT_PROJECT_ENTRY_POINT,
+  getProjectGenerationContent,
+  normalizeProjectState,
+  setActiveProjectFile,
+  updateProjectFileContent,
+} from "./lib/project-files";
+import { deriveProjectTitle } from "./lib/project-history";
+import {
+  buildRetryGenerationPlan,
+  shouldRetainGenerationAttempt,
+} from "./lib/retry-generation";
+import {
+  getAppShortcutCommand,
+  isEditableShortcutTarget,
+} from "./lib/app-shortcuts";
+
+interface GenerationCommitOptions {
+  generationBaseHash?: string | null;
+  generationBaseVariantIndex?: number | null;
+  commitParentHash?: string | null;
+  retryOfHash?: string | null;
+  generationContext?: CommitGenerationContext;
+  initialVariantModels?: Array<string | undefined>;
+  selectedVariantIndex?: number;
+}
 
 function App() {
   const {
     // Inputs
     inputMode,
     setInputMode,
-    referenceImages,
     setReferenceImages,
-    initialPrompt,
     setInitialPrompt,
-    multiScreenshotMode,
     setMultiScreenshotMode,
     upsertPromptAssets,
-    resetPromptAssets,
+    projectStack,
 
     head,
     commits,
@@ -66,9 +102,8 @@ function App() {
     setHead,
     appendCommitCode,
     setCommitCode,
-    resetCommits,
-    resetHead,
     updateVariantStatus,
+    finalizeGeneratingVariants,
     resizeVariants,
     setVariantModels,
     appendVariantHistoryMessage,
@@ -82,7 +117,6 @@ function App() {
   } = useProjectStore();
 
   const {
-    disableInSelectAndEditMode,
     setUpdateInstruction,
     updateImages,
     setUpdateImages,
@@ -121,10 +155,22 @@ function App() {
   const lastThinkingEventIdRef = useRef<Record<number, string>>({});
   const lastAssistantEventIdRef = useRef<Record<number, string>>({});
   const lastToolEventIdRef = useRef<Record<number, string>>({});
+  const cancelCodeGeneration = useCallback(() => {
+    wsRef.current?.close?.(USER_CLOSE_WEB_SOCKET_CODE);
+  }, []);
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<"preview" | "chat">("preview");
+  const [activeInputTab, setActiveInputTab] = useState<InputTab>("upload");
+  const [activePreviewTab, setActivePreviewTab] =
+    useState<PreviewTab>("desktop");
+  const [isExportRequested, setIsExportRequested] = useState(false);
+  const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState(false);
+  const handleExportRequestHandled = useCallback(
+    () => setIsExportRequested(false),
+    []
+  );
   const [isDesignSystemsModalOpen, setIsDesignSystemsModalOpen] =
     useState(false);
   const [designSystemsModalInitialId, setDesignSystemsModalInitialId] =
@@ -136,6 +182,16 @@ function App() {
     updateDesignSystem,
     deleteDesignSystem,
   } = useDesignSystems();
+
+  const projectHistory = useProjectHistoryPersistence({
+    setSettings,
+    cancelCodeGeneration,
+    onProjectOpened: () => {
+      setIsHistoryOpen(false);
+      setIsSettingsOpen(false);
+      setMobilePane("preview");
+    },
+  });
 
   const setSelectedDesignSystemId = useCallback(
     (id: string | null) => {
@@ -245,23 +301,7 @@ function App() {
 
   // Functions
   const reset = () => {
-    // Stop any in-flight generation so late websocket events can't mutate
-    // state after the reset (e.g. flipping the app back to CODE_READY).
-    cancelCodeGeneration();
-    setAppState(AppState.INITIAL);
-    setUpdateInstruction("");
-    setUpdateImages([]);
-    disableInSelectAndEditMode();
-    resetExecutionConsoles();
-
-    resetCommits();
-    resetHead();
-    resetPromptAssets();
-
-    // Inputs
-    setInputMode("image");
-    setReferenceImages([]);
-    setMultiScreenshotMode("pages");
+    projectHistory.clearForNewProject();
   };
 
   const regenerate = () => {
@@ -278,33 +318,44 @@ function App() {
       return;
     }
 
-    if (currentCommit.type === "ai_edit") {
-      regenerateUpdate(currentCommit);
-      return;
-    }
+    const selectedDesignSystem = designSystems.find(
+      (designSystem) => designSystem.id === settings.selectedDesignSystemId
+    );
 
-    if (currentCommit.type === "code_create") {
-      toast.error("Imported code cannot be regenerated.");
-      return;
+    try {
+      const retryPlan = buildRetryGenerationPlan({
+        sourceCommit: currentCommit,
+        commits: useProjectStore.getState().commits,
+        fallbackInputMode: inputMode,
+        fallbackStack: projectStack,
+        fallbackDesignSystem: buildGenerationContext(
+          selectedDesignSystem?.content,
+          settings.projectContext
+        ),
+        registerAssets: (type, dataUrls) =>
+          registerAssetIds(
+            type,
+            dataUrls,
+            getAssetsById,
+            upsertPromptAssets,
+            nanoid
+          ),
+        getAssetsById,
+      });
+      doGenerateCode(retryPlan.request, {
+        generationBaseHash: retryPlan.generationBaseHash,
+        generationBaseVariantIndex: retryPlan.generationBaseVariantIndex,
+        commitParentHash: retryPlan.commitParentHash,
+        retryOfHash: retryPlan.retryOfHash,
+        generationContext: retryPlan.generationContext,
+        initialVariantModels: retryPlan.initialVariantModels,
+        selectedVariantIndex: retryPlan.selectedVariantIndex,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "This version could not be retried.";
+      toast.error(message);
     }
-
-    // Re-run the initial create request.
-    if (inputMode === "image" || inputMode === "video") {
-      doCreate(
-        referenceImages,
-        inputMode,
-        initialPrompt,
-        true,
-        multiScreenshotMode
-      );
-    } else {
-      doCreateFromText(initialPrompt);
-    }
-  };
-
-  // Used when the user cancels the code generation
-  const cancelCodeGeneration = () => {
-    wsRef.current?.close?.(USER_CLOSE_WEB_SOCKET_CODE);
   };
 
   // Used for user-initiated cancellation and failed edit rollbacks
@@ -330,7 +381,7 @@ function App() {
 
   function doGenerateCode(
     params: GenerationRequest,
-    generationParentHash: string | null = head
+    options: GenerationCommitOptions = {}
   ) {
     // Reset the execution console
     resetExecutionConsoles();
@@ -340,53 +391,154 @@ function App() {
 
     const { variantHistory, ...requestParams } = params;
 
+    const generationBaseHash =
+      options.generationBaseHash !== undefined
+        ? options.generationBaseHash
+        : head;
+    const generationParent = generationBaseHash
+      ? useProjectStore.getState().commits[generationBaseHash]
+      : undefined;
+    const generationBaseVariantIndex = generationParent
+      ? options.generationBaseVariantIndex ?? generationParent.selectedVariantIndex
+      : null;
+    const parentVariant =
+      generationParent && generationBaseVariantIndex !== null
+        ? generationParent.variants[generationBaseVariantIndex]
+        : undefined;
     const selectedDesignSystem = designSystems.find(
       (designSystem) => designSystem.id === settings.selectedDesignSystemId
     );
-    const designContext = buildGenerationContext(
+    const defaultDesignContext = buildGenerationContext(
       selectedDesignSystem?.content,
       settings.projectContext
     );
+    const generationContext: CommitGenerationContext = options.generationContext
+      ? {
+          ...options.generationContext,
+          selectedModels: [...options.generationContext.selectedModels],
+        }
+      : {
+          inputMode: requestParams.inputMode,
+          stack: settings.generatedCodeConfig,
+          selectedModels: [...(settings.copilotModels ?? [])],
+          ...(requestParams.isAssetExtractionEnabled === undefined
+            ? {}
+            : {
+                isAssetExtractionEnabled:
+                  requestParams.isAssetExtractionEnabled,
+              }),
+          designSystem: defaultDesignContext ?? null,
+          baseCommitHash:
+            requestParams.generationType === "update"
+              ? generationBaseHash
+              : null,
+          baseVariantIndex:
+            requestParams.generationType === "update"
+              ? generationBaseVariantIndex
+              : null,
+        };
 
-    // Merge settings with params
     const updatedParams = {
       ...settings,
       ...requestParams,
-      designSystem: designContext,
+      inputMode: generationContext.inputMode,
+      generatedCodeConfig: generationContext.stack,
+      copilotModels: [...generationContext.selectedModels],
+      ...(generationContext.isAssetExtractionEnabled === undefined
+        ? {}
+        : {
+            isAssetExtractionEnabled:
+              generationContext.isAssetExtractionEnabled,
+          }),
+      designSystem: generationContext.designSystem ?? undefined,
     };
 
-    // Use 4 variants for create, 2 for edits to match backend counts
-    // and avoid a flash when the backend sends the actual variant count
+    // Seed the same option count/models on retries until the backend confirms
+    // its selection, avoiding a transient reshuffle of the source options.
+    const initialVariantModels = options.initialVariantModels ?? [];
     const initialVariantCount =
-      requestParams.generationType === "create" ? 4 : 2;
+      initialVariantModels.length > 0
+        ? initialVariantModels.length
+        : requestParams.generationType === "create"
+          ? 4
+          : 2;
+    const generationTargetPath =
+      requestParams.fileState?.path ?? DEFAULT_PROJECT_ENTRY_POINT;
+
+    const createGenerationVariant = (index: number) => {
+      const history = cloneVariantHistory(variantHistory);
+      if (requestParams.generationType !== "update" || !parentVariant) {
+        return {
+          code: "",
+          generationTargetPath,
+          history,
+          stack: generationContext.stack,
+          ...(initialVariantModels[index]
+            ? { model: initialVariantModels[index] }
+            : {}),
+        };
+      }
+
+      const parentProject = normalizeProjectState(parentVariant);
+      const clearedProject = updateProjectFileContent(
+        parentProject,
+        generationTargetPath,
+        "",
+        { force: true }
+      );
+      const activeProject = setActiveProjectFile(
+        clearedProject,
+        generationTargetPath
+      );
+      return {
+        code: activeProject.code,
+        files: activeProject.files,
+        entryPoint: activeProject.entryPoint,
+        activeFilePath: activeProject.activeFilePath,
+        generationTargetPath,
+        history,
+        stack: parentVariant.stack ?? generationContext.stack,
+        ...(initialVariantModels[index]
+          ? { model: initialVariantModels[index] }
+          : {}),
+      };
+    };
+
     const baseCommitObject = {
       variants: Array(initialVariantCount)
         .fill(null)
-        .map(() => ({
-          code: "",
-          history: cloneVariantHistory(variantHistory),
-        })),
+        .map((_, index) => createGenerationVariant(index)),
     };
 
-    const commitInputObject =
-      requestParams.generationType === "create"
-        ? {
-            ...baseCommitObject,
-            type: "ai_create" as const,
-            parentHash: null,
-            inputs: requestParams.prompt,
-          }
-        : {
-            ...baseCommitObject,
-            type: "ai_edit" as const,
-            parentHash: generationParentHash,
-            inputs: requestParams.prompt,
-          };
+    const commitParentHash =
+      options.commitParentHash !== undefined
+        ? options.commitParentHash
+        : requestParams.generationType === "create"
+          ? null
+          : generationBaseHash;
+    const commitInputObject = {
+      ...baseCommitObject,
+      parentHash: commitParentHash,
+      retryOfHash: options.retryOfHash ?? null,
+      generationContext,
+      selectedVariantIndex: Math.min(
+        options.selectedVariantIndex ?? 0,
+        Math.max(0, initialVariantCount - 1)
+      ),
+      inputs: {
+        ...requestParams.prompt,
+        images: [...requestParams.prompt.images],
+        videos: [...(requestParams.prompt.videos ?? [])],
+      },
+    };
 
-    // Create a new commit and set it as the head
-    const commit = createCommit(commitInputObject);
+    const commit = createCommit(
+      requestParams.generationType === "create"
+        ? { ...commitInputObject, type: "ai_create" as const }
+        : { ...commitInputObject, type: "ai_edit" as const }
+    );
     addCommit(commit);
-    setHead(commit.hash);
+    void projectHistory.persistMilestone("generation-start");
 
     lastThinkingEventIdRef.current = {};
     lastAssistantEventIdRef.current = {};
@@ -446,9 +598,11 @@ function App() {
       onVariantComplete: (variantIndex) => {
         console.log(`Variant ${variantIndex} complete event received`);
         updateVariantStatus(commit.hash, variantIndex, "complete");
-        const currentCode =
-          useProjectStore.getState().commits[commit.hash]?.variants[variantIndex]
-            ?.code || "";
+        const completedVariant =
+          useProjectStore.getState().commits[commit.hash]?.variants[variantIndex];
+        const currentCode = completedVariant
+          ? getProjectGenerationContent(completedVariant)
+          : "";
         if (currentCode.trim().length > 0) {
           appendVariantHistoryMessage(
             commit.hash,
@@ -481,6 +635,7 @@ function App() {
             setUpdateImages([]);
           }
         }
+        void projectHistory.persistMilestone("status");
       },
       onVariantError: (variantIndex, error) => {
         console.error(`Error in variant ${variantIndex}:`, error);
@@ -488,6 +643,7 @@ function App() {
         finishThinkingEvent(variantIndex, "error");
         finishAssistantEvent(variantIndex, "error");
         finishToolEvent(variantIndex, "error");
+        void projectHistory.persistMilestone("status");
       },
       onVariantCount: (count) => {
         console.log(`Backend is using ${count} variants`);
@@ -556,21 +712,20 @@ function App() {
 
         // Close any running agent events when the socket ends without per-event
         // terminal messages, otherwise they remain stuck in "running" state.
-        finishInFlightEvents(reason === "request_failed" ? "error" : "complete");
+        finishInFlightEvents(
+          reason === "user_cancelled" ? "complete" : "error"
+        );
 
-        if (reason === "request_failed" && commit.type === "ai_create") {
-          const latestCreateCommit = useProjectStore.getState().commits[commit.hash];
-          latestCreateCommit?.variants.forEach((variant, variantIndex) => {
-            if (variant.status === "generating") {
-              updateVariantStatus(
-                commit.hash,
-                variantIndex,
-                "error",
-                errorMessage || "Generation failed. Please retry."
-              );
-            }
-          });
+        if (shouldRetainGenerationAttempt(commit, reason)) {
+          finalizeGeneratingVariants(
+            commit.hash,
+            reason === "user_cancelled" ? "cancelled" : "error",
+            reason === "user_cancelled"
+              ? undefined
+              : errorMessage || "Generation failed. Please retry."
+          );
           setAppState(AppState.CODE_READY);
+          void projectHistory.persistMilestone("final");
           return;
         }
 
@@ -582,6 +737,7 @@ function App() {
         if (!useProjectStore.getState().commits[commit.hash]) return;
         finishInFlightEvents("complete");
         setAppState(AppState.CODE_READY);
+        void projectHistory.persistMilestone("final");
       },
     });
   }
@@ -600,12 +756,21 @@ function App() {
     // Set the input states
     setReferenceImages(referenceImages);
     setInputMode(inputMode);
+    setInitialPrompt(textPrompt);
     setMultiScreenshotMode(multiScreenshotMode ?? "pages");
 
     // Kick off the code generation
     if (referenceImages.length > 0) {
       const media =
         inputMode === "video" ? [referenceImages[0]] : referenceImages;
+      projectHistory.startProject({
+        title: deriveProjectTitle({
+          prompt: textPrompt,
+          inputMode,
+          referenceCount: media.length,
+        }),
+        stack: settings.generatedCodeConfig,
+      });
       const imageAssetIds =
         inputMode === "image"
           ? registerAssetIds(
@@ -663,47 +828,16 @@ function App() {
 
     setInputMode("text");
     setInitialPrompt(text);
+    projectHistory.startProject({
+      title: deriveProjectTitle({ prompt: text, inputMode: "text" }),
+      stack: settings.generatedCodeConfig,
+    });
     doGenerateCode({
       generationType: "create",
       inputMode: "text",
       prompt: { text, images: [], videos: [] },
       variantHistory: [buildUserHistoryMessage(text)],
     });
-  }
-
-  function regenerateUpdate(commit: AiEditCommit) {
-    const parentHash = commit.parentHash;
-    const parentCommit = parentHash ? commits[parentHash] : null;
-    if (!parentHash || !parentCommit) {
-      toast.error("The previous version needed to retry this edit was not found.");
-      return;
-    }
-
-    const parentVariant =
-      parentCommit.variants[parentCommit.selectedVariantIndex];
-    if (!parentVariant) {
-      toast.error("The selected option from the previous version was not found.");
-      return;
-    }
-
-    const imageAssetIds = registerAssetIds(
-      "image",
-      commit.inputs.images,
-      getAssetsById,
-      upsertPromptAssets,
-      nanoid
-    );
-
-    doGenerateCode(
-      buildUpdateGenerationRequest({
-        inputMode,
-        prompt: commit.inputs,
-        parentCommit,
-        imageAssetIds,
-        getAssetsById,
-      }),
-      parentHash
-    );
   }
 
   // Subsequent updates
@@ -720,9 +854,21 @@ function App() {
       throw new Error("Update called with no head");
     }
 
-    const currentCommit = commits[head];
+    const currentCommit = useProjectStore.getState().commits[head];
     if (!currentCommit) {
       toast.error("The selected version could not be found.");
+      return;
+    }
+
+    const selectedVariantState = getSelectedVariantState(currentCommit);
+    if (!selectedVariantState.variant) {
+      toast.error("The selected option could not be found.");
+      return;
+    }
+    if (!selectedVariantState.canUpdate) {
+      toast.error(
+        getVariantUpdateUnavailableMessage(selectedVariantState.status)
+      );
       return;
     }
 
@@ -732,14 +878,11 @@ function App() {
     // Send in a reference to the selected element if it exists. Selection
     // visuals are overlays, so the element's outerHTML is already clean.
     if (selectedElement) {
-      const elementHtml = selectedElement.outerHTML;
-      selectedElementHtml = elementHtml;
+      selectedElementHtml = selectedElement.outerHTML;
       modifiedUpdateInstruction = buildSelectedElementInstruction(
         updateInstruction,
-        elementHtml,
-        selectedElement.isConnected
-          ? describeElementContext(selectedElement)
-          : undefined
+        selectedElement.outerHTML,
+        selectedElement.context || undefined
       );
       setSelectedElement(null);
     }
@@ -777,45 +920,210 @@ function App() {
   }
 
   function importFromCode(code: string, stack: Stack) {
-    // Reset any existing state
     reset();
-
-    // Set up this project
     setStack(stack);
+    setInputMode("text");
+    projectHistory.startProject({
+      title: deriveProjectTitle({ inputMode: "import" }),
+      stack,
+    });
 
-    // Create a new commit and set it as the head
     const commit = createCommit({
       type: "code_create",
       parentHash: null,
-      variants: [{ code, history: [] }],
+      variants: [
+        {
+          code,
+          history: [],
+          status: "complete",
+          completedAt: Date.now(),
+          stack,
+        },
+      ],
       inputs: null,
     });
     addCommit(commit);
-    setHead(commit.hash);
-
-    // Set the app state
     setAppState(AppState.CODE_READY);
   }
+
+  function importProject({
+    project,
+    stack,
+  }: EditableProjectImportSelection) {
+    reset();
+    setStack(stack);
+    setInputMode("text");
+    projectHistory.startProject({
+      title: deriveProjectTitle({
+        inputMode: "import",
+        importedName: project.name,
+      }),
+      stack,
+    });
+
+    const normalizedProject = createProjectStateFromImport(project);
+    const commit = createCommit({
+      type: "code_create",
+      parentHash: null,
+      variants: [
+        {
+          ...normalizedProject,
+          history: [],
+          status: "complete",
+          completedAt: Date.now(),
+          stack,
+        },
+      ],
+      inputs: null,
+    });
+
+    addCommit(commit);
+    setAppState(AppState.CODE_READY);
+    toast.success(
+      `Opened ${project.name} with ${project.files.length} editable files.`
+    );
+  }
+
+  const openStartPane = (tab: InputTab) => {
+    setActiveInputTab(tab);
+    reset();
+    setIsHistoryOpen(false);
+    setIsSettingsOpen(false);
+    setMobilePane("preview");
+  };
+  const openStartPaneRef = useRef(openStartPane);
+  const regenerateRef = useRef(regenerate);
+  openStartPaneRef.current = openStartPane;
+  regenerateRef.current = regenerate;
+
+  const isCodingOrReady =
+    appState === AppState.CODING || appState === AppState.CODE_READY;
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const command = getAppShortcutCommand(event);
+      if (!command) return;
+
+      const openDialog = document.querySelector(
+        '[role="dialog"][data-state="open"]'
+      );
+      if (
+        openDialog ||
+        (isEditableShortcutTarget(event.target) &&
+          command !== "export-project")
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+
+      const requireProject = () => {
+        if (isCodingOrReady) return true;
+        toast("Open or create a project to use this shortcut.");
+        return false;
+      };
+
+      switch (command) {
+        case "new-project":
+          openStartPaneRef.current("upload");
+          break;
+        case "open-import":
+          openStartPaneRef.current("import");
+          break;
+        case "open-upload":
+          openStartPaneRef.current("upload");
+          break;
+        case "show-preview":
+          if (!requireProject()) break;
+          setIsSettingsOpen(false);
+          setIsHistoryOpen(false);
+          setMobilePane("preview");
+          setActivePreviewTab("desktop");
+          break;
+        case "show-code":
+          if (!requireProject()) break;
+          setIsSettingsOpen(false);
+          setIsHistoryOpen(false);
+          setMobilePane("preview");
+          setActivePreviewTab("code");
+          break;
+        case "show-chat":
+          if (!requireProject()) break;
+          setIsSettingsOpen(false);
+          setIsHistoryOpen(false);
+          setMobilePane("chat");
+          window.setTimeout(() => {
+            document
+              .querySelector<HTMLTextAreaElement>(
+                '[data-testid="update-input"]'
+              )
+              ?.focus();
+          }, 0);
+          break;
+        case "show-versions":
+          if (!requireProject()) break;
+          setIsSettingsOpen(false);
+          setIsHistoryOpen(true);
+          setMobilePane("chat");
+          break;
+        case "show-settings":
+          setIsSettingsOpen(true);
+          setIsHistoryOpen(false);
+          break;
+        case "export-project":
+          if (!requireProject()) break;
+          if (
+            appState !== AppState.CODE_READY &&
+            (!head ||
+              getSelectedVariantState(commits[head]).status !== "complete")
+          ) {
+            toast("Wait for an option to finish before exporting.");
+            break;
+          }
+          setIsSettingsOpen(false);
+          setIsExportRequested(true);
+          break;
+        case "retry-generation": {
+          if (!requireProject()) break;
+          if (appState !== AppState.CODE_READY) {
+            toast("Wait for generation to finish before retrying.");
+            break;
+          }
+          const commit = head ? commits[head] : undefined;
+          if (commit?.type !== "ai_create" && commit?.type !== "ai_edit") {
+            toast("Retry is available for AI-generated versions.");
+            break;
+          }
+          regenerateRef.current();
+          break;
+        }
+        case "show-shortcuts":
+          setIsShortcutHelpOpen(true);
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [appState, commits, head, isCodingOrReady]);
 
   const showContentPanel =
     appState === AppState.CODING ||
     appState === AppState.CODE_READY ||
     isHistoryOpen;
-  const isCodingOrReady =
-    appState === AppState.CODING || appState === AppState.CODE_READY;
   const showMobileChatPane = showContentPanel && mobilePane === "chat";
 
   return (
     <div
       className={`dark:bg-black dark:text-white ${
         appState === AppState.CODING || appState === AppState.CODE_READY
-          ? "flex h-dvh flex-col overflow-hidden lg:block lg:h-screen"
+          ? "flex h-dvh flex-col overflow-hidden xl:block xl:h-screen"
           : "min-h-screen"
       }`}
     >
       {/* Icon strip - always visible */}
       <div
-        className="sticky top-0 z-50 lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-16 lg:flex-col"
+        className="sticky top-0 z-50 xl:fixed xl:inset-y-0 xl:z-50 xl:flex xl:w-16 xl:flex-col"
       >
         <IconStrip
           isHistoryOpen={isHistoryOpen}
@@ -839,11 +1147,9 @@ function App() {
             setMobilePane("preview");
           }}
           onNewProject={() => {
-            reset();
-            setIsHistoryOpen(false);
-            setIsSettingsOpen(false);
-            setMobilePane("preview");
+            openStartPane("upload");
           }}
+          onOpenShortcuts={() => setIsShortcutHelpOpen(true)}
           onOpenSettings={() => {
             setIsSettingsOpen(true);
             setIsHistoryOpen(false);
@@ -852,14 +1158,16 @@ function App() {
       </div>
 
       {isCodingOrReady && !isSettingsOpen && (
-        <div className="border-b border-gray-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950 lg:hidden">
+        <div className="border-b border-gray-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950 xl:hidden">
           <div className="grid grid-cols-2 rounded-xl bg-gray-100 p-1 dark:bg-zinc-800">
             <button
+              type="button"
               onClick={() => {
                 setIsHistoryOpen(false);
                 setMobilePane("preview");
               }}
-              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              aria-pressed={mobilePane === "preview" && !isHistoryOpen}
+              className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 mobilePane === "preview"
                   ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-700 dark:text-white"
                   : "text-gray-500 dark:text-zinc-400"
@@ -868,8 +1176,10 @@ function App() {
               Preview
             </button>
             <button
+              type="button"
               onClick={() => setMobilePane("chat")}
-              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              aria-pressed={mobilePane === "chat"}
+              className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 mobilePane === "chat"
                   ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-700 dark:text-white"
                   : "text-gray-500 dark:text-zinc-400"
@@ -884,12 +1194,14 @@ function App() {
       {/* Content panel - shows sidebar, history, or editor */}
       {showContentPanel && !isSettingsOpen && (
         <div
-          className={`border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 dark:text-white lg:fixed lg:inset-y-0 lg:left-16 lg:z-40 lg:flex lg:w-[calc(28rem-4rem)] lg:flex-col lg:border-b-0 lg:border-r ${
-            showMobileChatPane ? "block" : "hidden lg:flex"
+          className={`min-h-0 border-b border-gray-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 dark:text-white xl:fixed xl:inset-y-0 xl:left-16 xl:z-40 xl:flex xl:w-80 xl:flex-col xl:border-b-0 xl:border-r ${
+            showMobileChatPane
+              ? "flex flex-1 flex-col overflow-hidden"
+              : "hidden xl:flex"
           }`}
         >
             {isHistoryOpen ? (
-              <div className="flex-1 overflow-y-auto sidebar-scrollbar-stable px-4">
+              <div className="min-h-0 flex-1 overflow-y-auto sidebar-scrollbar-stable px-4">
                 <div className="mt-3">
                   <div className="flex items-center justify-between mb-3 px-1">
                     <h2 className="text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Versions</h2>
@@ -933,6 +1245,7 @@ function App() {
                         setSettings((s) => ({ ...s, copilotModels: models })),
                       githubToken: settings.copilotGithubToken,
                     }}
+                    historyError={projectHistory.historyError}
                     onOpenVersions={() => {
                       setIsHistoryOpen(true);
                       setMobilePane("chat");
@@ -947,11 +1260,11 @@ function App() {
       <main
         className={`${
           isSettingsOpen
-            ? "flex flex-1 min-h-0 flex-col lg:h-full lg:pl-16"
+            ? "flex flex-1 min-h-0 flex-col xl:h-full xl:pl-16"
             : showContentPanel
-              ? "flex flex-1 min-h-0 flex-col lg:h-full lg:pl-[28rem]"
-              : "lg:pl-16"
-        } ${isCodingOrReady && !isSettingsOpen && mobilePane === "chat" ? "hidden lg:flex" : ""}`}
+              ? "flex flex-1 min-h-0 flex-col xl:h-full xl:pl-96"
+              : "xl:pl-16"
+        } ${isCodingOrReady && !isSettingsOpen && mobilePane === "chat" ? "hidden xl:flex" : ""}`}
       >
         {isSettingsOpen ? (
           <SettingsTab
@@ -964,20 +1277,36 @@ function App() {
           <>
             {appState === AppState.INITIAL && (
               <StartPane
+                activeInputTab={activeInputTab}
+                onActiveInputTabChange={setActiveInputTab}
                 doCreate={doCreate}
                 doCreateFromText={doCreateFromText}
                 importFromCode={importFromCode}
+                importProject={importProject}
                 settings={settings}
                 setSettings={setSettings}
                 designSystems={designSystems}
                 onAddNewDesignSystem={handleAddNewDesignSystem}
                 onManageDesignSystems={() => openDesignSystemsManager()}
+                recentProjects={projectHistory.recentProjects}
+                isLoadingRecentProjects={
+                  projectHistory.isLoadingRecentProjects
+                }
+                historyError={projectHistory.historyError}
+                busyProjectId={projectHistory.busyProjectId}
+                onOpenProject={projectHistory.openProject}
+                onDeleteProject={projectHistory.deleteProject}
+                onNewProject={() => openStartPane("upload")}
               />
             )}
 
             {isCodingOrReady && (
               <PreviewPane
                 settings={settings}
+                activeTab={activePreviewTab}
+                onActiveTabChange={setActivePreviewTab}
+                exportRequested={isExportRequested}
+                onExportRequestHandled={handleExportRequestHandled}
                 onOpenVersions={() => {
                   setIsHistoryOpen(true);
                   setMobilePane("chat");
@@ -998,6 +1327,10 @@ function App() {
         createDesignSystem={createDesignSystem}
         updateDesignSystem={updateDesignSystem}
         deleteDesignSystem={deleteDesignSystem}
+      />
+      <ShortcutHelpDialog
+        open={isShortcutHelpOpen}
+        onOpenChange={setIsShortcutHelpOpen}
       />
     </div>
   );

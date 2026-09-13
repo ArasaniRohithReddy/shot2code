@@ -1,5 +1,5 @@
 import { useProjectStore } from "../../store/project-store";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useThrottle } from "../../hooks/useThrottle";
 import {
   CODE_GENERATION_MODEL_DESCRIPTIONS,
@@ -8,6 +8,10 @@ import {
   VariantLabelTone,
 } from "../../lib/models";
 import WorkingPulse from "../core/WorkingPulse";
+import { composeProjectPreview } from "../../lib/project-files";
+import { getVariantStatusLabel } from "../commits/selectors";
+import type { Variant } from "../commits/types";
+import SandboxedPreviewFrame from "../preview/SandboxedPreviewFrame";
 
 const IFRAME_WIDTH = 1280;
 const IFRAME_HEIGHT = 550;
@@ -25,7 +29,6 @@ interface VariantThumbnailProps {
 
 function VariantThumbnail({ code, isSelected }: VariantThumbnailProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [scale, setScale] = useState(0.1);
 
   const throttledCode = useThrottle(code, isSelected ? 300 : 2000);
@@ -46,13 +49,6 @@ function VariantThumbnail({ code, isSelected }: VariantThumbnailProps) {
     return () => resizeObserver.disconnect();
   }, []);
 
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (iframe) {
-      iframe.srcdoc = throttledCode;
-    }
-  }, [throttledCode]);
-
   const scaledHeight = IFRAME_HEIGHT * scale;
 
   return (
@@ -61,8 +57,8 @@ function VariantThumbnail({ code, isSelected }: VariantThumbnailProps) {
       className="w-full overflow-hidden rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900"
       style={{ height: `${scaledHeight}px` }}
     >
-      <iframe
-        ref={iframeRef}
+      <SandboxedPreviewFrame
+        html={throttledCode}
         title="variant-preview"
         className="pointer-events-none origin-top-left"
         style={{
@@ -70,8 +66,128 @@ function VariantThumbnail({ code, isSelected }: VariantThumbnailProps) {
           height: `${IFRAME_HEIGHT}px`,
           transform: `scale(${scale})`,
         }}
-        sandbox="allow-scripts allow-same-origin"
       />
+    </div>
+  );
+}
+
+interface VariantSelectionButtonProps {
+  index: number;
+  isSelected: boolean;
+  status: Variant["status"];
+  modelName?: string;
+  onSelect: () => void;
+}
+
+export function VariantSelectionButton({
+  index,
+  isSelected,
+  status,
+  modelName,
+  onSelect,
+}: VariantSelectionButtonProps) {
+  const statusLabel = getVariantStatusLabel(status);
+
+  return (
+    <button
+      type="button"
+      aria-pressed={isSelected}
+      aria-controls="selected-variant-panel"
+      aria-keyshortcuts={index < 9 ? `Alt+${index + 1}` : undefined}
+      aria-label={`Option ${index + 1}, ${statusLabel}${
+        isSelected ? ", selected" : ""
+      }`}
+      data-testid={`variant-option-${index + 1}`}
+      className="absolute inset-0 z-20 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500"
+      title={modelName}
+      onClick={onSelect}
+    />
+  );
+}
+
+interface VariantOptionProps {
+  variant: Variant;
+  index: number;
+  isSelected: boolean;
+  inputMode: "image" | "video" | "text";
+  generationType: "create" | "update";
+  onSelect: () => void;
+}
+
+export function VariantOption({
+  variant,
+  index,
+  isSelected,
+  inputMode,
+  generationType,
+  onSelect,
+}: VariantOptionProps) {
+  let statusColor = "bg-gray-300 dark:bg-gray-600";
+  if (variant.status === "complete") statusColor = "bg-green-500";
+  else if (variant.status === "error" || variant.status === "cancelled") {
+    statusColor = "bg-red-500";
+  }
+
+  const label = getVariantLabel(variant.model, {
+    inputMode,
+    generationType,
+  });
+  const modelName = variant.model
+    ? CODE_GENERATION_MODEL_DESCRIPTIONS[
+        variant.model as CodeGenerationModel
+      ]?.name || variant.model
+    : undefined;
+
+  return (
+    <div
+      className={`relative w-full overflow-hidden rounded ${
+        isSelected
+          ? "ring-2 ring-blue-400 dark:ring-blue-500"
+          : "ring-1 ring-gray-200 dark:ring-gray-700 hover:ring-gray-300 dark:hover:ring-gray-600"
+      }`}
+    >
+      <VariantSelectionButton
+        index={index}
+        isSelected={isSelected}
+        status={variant.status}
+        modelName={modelName}
+        onSelect={onSelect}
+      />
+      {label && (
+        <span
+          className={`absolute top-1.5 right-1.5 z-10 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none shadow-sm ${BADGE_TONE[label.tone]}`}
+        >
+          {label.text}
+        </span>
+      )}
+      <VariantThumbnail
+        code={composeProjectPreview(variant)}
+        isSelected={isSelected}
+      />
+      <div className="flex items-center px-2 py-1 bg-white dark:bg-zinc-900">
+        <span className="inline-flex min-w-0 items-center text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+          <span
+            aria-hidden="true"
+            className={`w-2 h-2 rounded-full mr-1.5 ${statusColor}`}
+          />
+          Option {index + 1}
+          {index < 9 && (
+            <span className="text-xs text-gray-400 dark:text-gray-500 font-mono ml-1">
+              (⌥{index + 1})
+            </span>
+          )}
+        </span>
+        {variant.status === "generating" && (
+          <div
+            className="ml-auto shrink-0 inline-flex items-center"
+            role="status"
+            aria-live="polite"
+            aria-label="Working"
+          >
+            <WorkingPulse />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -82,17 +198,33 @@ function Variants() {
 
   const commit = head ? commits[head] : null;
   const variants = commit?.variants || [];
-  const selectedVariantIndex = commit?.selectedVariantIndex || 0;
+  const selectedVariantIndex = commit?.selectedVariantIndex ?? 0;
   const generationType: "create" | "update" =
     commit?.type === "ai_create" ? "create" : "update";
 
-  const handleVariantClick = (index: number) => {
-    if (index === selectedVariantIndex || !head) return;
-    updateSelectedVariantIndex(head, index);
-  };
+  const handleVariantClick = useCallback(
+    (index: number) => {
+      if (index === selectedVariantIndex || !head) return;
+      updateSelectedVariantIndex(head, index);
+    },
+    [head, selectedVariantIndex, updateSelectedVariantIndex]
+  );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const target =
+        event.target instanceof HTMLElement ? event.target : null;
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        target?.isContentEditable ||
+        target?.closest(
+          "input, textarea, select, button, a, [role='dialog'], [role='listbox'], [role='menu']"
+        )
+      ) {
+        return;
+      }
+
       if (event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
         const code = event.code;
         if (code >= "Digit1" && code <= "Digit9") {
@@ -100,8 +232,7 @@ function Variants() {
           if (
             commit &&
             variantIndex < variants.length &&
-            variants.length > 1 &&
-            !commit.isCommitted
+            variants.length > 1
           ) {
             event.preventDefault();
             handleVariantClick(variantIndex);
@@ -112,76 +243,30 @@ function Variants() {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [variants.length, commit?.isCommitted, selectedVariantIndex, head]);
+  }, [commit, handleVariantClick, variants.length]);
 
   if (head === null || !commit) {
     return null;
   }
 
-  if (variants.length <= 1 || commit.isCommitted) {
+  if (variants.length <= 1) {
     return <div className="mt-2"></div>;
   }
 
   return (
     <div className="pt-2 pb-1">
-      <div className="grid grid-cols-2 gap-2">
-        {variants.map((variant, index) => {
-          let statusColor = "bg-gray-300 dark:bg-gray-600";
-          if (variant.status === "complete") statusColor = "bg-green-500";
-          else if (variant.status === "error" || variant.status === "cancelled") statusColor = "bg-red-500";
-
-          const label = getVariantLabel(variant.model, {
-            inputMode,
-            generationType,
-          });
-
-          return (
-            <div
-              key={index}
-              className={`relative w-full rounded cursor-pointer overflow-hidden ${
-                index === selectedVariantIndex
-                  ? "ring-2 ring-blue-400 dark:ring-blue-500"
-                  : "ring-1 ring-gray-200 dark:ring-gray-700 hover:ring-gray-300 dark:hover:ring-gray-600"
-              }`}
-              title={variant.model ? (CODE_GENERATION_MODEL_DESCRIPTIONS[variant.model as CodeGenerationModel]?.name || variant.model) : undefined}
-              onClick={() => handleVariantClick(index)}
-            >
-              {/* Color-coded model badge in the thumbnail corner */}
-              {label && (
-                <span
-                  className={`absolute top-1.5 right-1.5 z-10 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none shadow-sm ${BADGE_TONE[label.tone]}`}
-                >
-                  {label.text}
-                </span>
-              )}
-              <VariantThumbnail
-                code={variant.code}
-                isSelected={index === selectedVariantIndex}
-              />
-              <div className="flex items-center px-2 py-1 bg-white dark:bg-zinc-900">
-                <span className="inline-flex min-w-0 items-center text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                  <span className={`w-2 h-2 rounded-full mr-1.5 ${statusColor}`} />
-                  Option {index + 1}
-                  {index < 9 && (
-                    <span className="text-xs text-gray-400 dark:text-gray-500 font-mono ml-1">
-                      (⌥{index + 1})
-                    </span>
-                  )}
-                </span>
-                {variant.status === "generating" && (
-                  <div
-                    className="ml-auto shrink-0 inline-flex items-center"
-                    role="status"
-                    aria-live="polite"
-                    aria-label="Working"
-                  >
-                    <WorkingPulse />
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Generated options">
+        {variants.map((variant, index) => (
+          <VariantOption
+            key={index}
+            variant={variant}
+            index={index}
+            isSelected={index === selectedVariantIndex}
+            inputMode={inputMode}
+            generationType={generationType}
+            onSelect={() => handleVariantClick(index)}
+          />
+        ))}
       </div>
     </div>
   );

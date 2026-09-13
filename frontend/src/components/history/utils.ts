@@ -1,6 +1,9 @@
 import { Commit, CommitType } from "../commits/types";
 
-function displayHistoryItemType(itemType: CommitType) {
+function displayHistoryItemType(commit: Commit) {
+  if (commit.retryOfHash) return "Retry";
+
+  const itemType: CommitType = commit.type;
   switch (itemType) {
     case "ai_create":
       return "Create";
@@ -14,22 +17,6 @@ function displayHistoryItemType(itemType: CommitType) {
     }
   }
 }
-
-const setParentVersion = (commit: Commit, history: Commit[]) => {
-  // If the commit has no parent, return null
-  if (!commit.parentHash) return null;
-
-  const parentIndex = history.findIndex(
-    (item) => item.hash === commit.parentHash
-  );
-  const currentIndex = history.findIndex((item) => item.hash === commit.hash);
-
-  // Only set parent version if the parent is not the previous commit
-  // and parent exists
-  return parentIndex !== -1 && parentIndex != currentIndex - 1
-    ? parentIndex + 1
-    : null;
-};
 
 function extractTagName(html: string): string {
   const match = html.match(/^<(\w+)/);
@@ -50,7 +37,7 @@ export function summarizeHistoryItem(commit: Commit): string {
   const commitType = commit.type;
   switch (commitType) {
     case "ai_create":
-      return "Create";
+      return commit.retryOfHash ? commit.inputs.text || "Create" : "Create";
     case "ai_edit":
       return commit.inputs.text || "Edit";
     case "code_create":
@@ -69,31 +56,69 @@ export function getSelectedElementTag(commit: Commit): string | null {
   return extractTagName(html);
 }
 
+export interface HistoryVersionLink {
+  hash: string;
+  version: number;
+}
+
 export type RenderedHistoryItem = Omit<Commit, "type"> & {
   type: string;
+  version: number;
   summary: string;
   selectedElementTag: string | null;
   parentVersion: number | null;
+  parentLink: HistoryVersionLink | null;
+  retrySource: HistoryVersionLink | null;
+  retryDescendants: HistoryVersionLink[];
   images: string[];
   videos: string[];
 };
 
 export const renderHistory = (history: Commit[]): RenderedHistoryItem[] => {
-  const renderedHistory: RenderedHistoryItem[] = [];
+  const versionByHash = new Map(
+    history.map((commit, index) => [commit.hash, index + 1])
+  );
+  const retryDescendantsByHash = new Map<string, HistoryVersionLink[]>();
 
-  for (let i = 0; i < history.length; i++) {
-    const commit = history[i];
+  history.forEach((commit, index) => {
+    if (!commit.retryOfHash) return;
+    const descendants = retryDescendantsByHash.get(commit.retryOfHash) ?? [];
+    descendants.push({ hash: commit.hash, version: index + 1 });
+    retryDescendantsByHash.set(commit.retryOfHash, descendants);
+  });
+
+  return history.map((commit, index) => {
     const media = getCommitMedia(commit);
-    renderedHistory.push({
+    const previousHash = index > 0 ? history[index - 1].hash : null;
+    const parentVersion = commit.parentHash
+      ? versionByHash.get(commit.parentHash) ?? null
+      : null;
+    const showParentLink =
+      parentVersion !== null &&
+      commit.parentHash !== previousHash &&
+      commit.parentHash !== commit.retryOfHash;
+    const retrySourceVersion = commit.retryOfHash
+      ? versionByHash.get(commit.retryOfHash) ?? null
+      : null;
+
+    return {
       ...commit,
-      type: displayHistoryItemType(commit.type),
+      type: displayHistoryItemType(commit),
+      version: index + 1,
       summary: summarizeHistoryItem(commit),
       selectedElementTag: getSelectedElementTag(commit),
-      parentVersion: setParentVersion(commit, history),
+      parentVersion: showParentLink ? parentVersion : null,
+      parentLink:
+        showParentLink && commit.parentHash
+          ? { hash: commit.parentHash, version: parentVersion }
+          : null,
+      retrySource:
+        retrySourceVersion !== null && commit.retryOfHash
+          ? { hash: commit.retryOfHash, version: retrySourceVersion }
+          : null,
+      retryDescendants: retryDescendantsByHash.get(commit.hash) ?? [],
       images: media.images,
       videos: media.videos,
-    });
-  }
-
-  return renderedHistory;
+    };
+  });
 };

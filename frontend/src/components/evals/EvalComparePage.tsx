@@ -8,6 +8,7 @@ import {
 } from "react-icons/bs";
 
 import { HTTP_BACKEND_URL } from "../../config";
+import { PREVIEW_SANDBOX } from "../../lib/preview-bridge";
 import EvalNavigation from "./EvalNavigation";
 import { formatCost, formatMs } from "./report-format";
 
@@ -442,6 +443,8 @@ function EvalComparePage() {
                   src={`${HTTP_BACKEND_URL}/agent-runs/${encodeURIComponent(
                     pane.run!.run_id
                   )}/output`}
+                  sandbox={PREVIEW_SANDBOX}
+                  referrerPolicy="no-referrer"
                   className={`absolute inset-0 h-full w-full bg-white ${
                     isActive ? "visible" : "invisible"
                   }`}

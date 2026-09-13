@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Stack } from "../../lib/stacks";
 import { DesignSystem, MultiScreenshotMode, Settings } from "../../types";
@@ -9,8 +9,11 @@ import ImportTab from "./tabs/ImportTab";
 import { DesignSystemSelectorProps } from "../settings/DesignSystemSelector";
 import { ModelSelectorProps } from "../settings/ModelSelector";
 import { LuFolderOpen, LuX } from "react-icons/lu";
+import type { EditableProjectImportHandler } from "../../lib/project-import";
 
 interface Props {
+  activeTab: InputTab;
+  onActiveTabChange: (tab: InputTab) => void;
   doCreate: (
     images: string[],
     inputMode: "image" | "video",
@@ -20,6 +23,7 @@ interface Props {
   ) => void;
   doCreateFromText: (text: string) => void;
   importFromCode: (code: string, stack: Stack) => void;
+  importProject?: EditableProjectImportHandler;
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   designSystems: DesignSystem[];
@@ -27,20 +31,21 @@ interface Props {
   onManageDesignSystems: () => void;
 }
 
-type InputTab = "upload" | "url" | "text" | "import";
+export type InputTab = "upload" | "url" | "text" | "import";
 
 function UnifiedInputPane({
+  activeTab,
+  onActiveTabChange,
   doCreate,
   doCreateFromText,
   importFromCode,
+  importProject,
   settings,
   setSettings,
   designSystems,
   onAddNewDesignSystem,
   onManageDesignSystems,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<InputTab>("upload");
-
   function setStack(stack: Stack) {
     setSettings((prev: Settings) => ({
       ...prev,
@@ -74,7 +79,7 @@ function UnifiedInputPane({
     <div className="w-full max-w-4xl mx-auto px-4">
       <Tabs
         value={activeTab}
-        onValueChange={(value) => setActiveTab(value as InputTab)}
+        onValueChange={(value) => onActiveTabChange(value as InputTab)}
         className="w-full"
       >
         {settings.projectContext && (
@@ -176,6 +181,7 @@ function UnifiedInputPane({
         <TabsContent value="import" className="mt-0">
           <ImportTab
             importFromCode={importFromCode}
+            importProject={importProject}
             projectContext={settings.projectContext}
             setProjectContext={(projectContext) =>
               setSettings((previous) => ({ ...previous, projectContext }))

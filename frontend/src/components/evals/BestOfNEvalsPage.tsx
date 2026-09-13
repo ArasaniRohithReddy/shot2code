@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { HTTP_BACKEND_URL } from "../../config";
 import { Dialog, DialogContent, DialogTrigger } from "../ui/dialog";
 import EvalNavigation from "./EvalNavigation";
+import SandboxedPreviewFrame from "../preview/SandboxedPreviewFrame";
 
 interface Eval {
   input: string;
@@ -44,79 +45,8 @@ function BestOfNEvalsPage() {
     "all"
   );
 
-  // Refs for synchronized scrolling
-  const iframeRefs = useRef<(HTMLIFrameElement | null)[]>([]);
-
-  // Fetch available folders on mount
-  useEffect(() => {
-    const fetchFolders = async () => {
-      try {
-        const response = await fetch(`${HTTP_BACKEND_URL}/output_folders`);
-        const folders: OutputFolder[] = await response.json();
-        setAvailableFolders(folders);
-      } catch (error) {
-        console.error("Error fetching folders:", error);
-      }
-    };
-    fetchFolders();
-  }, []);
-
-  // Synchronized scrolling effect
-  useEffect(() => {
-    const setupSyncScrolling = () => {
-      const iframes = iframeRefs.current.filter(Boolean);
-      if (iframes.length < 2) return;
-
-      const syncScroll = (sourceIframe: HTMLIFrameElement) => {
-        try {
-          const sourceDocument =
-            sourceIframe.contentDocument ||
-            sourceIframe.contentWindow?.document;
-          if (!sourceDocument) return;
-
-          const syncHandler = () => {
-            const scrollTop =
-              sourceDocument.documentElement.scrollTop ||
-              sourceDocument.body.scrollTop;
-            const scrollLeft =
-              sourceDocument.documentElement.scrollLeft ||
-              sourceDocument.body.scrollLeft;
-
-            iframes.forEach((iframe) => {
-              if (!iframe || iframe === sourceIframe) return;
-              try {
-                const targetDocument =
-                  iframe.contentDocument || iframe.contentWindow?.document;
-                if (targetDocument) {
-                  targetDocument.documentElement.scrollTop = scrollTop;
-                  targetDocument.body.scrollTop = scrollTop;
-                  targetDocument.documentElement.scrollLeft = scrollLeft;
-                  targetDocument.body.scrollLeft = scrollLeft;
-                }
-              } catch (e) {
-                // Ignore cross-origin errors
-              }
-            });
-          };
-
-          sourceDocument.addEventListener("scroll", syncHandler);
-          return () =>
-            sourceDocument.removeEventListener("scroll", syncHandler);
-        } catch (e) {
-          // Ignore cross-origin errors
-        }
-      };
-
-      const cleanupFunctions = iframes
-        .map((iframe) => (iframe ? syncScroll(iframe) : null))
-        .filter(Boolean);
-      return () => cleanupFunctions.forEach((cleanup) => cleanup?.());
-    };
-
-    // Wait for iframes to load
-    const timer = setTimeout(setupSyncScrolling, 1000);
-    return () => clearTimeout(timer);
-  }, [currentComparisonIndex, evals]);
+  // The active output is sandboxed with an opaque origin. Synchronized DOM
+  // access is intentionally unavailable because it would expose the parent app.
 
   // Get filtered comparisons indices
   const getFilteredIndices = () => {
@@ -210,7 +140,7 @@ function BestOfNEvalsPage() {
         case "6":
         case "7":
         case "8":
-        case "9":
+        case "9": {
           e.preventDefault();
           const modelIndex = parseInt(e.key) - 1;
           if (modelIndex < folderNames.length) {
@@ -223,6 +153,7 @@ function BestOfNEvalsPage() {
             }
           }
           break;
+        }
         case "t":
           e.preventDefault();
           handleVote(currentComparisonIndex, "tie");
@@ -236,7 +167,7 @@ function BestOfNEvalsPage() {
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [currentComparisonIndex, evals.length, folderNames.length]);
+  }, [currentComparisonIndex, evals.length, folderNames.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Add/remove folder input fields
   const addFolderInput = () => {
@@ -296,8 +227,6 @@ function BestOfNEvalsPage() {
       setFolderNames(data.folder_names);
       setCurrentComparisonIndex(0);
       setCurrentModelIndex(0);
-      // Reset iframe refs
-      iframeRefs.current = [];
     } catch (error) {
       console.error("Error loading evals:", error);
       alert(
@@ -904,22 +833,21 @@ function BestOfNEvalsPage() {
                           {folderNames[currentModelIndex]}
                         </span>
                       </div>
-                      <iframe
-                        srcDoc={selectedHtml}
+                      <SandboxedPreviewFrame
+                        html={selectedHtml}
+                        title="Selected evaluation output"
                         className="w-full h-full rounded-lg"
-                      ></iframe>
+                      />
                     </DialogContent>
                   </Dialog>
                 </div>
                 <div className="relative bg-gray-50">
-                  <iframe
-                    ref={(el) => {
-                      iframeRefs.current[currentModelIndex] = el;
-                    }}
-                    srcDoc={currentEval.outputs[currentModelIndex]}
+                  <SandboxedPreviewFrame
+                    html={currentEval.outputs[currentModelIndex]}
+                    title={`${folderNames[currentModelIndex]} evaluation output`}
                     className="w-full h-[calc(100vh-200px)]"
                     style={{ colorScheme: "light" }}
-                  ></iframe>
+                  />
                 </div>
               </div>
             </div>

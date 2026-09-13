@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from llm import Llm
 from routes.generate_code import ParameterExtractionStage
 
 
@@ -109,3 +110,26 @@ async def test_extracts_design_system_from_request() -> None:
     )
 
     assert extracted.design_system == "Reuse .mockup-frame"
+
+
+@pytest.mark.asyncio
+async def test_extracts_retry_models_in_order_and_drops_unknown_values() -> None:
+    stage = ParameterExtractionStage(AsyncMock())
+
+    extracted = await stage.extract_and_validate(
+        {
+            "generatedCodeConfig": "html_tailwind",
+            "inputMode": "text",
+            "prompt": {"text": "hello"},
+            "retryModels": [
+                Llm.GPT_5_6_SOL_HIGH.value,
+                "removed-model",
+                Llm.CLAUDE_OPUS_5_HIGH.value,
+            ],
+        }
+    )
+
+    assert extracted.retry_models == [
+        Llm.GPT_5_6_SOL_HIGH,
+        Llm.CLAUDE_OPUS_5_HIGH,
+    ]

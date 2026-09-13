@@ -110,6 +110,7 @@ export interface CodeGenerationParams {
     content: string;
   };
   optionCodes?: string[];
+  retryModels?: string[];
   isAssetExtractionEnabled?: boolean;
 }
 

@@ -83,7 +83,7 @@ function ModelSelector({
         <button
           type="button"
           title="Choose which Copilot models generate each variant"
-          className="flex items-center gap-1.5 rounded-lg px-2 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+          className="flex min-h-11 max-w-full items-center gap-1.5 rounded-lg px-2 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
         >
           <LuBrain className="w-[18px] h-[18px]" />
           <span className="max-w-[110px] truncate notranslate" translate="no">

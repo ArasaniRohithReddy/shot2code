@@ -13,7 +13,6 @@ from config import (
     ANTHROPIC_API_KEY,
     COPILOT_GITHUB_TOKEN,
     GEMINI_API_KEY,
-    IS_DEBUG_ENABLED,
     IS_PROD,
     NUM_VARIANTS,
     NUM_VARIANTS_VIDEO,
@@ -275,6 +274,7 @@ class ExtractedParams:
     design_system: str | None = None
     copilot_github_token: str | None = None
     copilot_models: List[Llm] | None = None
+    retry_models: List[Llm] | None = None
 
 
 class ParameterExtractionStage:
@@ -330,16 +330,27 @@ class ParameterExtractionStage:
         # Models the user explicitly picked in Settings. Unknown ids are
         # dropped rather than failing the run, so a stale saved selection
         # can't wedge generation.
-        raw_copilot_models = params.get("copilotModels")
+        raw_copilot_models: object = params.get("copilotModels")
         copilot_models: List[Llm] | None = None
         if isinstance(raw_copilot_models, list) and raw_copilot_models:
             by_value = {m.value: m for m in COPILOT_MODELS}
             picked = [
                 by_value[value]
-                for value in raw_copilot_models
+                for value in cast(list[object], raw_copilot_models)
                 if isinstance(value, str) and value in by_value
             ]
             copilot_models = picked or None
+
+        raw_retry_models: object = params.get("retryModels")
+        retry_models: List[Llm] | None = None
+        if isinstance(raw_retry_models, list) and raw_retry_models:
+            by_value = {model.value: model for model in Llm}
+            picked_retry_models = [
+                by_value[value]
+                for value in cast(list[object], raw_retry_models)
+                if isinstance(value, str) and value in by_value
+            ]
+            retry_models = picked_retry_models or None
 
         # Base URL for OpenAI API
         openai_base_url: str | None = None
@@ -412,6 +423,7 @@ class ParameterExtractionStage:
             openai_base_url=openai_base_url,
             copilot_github_token=copilot_github_token,
             copilot_models=copilot_models,
+            retry_models=retry_models,
             generation_type=generation_type,
             prompt=prompt,
             history=history,
@@ -452,14 +464,17 @@ class ModelSelectionStage:
         gemini_api_key: str | None = None,
         copilot_available: bool = False,
         copilot_models: List[Llm] | None = None,
+        retry_models: List[Llm] | None = None,
     ) -> List[Llm]:
         """Select appropriate models based on available API keys"""
         try:
             num_variants = 2 if generation_type == "update" else NUM_VARIANTS
 
+            if retry_models:
+                variant_models = list(retry_models)
             # An explicit Copilot choice in Settings wins over auto-selection,
             # except for video which only Gemini can do.
-            if copilot_models and input_mode != "video":
+            elif copilot_models and input_mode != "video":
                 variant_models = [
                     copilot_models[i % len(copilot_models)]
                     for i in range(num_variants)
@@ -817,9 +832,14 @@ class StatusBroadcastMiddleware(Middleware):
         assert context.extracted_params is not None
         is_video_mode = context.extracted_params.input_mode == "video"
         is_update = context.extracted_params.generation_type == "update"
-        num_variants = (
-            NUM_VARIANTS_VIDEO if is_video_mode else 2 if is_update else NUM_VARIANTS
-        )
+        if context.extracted_params.retry_models:
+            num_variants = len(context.extracted_params.retry_models)
+        elif is_video_mode:
+            num_variants = NUM_VARIANTS_VIDEO
+        elif is_update:
+            num_variants = 2
+        else:
+            num_variants = NUM_VARIANTS
 
         # Tell frontend how many variants we're using
         await context.send_message("variantCount", str(num_variants), 0)
@@ -898,15 +918,15 @@ class CodeGenerationMiddleware(Middleware):
                 gemini_api_key=context.extracted_params.gemini_api_key,
                 copilot_available=copilot_available,
                 copilot_models=selected_copilot_models,
+                retry_models=context.extracted_params.retry_models,
             )
-            if IS_DEBUG_ENABLED:
-                await context.send_message(
-                    "variantModels",
-                    None,
-                    0,
-                    {"models": [model.value for model in context.variant_models]},
-                    None,
-                )
+            await context.send_message(
+                "variantModels",
+                None,
+                0,
+                {"models": [model.value for model in context.variant_models]},
+                None,
+            )
 
             generation_stage = AgenticGenerationStage(
                 send_message=context.send_message,

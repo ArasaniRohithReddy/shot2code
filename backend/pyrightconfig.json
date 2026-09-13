@@ -1,5 +1,10 @@
 {
-  "exclude": ["image_generation.py"],
+  "exclude": [
+    "image_generation.py",
+    ".venv",
+    "build-pyinstaller",
+    "dist-pyinstaller"
+  ],
   "typeCheckingMode": "basic",
   "reportMissingTypeStubs": "none",
   "reportUnknownVariableType": "warning"

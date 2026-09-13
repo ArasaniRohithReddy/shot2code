@@ -7,10 +7,48 @@ import {
   VariantStatus,
 } from "../components/commits/types";
 import { MultiScreenshotMode, PromptAsset } from "../types";
+import { Stack } from "../lib/stacks";
 import { useAppStore } from "./app-store";
+import {
+  appendToProjectFile,
+  DEFAULT_PROJECT_ENTRY_POINT,
+  getProjectFile,
+  normalizeProjectState,
+  setActiveProjectFile,
+  updateProjectFileContent,
+  type ProjectFileMap,
+} from "../lib/project-files";
+
+export interface ProjectRestorePayload {
+  projectId: string;
+  projectTitle: string;
+  projectCreatedAt: Date;
+  projectStack: Stack;
+  inputMode: "image" | "video" | "text";
+  referenceImages: string[];
+  initialPrompt: string;
+  multiScreenshotMode: MultiScreenshotMode;
+  assetsById: Record<string, PromptAsset>;
+  commits: Record<string, Commit>;
+  head: CommitHash | null;
+  latestCommitHash: CommitHash | null;
+}
 
 // Store for app-wide state
 interface ProjectStore {
+  projectId: string | null;
+  projectTitle: string;
+  projectCreatedAt: Date | null;
+  projectStack: Stack;
+  startProject: (project: {
+    id: string;
+    title: string;
+    createdAt: Date;
+    stack: Stack;
+  }) => void;
+  restoreProject: (project: ProjectRestorePayload) => void;
+  resetProject: () => void;
+
   // Inputs
   inputMode: "image" | "video" | "text";
   setInputMode: (mode: "image" | "video" | "text") => void;
@@ -44,6 +82,23 @@ interface ProjectStore {
     thinking: string
   ) => void;
   setCommitCode: (hash: CommitHash, numVariant: number, code: string) => void;
+  setVariantFiles: (
+    hash: CommitHash,
+    numVariant: number,
+    files: ProjectFileMap,
+    entryPoint?: string
+  ) => void;
+  setVariantFileContent: (
+    hash: CommitHash,
+    numVariant: number,
+    path: string,
+    content: string
+  ) => void;
+  setVariantActiveFile: (
+    hash: CommitHash,
+    numVariant: number,
+    path: string
+  ) => void;
   appendVariantHistoryMessage: (
     hash: CommitHash,
     numVariant: number,
@@ -54,6 +109,11 @@ interface ProjectStore {
     hash: CommitHash,
     numVariant: number,
     status: VariantStatus,
+    errorMessage?: string
+  ) => void;
+  finalizeGeneratingVariants: (
+    hash: CommitHash,
+    status: Exclude<VariantStatus, "generating">,
     errorMessage?: string
   ) => void;
   resizeVariants: (hash: CommitHash, count: number) => void;
@@ -86,6 +146,77 @@ interface ProjectStore {
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
+  projectId: null,
+  projectTitle: "",
+  projectCreatedAt: null,
+  projectStack: Stack.HTML_TAILWIND,
+  startProject: ({ id, title, createdAt, stack }) =>
+    set({
+      projectId: id,
+      projectTitle: title,
+      projectCreatedAt: createdAt,
+      projectStack: stack,
+    }),
+  restoreProject: (project) => {
+    useAppStore.getState().disableInSelectAndEditMode();
+    const commits = Object.fromEntries(
+      Object.entries(project.commits).map(([hash, commit]) => [
+        hash,
+        {
+          ...commit,
+          generationContext: commit.generationContext
+            ? {
+                ...commit.generationContext,
+                selectedModels: [...commit.generationContext.selectedModels],
+              }
+            : undefined,
+          variants: commit.variants.map((variant) => ({
+            ...normalizeProjectState(variant),
+            history: (variant.history ?? []).map((message) => ({
+              ...message,
+              imageAssetIds: [...message.imageAssetIds],
+              videoAssetIds: [...message.videoAssetIds],
+            })),
+            agentEvents: [...(variant.agentEvents ?? [])],
+          })),
+        },
+      ])
+    );
+    set({
+      projectId: project.projectId,
+      projectTitle: project.projectTitle,
+      projectCreatedAt: project.projectCreatedAt,
+      projectStack: project.projectStack,
+      inputMode: project.inputMode,
+      referenceImages: [...project.referenceImages],
+      initialPrompt: project.initialPrompt,
+      multiScreenshotMode: project.multiScreenshotMode,
+      assetsById: { ...project.assetsById },
+      commits,
+      head: project.head,
+      latestCommitHash: project.latestCommitHash,
+      executionConsoles: {},
+    });
+  },
+  resetProject: () => {
+    useAppStore.getState().disableInSelectAndEditMode();
+    set({
+      projectId: null,
+      projectTitle: "",
+      projectCreatedAt: null,
+      projectStack: Stack.HTML_TAILWIND,
+      inputMode: "image",
+      referenceImages: [],
+      initialPrompt: "",
+      multiScreenshotMode: "pages",
+      assetsById: {},
+      commits: {},
+      head: null,
+      latestCommitHash: null,
+      executionConsoles: {},
+    });
+  },
+
   // Inputs and their setters
   inputMode: "image",
   setInputMode: (mode) => set({ inputMode: mode }),
@@ -113,12 +244,20 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   latestCommitHash: null,
 
   addCommit: (commit: Commit) => {
+    useAppStore.getState().disableInSelectAndEditMode();
     const requestStartedAt = new Date(commit.dateCreated).getTime();
+    const committedAt = Date.now();
     // Initialize variant statuses as 'generating' and start thinking timer
     const commitsWithStatus = {
       ...commit,
+      generationContext: commit.generationContext
+        ? {
+            ...commit.generationContext,
+            selectedModels: [...commit.generationContext.selectedModels],
+          }
+        : undefined,
       variants: commit.variants.map((variant) => ({
-        ...variant,
+        ...normalizeProjectState(variant),
         history: variant.history || [],
         requestStartedAt:
           variant.requestStartedAt ?? requestStartedAt,
@@ -134,11 +273,24 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         ...Object.fromEntries(
           Object.entries(state.commits).map(([hash, existingCommit]) => [
             hash,
-            { ...existingCommit, isCommitted: true },
+            {
+              ...existingCommit,
+              isCommitted: true,
+              variants: existingCommit.variants.map((variant) =>
+                variant.status === "generating"
+                  ? {
+                      ...variant,
+                      status: "cancelled" as VariantStatus,
+                      completedAt: variant.completedAt ?? committedAt,
+                    }
+                  : variant
+              ),
+            },
           ])
         ),
         [commitsWithStatus.hash]: commitsWithStatus,
       },
+      head: commitsWithStatus.hash,
       latestCommitHash: commitsWithStatus.hash,
     }));
   },
@@ -162,36 +314,47 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   appendCommitCode: (hash: CommitHash, numVariant: number, code: string) =>
     set((state) => {
       const commit = state.commits[hash];
-      if (!commit) {
-        return state;
-      }
-      // Don't update if the commit is already committed
-      if (commit.isCommitted) {
-        return state;
-      }
+      if (!commit || commit.isCommitted) return state;
+
       const variant = commit.variants[numVariant];
-      const isFirstCode = !variant.code && variant.thinkingStartTime;
+      if (!variant) return state;
+
+      const normalizedVariant = normalizeProjectState(variant);
+      const targetPath =
+        variant.generationTargetPath ?? normalizedVariant.entryPoint;
+      const targetFile = getProjectFile(normalizedVariant, targetPath);
+      const isFirstCode = !targetFile?.content && variant.thinkingStartTime;
       const duration = isFirstCode
         ? Math.round((Date.now() - variant.thinkingStartTime!) / 1000)
         : variant.thinkingDuration;
+      const updatedVariant = appendToProjectFile(
+        normalizedVariant,
+        targetPath,
+        code
+      );
+
       return {
         commits: {
           ...state.commits,
           [hash]: {
             ...commit,
-            variants: commit.variants.map((v, index) =>
+            variants: commit.variants.map((currentVariant, index) =>
               index === numVariant
-                ? { ...v, code: v.code + code, thinkingDuration: duration }
-                : v
+                ? { ...updatedVariant, thinkingDuration: duration }
+                : currentVariant
             ),
           },
         },
       };
     }),
-  appendVariantThinking: (hash: CommitHash, numVariant: number, thinking: string) =>
+  appendVariantThinking: (
+    hash: CommitHash,
+    numVariant: number,
+    thinking: string
+  ) =>
     set((state) => {
       const commit = state.commits[hash];
-      // Don't update if the commit is already committed
+      if (!commit) return state;
       if (commit.isCommitted) {
         throw new Error("Attempted to append thinking to a committed commit");
       }
@@ -200,13 +363,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           ...state.commits,
           [hash]: {
             ...commit,
-            variants: commit.variants.map((v, index) =>
+            variants: commit.variants.map((variant, index) =>
               index === numVariant
                 ? {
-                    ...v,
-                    thinking: (v.thinking || "") + thinking,
+                    ...variant,
+                    thinking: (variant.thinking || "") + thinking,
                   }
-                : v
+                : variant
             ),
           },
         },
@@ -215,20 +378,95 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   setCommitCode: (hash: CommitHash, numVariant: number, code: string) =>
     set((state) => {
       const commit = state.commits[hash];
-      if (!commit) {
-        return state;
-      }
-      // Don't update if the commit is already committed
-      if (commit.isCommitted) {
-        return state;
-      }
+      if (!commit || commit.isCommitted) return state;
+
+      const variant = commit.variants[numVariant];
+      if (!variant) return state;
+
+      const normalizedVariant = normalizeProjectState(variant);
+      const targetPath =
+        variant.generationTargetPath ?? normalizedVariant.entryPoint;
+      const updatedVariant = updateProjectFileContent(
+        normalizedVariant,
+        targetPath,
+        code,
+        { force: true }
+      );
+
       return {
         commits: {
           ...state.commits,
           [hash]: {
             ...commit,
-            variants: commit.variants.map((variant, index) =>
-              index === numVariant ? { ...variant, code } : variant
+            variants: commit.variants.map((currentVariant, index) =>
+              index === numVariant ? updatedVariant : currentVariant
+            ),
+          },
+        },
+      };
+    }),
+  setVariantFiles: (hash, numVariant, files, entryPoint) =>
+    set((state) => {
+      const commit = state.commits[hash];
+      if (!commit || commit.isCommitted) return state;
+
+      const variant = commit.variants[numVariant];
+      if (!variant) return state;
+
+      const updatedVariant = normalizeProjectState({
+        ...variant,
+        files,
+        entryPoint,
+      });
+      return {
+        commits: {
+          ...state.commits,
+          [hash]: {
+            ...commit,
+            variants: commit.variants.map((currentVariant, index) =>
+              index === numVariant ? updatedVariant : currentVariant
+            ),
+          },
+        },
+      };
+    }),
+  setVariantFileContent: (hash, numVariant, path, content) =>
+    set((state) => {
+      const commit = state.commits[hash];
+      if (!commit || commit.isCommitted) return state;
+
+      const variant = commit.variants[numVariant];
+      if (!variant) return state;
+
+      const updatedVariant = updateProjectFileContent(variant, path, content);
+      return {
+        commits: {
+          ...state.commits,
+          [hash]: {
+            ...commit,
+            variants: commit.variants.map((currentVariant, index) =>
+              index === numVariant ? updatedVariant : currentVariant
+            ),
+          },
+        },
+      };
+    }),
+  setVariantActiveFile: (hash, numVariant, path) =>
+    set((state) => {
+      const commit = state.commits[hash];
+      if (!commit) return state;
+
+      const variant = commit.variants[numVariant];
+      if (!variant) return state;
+
+      const updatedVariant = setActiveProjectFile(variant, path);
+      return {
+        commits: {
+          ...state.commits,
+          [hash]: {
+            ...commit,
+            variants: commit.variants.map((currentVariant, index) =>
+              index === numVariant ? updatedVariant : currentVariant
             ),
           },
         },
@@ -258,28 +496,23 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         },
       };
     }),
-  updateSelectedVariantIndex: (hash: CommitHash, index: number) =>
-    set((state) => {
-      const commit = state.commits[hash];
-      // Don't update if the commit is already committed
-      if (commit.isCommitted) {
-        throw new Error(
-          "Attempted to update selected variant index of a committed commit"
-        );
-      }
+  updateSelectedVariantIndex: (hash: CommitHash, index: number) => {
+    const commit = get().commits[hash];
+    if (!commit || index < 0 || index >= commit.variants.length) return;
+    if (commit.selectedVariantIndex === index) return;
 
-      // Just update the selected variant index without canceling other variants
-      // This allows users to switch between variants even while they're still generating
-      return {
-        commits: {
-          ...state.commits,
-          [hash]: {
-            ...commit,
-            selectedVariantIndex: index,
-          },
+    // A selected DOM element belongs to the old variant's iframe document.
+    useAppStore.getState().disableInSelectAndEditMode();
+    set((state) => ({
+      commits: {
+        ...state.commits,
+        [hash]: {
+          ...state.commits[hash],
+          selectedVariantIndex: index,
         },
-      };
-    }),
+      },
+    }));
+  },
   updateVariantStatus: (
     hash: CommitHash,
     numVariant: number,
@@ -288,7 +521,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   ) =>
     set((state) => {
       const commit = state.commits[hash];
-      if (!commit) return state; // No change if commit doesn't exist
+      if (!commit || commit.isCommitted) return state;
 
       return {
         commits: {
@@ -312,6 +545,31 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         },
       };
     }),
+  finalizeGeneratingVariants: (hash, status, errorMessage) =>
+    set((state) => {
+      const commit = state.commits[hash];
+      if (!commit || commit.isCommitted) return state;
+      const completedAt = Date.now();
+      return {
+        commits: {
+          ...state.commits,
+          [hash]: {
+            ...commit,
+            variants: commit.variants.map((variant) =>
+              variant.status === "generating"
+                ? {
+                    ...variant,
+                    status,
+                    completedAt: variant.completedAt ?? completedAt,
+                    errorMessage:
+                      status === "error" ? errorMessage : undefined,
+                  }
+                : variant
+            ),
+          },
+        },
+      };
+    }),
   resizeVariants: (hash: CommitHash, count: number) =>
     set((state) => {
       const commit = state.commits[hash];
@@ -320,20 +578,39 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       // Resize variants array to match backend count
       const currentVariants = commit.variants;
       const requestStartedAt = new Date(commit.dateCreated).getTime();
-      const seedHistory = currentVariants[0]?.history || [];
-      const newVariants = Array(count).fill(null).map((_, index) => 
-        currentVariants[index] || {
-          code: "",
-          history: seedHistory.map((message) => ({
-            ...message,
-            imageAssetIds: [...message.imageAssetIds],
-            videoAssetIds: [...message.videoAssetIds],
-          })),
-          requestStartedAt,
-          status: "generating" as VariantStatus,
-          agentEvents: [],
-        }
-      );
+      const seedVariant = currentVariants[0];
+      const seedHistory = seedVariant?.history || [];
+      const seedTargetPath =
+        seedVariant?.generationTargetPath ?? DEFAULT_PROJECT_ENTRY_POINT;
+      const normalizedSeed = seedVariant
+        ? updateProjectFileContent(
+            normalizeProjectState(seedVariant),
+            seedTargetPath,
+            "",
+            { force: true }
+          )
+        : normalizeProjectState({ code: "" });
+      const newVariants = Array(count)
+        .fill(null)
+        .map((_, index) =>
+          normalizeProjectState(
+            currentVariants[index] || {
+              code: normalizedSeed.code,
+              files: normalizedSeed.files,
+              entryPoint: normalizedSeed.entryPoint,
+              activeFilePath: normalizedSeed.activeFilePath,
+              generationTargetPath: seedTargetPath,
+              history: seedHistory.map((message) => ({
+                ...message,
+                imageAssetIds: [...message.imageAssetIds],
+                videoAssetIds: [...message.videoAssetIds],
+              })),
+              requestStartedAt,
+              status: "generating" as VariantStatus,
+              agentEvents: [],
+            }
+          )
+        );
 
       return {
         commits: {

@@ -58,9 +58,13 @@ The Import tab can analyse a folder, ZIP, or selected source files through
   do not `require()`/import `tailwind.config.*`; parse text only.
 - The scanner rejects traversal paths, ignores dependency/build directories,
   limits file count, per-file size, archive size, and total decoded text.
-- Raw source is not persisted. Only the compact `ProjectContext.summary` is
-  stored in frontend settings and appended to the selected manual design system
-  before prompt construction.
+- Raw source is not persisted in `ProjectContext`. Inspection may return a
+  transient versioned editable payload; `frontend/src/lib/project-import.ts`
+  defines that neutral contract and `EditableProjectImportHandler` handoff.
+  Only the compact `ProjectContext.summary` is stored in frontend settings and
+  appended to the selected manual design system before prompt construction.
+- Keep editor/store adapters outside the import scanner. Import paths must stay
+  normalized, relative and text-only before crossing the callback boundary.
 - Generation previews remain self-contained. Imported component paths are
   naming/API context, not permission to emit local imports that the preview
   cannot resolve.

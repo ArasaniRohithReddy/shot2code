@@ -8,6 +8,7 @@ import {
 } from "./prompt-history";
 import { Commit } from "../components/commits/types";
 import { PromptAsset } from "../types";
+import { createProjectFile } from "./project-files";
 
 describe("prompt-history helpers", () => {
   test("cloneVariantHistory deep-copies asset id arrays", () => {
@@ -193,6 +194,202 @@ describe("prompt-history helpers", () => {
       images: ["data:image/edit"],
       videos: [],
     });
+  });
+
+  test("buildUpdateGenerationRequest uses option 3 history in a larger variant set", () => {
+    const parentCommit: Commit = {
+      hash: "parent-many",
+      parentHash: null,
+      dateCreated: new Date(),
+      isCommitted: true,
+      type: "ai_create",
+      inputs: { text: "Create", images: [] },
+      selectedVariantIndex: 2,
+      variants: [
+        {
+          code: "<html>option one</html>",
+          history: [
+            buildUserHistoryMessage("Create option one"),
+            buildAssistantHistoryMessage("<html>option one</html>"),
+          ],
+          status: "complete",
+        },
+        {
+          code: "<html>option two</html>",
+          history: [
+            buildUserHistoryMessage("Create option two"),
+            buildAssistantHistoryMessage("<html>option two</html>"),
+          ],
+          status: "complete",
+        },
+        {
+          code: "<html>option three</html>",
+          history: [
+            buildUserHistoryMessage("Create option three"),
+            buildAssistantHistoryMessage("<html>option three</html>"),
+          ],
+          status: "complete",
+        },
+        {
+          code: "<html>option four</html>",
+          history: [
+            buildUserHistoryMessage("Create option four"),
+            buildAssistantHistoryMessage("<html>option four</html>"),
+          ],
+          status: "complete",
+        },
+      ],
+    };
+
+    const request = buildUpdateGenerationRequest({
+      inputMode: "text",
+      prompt: { text: "Add a footer", images: [], videos: [] },
+      parentCommit,
+      imageAssetIds: [],
+      getAssetsById: () => ({}),
+    });
+
+    expect(request.fileState?.content).toBe("<html>option three</html>");
+    expect(request.optionCodes).toEqual([
+      "<html>option one</html>",
+      "<html>option two</html>",
+      "<html>option three</html>",
+      "<html>option four</html>",
+    ]);
+    expect(request.history?.map((message) => message.text)).toEqual([
+      "Create option three",
+      "<html>option three</html>",
+      "Add a footer",
+    ]);
+    expect(request.variantHistory.map((message) => message.text)).toEqual([
+      "Create option three",
+      "<html>option three</html>",
+      "Add a footer",
+    ]);
+  });
+
+  test("targets a multi-file project's explicit entry and keeps option sources aligned", () => {
+    const parentCommit: Commit = {
+      hash: "multi-file-parent",
+      parentHash: null,
+      dateCreated: new Date(),
+      isCommitted: true,
+      type: "code_create",
+      inputs: null,
+      selectedVariantIndex: 0,
+      variants: [
+        {
+          code: "<div id=\"root\"></div>",
+          entryPoint: "src/App.tsx",
+          files: {
+            "index.html": createProjectFile(
+              "index.html",
+              '<div id="root"></div>'
+            ),
+            "src/App.tsx": createProjectFile(
+              "src/App.tsx",
+              "export const App = () => <main>One</main>;"
+            ),
+          },
+          history: [],
+        },
+        {
+          code: "<div id=\"root\"></div>",
+          entryPoint: "src/App.tsx",
+          files: {
+            "index.html": createProjectFile(
+              "index.html",
+              '<div id="root"></div>'
+            ),
+            "src/App.tsx": createProjectFile(
+              "src/App.tsx",
+              "export const App = () => <main>Two</main>;"
+            ),
+          },
+          history: [],
+        },
+      ],
+    };
+
+    const request = buildUpdateGenerationRequest({
+      inputMode: "text",
+      prompt: { text: "Add a footer", images: [], videos: [] },
+      parentCommit,
+      imageAssetIds: [],
+      getAssetsById: () => ({}),
+    });
+
+    expect(request.fileState).toEqual({
+      path: "src/App.tsx",
+      content: "export const App = () => <main>One</main>;",
+    });
+    expect(request.optionCodes).toEqual([
+      "export const App = () => <main>One</main>;",
+      "export const App = () => <main>Two</main>;",
+    ]);
+    expect(request.history).toEqual([]);
+  });
+
+  test("replays an explicit multi-file target and media history", () => {
+    const parentCommit: Commit = {
+      hash: "multi-file-retry-parent",
+      parentHash: null,
+      dateCreated: new Date(),
+      isCommitted: true,
+      type: "ai_create",
+      inputs: { text: "Create", images: [] },
+      selectedVariantIndex: 1,
+      variants: [
+        {
+          code: "<main>One</main>",
+          files: {
+            "index.html": createProjectFile("index.html", "<main>One</main>"),
+            "styles.css": createProjectFile("styles.css", "main { color: red; }"),
+          },
+          history: [],
+        },
+        {
+          code: "<main>Two</main>",
+          files: {
+            "index.html": createProjectFile("index.html", "<main>Two</main>"),
+            "styles.css": createProjectFile("styles.css", "main { color: blue; }"),
+          },
+          history: [buildUserHistoryMessage("Create option two")],
+        },
+      ],
+    };
+    const assetsById: Record<string, PromptAsset> = {
+      image: { id: "image", type: "image", dataUrl: "data:image/retry" },
+      video: { id: "video", type: "video", dataUrl: "data:video/retry" },
+    };
+
+    const request = buildUpdateGenerationRequest({
+      inputMode: "image",
+      prompt: {
+        text: "Restyle",
+        images: ["data:image/retry"],
+        videos: ["data:video/retry"],
+        multiImageMode: "references",
+      },
+      parentCommit,
+      parentVariantIndex: 1,
+      generationTargetPath: "styles.css",
+      imageAssetIds: ["image"],
+      videoAssetIds: ["video"],
+      getAssetsById: () => assetsById,
+    });
+
+    expect(request.fileState).toEqual({
+      path: "styles.css",
+      content: "main { color: blue; }",
+    });
+    expect(request.optionCodes).toEqual([
+      "main { color: red; }",
+      "main { color: blue; }",
+    ]);
+    expect(request.variantHistory.at(-1)).toEqual(
+      buildUserHistoryMessage("Restyle", ["image"], ["video"], "references")
+    );
   });
 
   test("buildUpdateGenerationRequest bootstraps imported code without history", () => {

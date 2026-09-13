@@ -1,170 +1,82 @@
 import { renderHistory } from "./utils";
-import { Commit, CommitHash } from "../commits/types";
+import type { Commit } from "../commits/types";
 
-const basicLinearHistory: Record<CommitHash, Commit> = {
-  "0": {
-    hash: "0",
-    dateCreated: new Date(),
-    isCommitted: false,
-    type: "ai_create",
-    parentHash: null,
-    variants: [{ code: "<html>1. create</html>", history: [] }],
+function commit(
+  hash: string,
+  parentHash: string | null,
+  type: Commit["type"],
+  text: string,
+  minute: number,
+  retryOfHash: string | null = null
+): Commit {
+  const base = {
+    hash,
+    parentHash,
+    retryOfHash,
+    dateCreated: new Date(`2026-09-13T00:0${minute}:00.000Z`),
+    isCommitted: true,
+    variants: [{ code: `<main>${hash}</main>`, history: [] }],
     selectedVariantIndex: 0,
-    inputs: { text: "", images: [""] },
-  },
-  "1": {
-    hash: "1",
-    dateCreated: new Date(),
-    isCommitted: false,
-    type: "ai_edit",
-    parentHash: "0",
-    variants: [{ code: "<html>2. edit with better icons</html>", history: [] }],
-    selectedVariantIndex: 0,
-    inputs: { text: "use better icons", images: [] },
-  },
-  "2": {
-    hash: "2",
-    dateCreated: new Date(),
-    isCommitted: false,
-    type: "ai_edit",
-    parentHash: "1",
-    variants: [{ code: "<html>3. edit with better icons and red text</html>", history: [] }],
-    selectedVariantIndex: 0,
-    inputs: { text: "make text red", images: [] },
-  },
-};
+  };
+  if (type === "code_create") {
+    return { ...base, type, inputs: null };
+  }
+  return {
+    ...base,
+    type,
+    inputs: { text, images: [], videos: [] },
+  };
+}
 
-const basicLinearHistoryWithCode: Record<CommitHash, Commit> = {
-  "0": {
-    hash: "0",
-    dateCreated: new Date(),
-    isCommitted: false,
-    type: "code_create",
-    parentHash: null,
-    variants: [{ code: "<html>1. create</html>", history: [] }],
-    selectedVariantIndex: 0,
-    inputs: null,
-  },
-  ...Object.fromEntries(Object.entries(basicLinearHistory).slice(1)),
-};
+describe("history ancestry rendering", () => {
+  it("keeps linear history labels compact", () => {
+    const history = [
+      commit("root", null, "ai_create", "", 0),
+      commit("edit", "root", "ai_edit", "Use better icons", 1),
+      commit("next", "edit", "ai_edit", "Make text red", 2),
+    ];
 
-const basicBranchingHistory: Record<CommitHash, Commit> = {
-  ...basicLinearHistory,
-  "3": {
-    hash: "3",
-    dateCreated: new Date(),
-    isCommitted: false,
-    type: "ai_edit",
-    parentHash: "1",
-    variants: [
-      { code: "<html>4. edit with better icons and green text</html>", history: [] },
-    ],
-    selectedVariantIndex: 0,
-    inputs: { text: "make text green", images: [] },
-  },
-};
+    const rendered = renderHistory(history);
 
-describe("History Utils", () => {
-  test("should correctly render the history tree", () => {
-    expect(renderHistory(Object.values(basicLinearHistory))).toEqual([
-      {
-        ...basicLinearHistory["0"],
-        type: "Create",
-        summary: "Create",
-        selectedElementTag: null,
-        parentVersion: null,
-        images: [""],
-        videos: [],
-      },
-      {
-        ...basicLinearHistory["1"],
-        type: "Edit",
-        summary: "use better icons",
-        selectedElementTag: null,
-        parentVersion: null,
-        images: [],
-        videos: [],
-      },
-      {
-        ...basicLinearHistory["2"],
-        type: "Edit",
-        summary: "make text red",
-        selectedElementTag: null,
-        parentVersion: null,
-        images: [],
-        videos: [],
-      },
+    expect(rendered.map((item) => item.version)).toEqual([1, 2, 3]);
+    expect(rendered.map((item) => item.type)).toEqual([
+      "Create",
+      "Edit",
+      "Edit",
     ]);
+    expect(rendered.every((item) => item.parentLink === null)).toBe(true);
+    expect(rendered.every((item) => item.retrySource === null)).toBe(true);
+  });
 
-    // Render a history with code
-    expect(renderHistory(Object.values(basicLinearHistoryWithCode))).toEqual([
-      {
-        ...basicLinearHistoryWithCode["0"],
-        type: "Imported from code",
-        summary: "Imported from code",
-        selectedElementTag: null,
-        parentVersion: null,
-        images: [],
-        videos: [],
-      },
-      {
-        ...basicLinearHistoryWithCode["1"],
-        type: "Edit",
-        summary: "use better icons",
-        selectedElementTag: null,
-        parentVersion: null,
-        images: [],
-        videos: [],
-      },
-      {
-        ...basicLinearHistoryWithCode["2"],
-        type: "Edit",
-        summary: "make text red",
-        selectedElementTag: null,
-        parentVersion: null,
-        images: [],
-        videos: [],
-      },
-    ]);
+  it("labels branches and repeated retry descendants with navigable targets", () => {
+    const history = [
+      commit("root", null, "ai_create", "Create", 0),
+      commit("edit", "root", "ai_edit", "Use better icons", 1),
+      commit("retry-a", "edit", "ai_edit", "Use better icons", 2, "edit"),
+      commit("branch", "root", "ai_edit", "Try green", 3),
+      commit("retry-b", "edit", "ai_edit", "Use better icons", 4, "edit"),
+    ];
 
-    // Render a non-linear history
-    expect(renderHistory(Object.values(basicBranchingHistory))).toEqual([
-      {
-        ...basicBranchingHistory["0"],
-        type: "Create",
-        summary: "Create",
-        selectedElementTag: null,
-        parentVersion: null,
-        images: [""],
-        videos: [],
-      },
-      {
-        ...basicBranchingHistory["1"],
-        type: "Edit",
-        summary: "use better icons",
-        selectedElementTag: null,
-        parentVersion: null,
-        images: [],
-        videos: [],
-      },
-      {
-        ...basicBranchingHistory["2"],
-        type: "Edit",
-        summary: "make text red",
-        selectedElementTag: null,
-        parentVersion: null,
-        images: [],
-        videos: [],
-      },
-      {
-        ...basicBranchingHistory["3"],
-        type: "Edit",
-        summary: "make text green",
-        selectedElementTag: null,
-        parentVersion: 2,
-        images: [],
-        videos: [],
-      },
+    const rendered = renderHistory(history);
+    const edit = rendered[1];
+    const firstRetry = rendered[2];
+    const branch = rendered[3];
+    const secondRetry = rendered[4];
+
+    expect(edit.retryDescendants).toEqual([
+      { hash: "retry-a", version: 3 },
+      { hash: "retry-b", version: 5 },
     ]);
+    expect(firstRetry).toEqual(
+      expect.objectContaining({
+        type: "Retry",
+        retrySource: { hash: "edit", version: 2 },
+        parentLink: null,
+        parentVersion: null,
+      })
+    );
+    expect(secondRetry.retrySource).toEqual({ hash: "edit", version: 2 });
+    expect(branch.parentLink).toEqual({ hash: "root", version: 1 });
+    expect(branch.parentVersion).toBe(1);
   });
 });

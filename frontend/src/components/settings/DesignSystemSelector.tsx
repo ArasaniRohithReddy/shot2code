@@ -60,8 +60,8 @@ function DesignSystemSelector({
         <SelectTrigger
           className={
             hasSelection
-              ? "flex h-7 w-auto items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-0 text-xs font-medium text-gray-700 shadow-none hover:bg-gray-50 focus:ring-0 focus:ring-offset-0 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 [&>svg:last-child]:hidden"
-              : "flex h-7 w-7 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-gray-400 shadow-none hover:bg-gray-100 hover:text-gray-600 focus:ring-0 focus:ring-offset-0 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 [&>svg:last-child]:hidden"
+              ? "flex h-11 max-w-full w-auto items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-0 text-xs font-medium text-gray-700 shadow-none hover:bg-gray-50 focus:ring-0 focus:ring-offset-0 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 [&>svg:last-child]:hidden"
+              : "flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-gray-400 shadow-none hover:bg-gray-100 hover:text-gray-600 focus:ring-0 focus:ring-offset-0 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 [&>svg:last-child]:hidden"
           }
           data-testid="design-system-select"
           aria-label={

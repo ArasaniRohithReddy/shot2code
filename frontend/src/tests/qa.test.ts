@@ -8,6 +8,7 @@ declare global {
   interface Window {
     __qaDownloads: Array<string | null>;
     __qaFormSubmits: Array<string | null>;
+    __qaCodePenPayloads: unknown[];
     __qaClipboardCalls: string[];
   }
 }
@@ -354,10 +355,17 @@ class App {
       downloads: window.__qaDownloads,
       submits: window.__qaFormSubmits,
       clipboard: window.__qaClipboardCalls,
+      codePenPayloads: window.__qaCodePenPayloads,
     }));
 
     expect(results.downloads).toContain("index.html");
     expect(results.submits).toContain("https://codepen.io/pen/define");
+    expect(results.codePenPayloads).toHaveLength(1);
+    expect(results.codePenPayloads[0]).toMatchObject({
+      html_pre_processor: "none",
+      css_pre_processor: "none",
+      css_prefix: "neither",
+    });
     expect(results.clipboard).toContain("copy");
   }
 }
@@ -408,7 +416,9 @@ async function installDomTestHooks(page: Page) {
   await page.evaluateOnNewDocument(() => {
     window.__qaDownloads = [];
     window.__qaFormSubmits = [];
+    window.__qaCodePenPayloads = [];
     window.__qaClipboardCalls = [];
+    window.confirm = () => true;
 
     const originalAnchorClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function (...args) {
@@ -418,7 +428,13 @@ async function installDomTestHooks(page: Page) {
 
     const originalFormSubmit = HTMLFormElement.prototype.submit;
     HTMLFormElement.prototype.submit = function (...args) {
-      window.__qaFormSubmits.push(this.getAttribute("action"));
+      const action = this.getAttribute("action");
+      window.__qaFormSubmits.push(action);
+      if (action === "https://codepen.io/pen/define") {
+        const data = this.querySelector<HTMLInputElement>('input[name="data"]')?.value;
+        if (data) window.__qaCodePenPayloads.push(JSON.parse(data));
+        return;
+      }
       return originalFormSubmit.apply(this, args);
     };
 
