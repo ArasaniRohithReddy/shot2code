@@ -9,6 +9,7 @@ directories:
 # main.js, preload.js and the Vite build staged into renderer/
 files:
   - main.js
+  - update-lifecycle.js
   - preload.js
   - untrusted-preload.js
   - renderer/**/*

@@ -8,8 +8,9 @@ import {
   Settings,
 } from "./types";
 import { NEW_DESIGN_SYSTEM_CONTENT } from "./lib/design-systems";
-import { OnboardingNote } from "./components/messages/OnboardingNote";
+import ProviderStatusCallout from "./components/messages/ProviderStatusCallout";
 import { usePersistedState } from "./hooks/usePersistedState";
+import { useMediaQuery, XL_MEDIA_QUERY } from "./hooks/useMediaQuery";
 import { USER_CLOSE_WEB_SOCKET_CODE } from "./constants";
 import toast from "react-hot-toast";
 import { nanoid } from "nanoid";
@@ -17,7 +18,7 @@ import { Stack } from "./lib/stacks";
 import { CodeGenerationModel } from "./lib/models";
 import { buildGenerationContext } from "./lib/project-context-summary";
 import useBrowserTabIndicator from "./hooks/useBrowserTabIndicator";
-import { LuChevronLeft } from "react-icons/lu";
+import { LuChevronLeft, LuPanelLeftClose } from "react-icons/lu";
 import {
   buildAssistantHistoryMessage,
   buildUpdateGenerationRequest,
@@ -162,6 +163,14 @@ function App() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<"preview" | "chat">("preview");
+  // Desktop-only: the conversation is a fixed column next to the 64px rail, so
+  // collapsing it is what gives a single-file project the full width back.
+  // Mobile keeps the Preview/Chat switcher and ignores this flag entirely.
+  const [isConversationCollapsed, setIsConversationCollapsed] =
+    usePersistedState<boolean>(false, "workspace-conversation-collapsed");
+  const isDesktopLayout = useMediaQuery(XL_MEDIA_QUERY);
+  const isConversationCollapsedOnDesktop =
+    isDesktopLayout && isConversationCollapsed;
   const [activeInputTab, setActiveInputTab] = useState<InputTab>("upload");
   const [activePreviewTab, setActivePreviewTab] =
     useState<PreviewTab>("desktop");
@@ -1051,6 +1060,7 @@ function App() {
           if (!requireProject()) break;
           setIsSettingsOpen(false);
           setIsHistoryOpen(false);
+          setIsConversationCollapsed(false);
           setMobilePane("chat");
           window.setTimeout(() => {
             document
@@ -1064,6 +1074,7 @@ function App() {
           if (!requireProject()) break;
           setIsSettingsOpen(false);
           setIsHistoryOpen(true);
+          setIsConversationCollapsed(false);
           setMobilePane("chat");
           break;
         case "show-settings":
@@ -1105,13 +1116,25 @@ function App() {
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [appState, commits, head, isCodingOrReady]);
+  }, [
+    appState,
+    commits,
+    head,
+    isCodingOrReady,
+    setIsConversationCollapsed,
+  ]);
 
   const showContentPanel =
     appState === AppState.CODING ||
     appState === AppState.CODE_READY ||
     isHistoryOpen;
   const showMobileChatPane = showContentPanel && mobilePane === "chat";
+  const openConversation = useCallback(() => {
+    setIsHistoryOpen(false);
+    setIsSettingsOpen(false);
+    setIsConversationCollapsed(false);
+    setMobilePane("chat");
+  }, [setIsConversationCollapsed]);
 
   return (
     <div
@@ -1127,19 +1150,34 @@ function App() {
       >
         <IconStrip
           isHistoryOpen={isHistoryOpen}
-          isEditorOpen={!isHistoryOpen && !isSettingsOpen}
+          isConversationOpen={
+            !isHistoryOpen &&
+            !isSettingsOpen &&
+            !isConversationCollapsedOnDesktop
+          }
           isSettingsOpen={isSettingsOpen}
           showHistory={isCodingOrReady}
-          showEditor={isCodingOrReady}
+          showConversation={isCodingOrReady}
+          canCollapseConversation={isDesktopLayout}
           onToggleHistory={() => {
             setIsHistoryOpen((prev) => !prev);
             setIsSettingsOpen(false);
+            setIsConversationCollapsed(false);
             setMobilePane("chat");
           }}
-          onToggleEditor={() => {
-            setIsHistoryOpen(false);
-            setIsSettingsOpen(false);
-            setMobilePane("preview");
+          onToggleConversation={() => {
+            // Coming back from Versions or Settings always reveals the
+            // conversation; only a second press on an already-visible panel
+            // collapses it.
+            if (isHistoryOpen || isSettingsOpen) {
+              openConversation();
+              return;
+            }
+            if (isDesktopLayout) {
+              setIsConversationCollapsed((previous) => !previous);
+              return;
+            }
+            setMobilePane("chat");
           }}
           onLogoClick={() => {
             setIsHistoryOpen(false);
@@ -1191,69 +1229,110 @@ function App() {
         </div>
       )}
 
-      {/* Content panel - shows sidebar, history, or editor */}
+      {/* Conversation panel - shows the chat, version history, or neither */}
       {showContentPanel && !isSettingsOpen && (
         <div
-          className={`min-h-0 border-b border-gray-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 dark:text-white xl:fixed xl:inset-y-0 xl:left-16 xl:z-40 xl:flex xl:w-80 xl:flex-col xl:border-b-0 xl:border-r ${
+          id="conversation-panel"
+          className={`min-h-0 border-b border-gray-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 dark:text-white xl:fixed xl:inset-y-0 xl:left-16 xl:z-40 xl:w-80 xl:flex-col xl:border-b-0 xl:border-r ${
             showMobileChatPane
               ? "flex flex-1 flex-col overflow-hidden"
-              : "hidden xl:flex"
-          }`}
+              : "hidden"
+          } ${isConversationCollapsedOnDesktop ? "xl:hidden" : "xl:flex"}`}
         >
-            {isHistoryOpen ? (
-              <div className="min-h-0 flex-1 overflow-y-auto sidebar-scrollbar-stable px-4">
-                <div className="mt-3">
-                  <div className="flex items-center justify-between mb-3 px-1">
-                    <h2 className="text-xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500">Versions</h2>
-                    <button
-                      onClick={() => setIsHistoryOpen(false)}
-                      className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
-                    >
-                      <LuChevronLeft className="w-3.5 h-3.5" />
-                      Back to editor
-                    </button>
-                  </div>
-                  <HistoryDisplay />
-                </div>
-              </div>
-            ) : (
-              <>
-                {!settings.openAiApiKey &&
-                  !settings.anthropicApiKey &&
-                  !settings.geminiApiKey && (
-                    <div className="px-6 mt-4">
-                      <OnboardingNote />
-                    </div>
-                  )}
+          <div className="hidden shrink-0 items-center justify-between gap-2 border-b border-gray-200 px-2 dark:border-zinc-800 xl:flex">
+            <h2 className="px-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400">
+              {isHistoryOpen ? "Versions" : "Chat"}
+            </h2>
+            <div className="flex items-center">
+              {isHistoryOpen && (
+                <button
+                  type="button"
+                  onClick={openConversation}
+                  className="flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                >
+                  <LuChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                  Back to chat
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsConversationCollapsed(true)}
+                title="Hide chat panel (Ctrl+3)"
+                aria-label="Hide chat panel (Ctrl+3)"
+                aria-controls="conversation-panel"
+                aria-expanded
+                data-testid="collapse-conversation"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              >
+                <LuPanelLeftClose className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
 
-                {(appState === AppState.CODING ||
-                  appState === AppState.CODE_READY) && (
-                  <Sidebar
-                    doUpdate={doUpdate}
-                    regenerate={regenerate}
-                    cancelCodeGeneration={cancelCodeGeneration}
-                    designSystem={{
-                      designSystems,
-                      selectedDesignSystemId: settings.selectedDesignSystemId,
-                      setSelectedDesignSystemId,
-                      onAddNew: handleAddNewDesignSystem,
-                      onManage: () => openDesignSystemsManager(),
-                    }}
-                    modelSelector={{
-                      selectedModels: settings.copilotModels ?? [],
-                      setSelectedModels: (models) =>
-                        setSettings((s) => ({ ...s, copilotModels: models })),
-                      githubToken: settings.copilotGithubToken,
-                    }}
-                    historyError={projectHistory.historyError}
-                    onOpenVersions={() => {
-                      setIsHistoryOpen(true);
-                      setMobilePane("chat");
-                    }}
-                  />
-                )}
-              </>
-            )}
+          {isHistoryOpen ? (
+            <div className="min-h-0 flex-1 overflow-y-auto sidebar-scrollbar-stable px-4">
+              <div className="mt-3">
+                <div className="mb-3 flex items-center justify-between px-1 xl:hidden">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400">
+                    Versions
+                  </h2>
+                  <button
+                    onClick={() => setIsHistoryOpen(false)}
+                    className="flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs text-gray-600 transition-colors hover:text-gray-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                  >
+                    <LuChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                    Back to chat
+                  </button>
+                </div>
+                <HistoryDisplay />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="shrink-0 px-4 pt-3">
+                <ProviderStatusCallout
+                  settings={settings}
+                  onOpenSettings={() => {
+                    setIsSettingsOpen(true);
+                    setIsHistoryOpen(false);
+                  }}
+                />
+              </div>
+
+              {(appState === AppState.CODING ||
+                appState === AppState.CODE_READY) && (
+                <Sidebar
+                  doUpdate={doUpdate}
+                  regenerate={regenerate}
+                  cancelCodeGeneration={cancelCodeGeneration}
+                  designSystem={{
+                    designSystems,
+                    selectedDesignSystemId: settings.selectedDesignSystemId,
+                    setSelectedDesignSystemId,
+                    onAddNew: handleAddNewDesignSystem,
+                    onManage: () => openDesignSystemsManager(),
+                  }}
+                  modelSelector={{
+                    selectedModels: settings.copilotModels ?? [],
+                    setSelectedModels: (models) =>
+                      setSettings((s) => ({ ...s, copilotModels: models })),
+                    githubToken: settings.copilotGithubToken,
+                  }}
+                  historyError={projectHistory.historyError}
+                  onOpenVersions={() => {
+                    setIsHistoryOpen(true);
+                    setMobilePane("chat");
+                  }}
+                  onOpenCode={() => {
+                    setIsHistoryOpen(false);
+                    setIsSettingsOpen(false);
+                    setMobilePane("preview");
+                    setActivePreviewTab("code");
+                  }}
+                />
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -1262,7 +1341,9 @@ function App() {
           isSettingsOpen
             ? "flex flex-1 min-h-0 flex-col xl:h-full xl:pl-16"
             : showContentPanel
-              ? "flex flex-1 min-h-0 flex-col xl:h-full xl:pl-96"
+              ? `flex flex-1 min-h-0 flex-col xl:h-full ${
+                  isConversationCollapsedOnDesktop ? "xl:pl-16" : "xl:pl-96"
+                }`
               : "xl:pl-16"
         } ${isCodingOrReady && !isSettingsOpen && mobilePane === "chat" ? "hidden xl:flex" : ""}`}
       >

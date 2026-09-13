@@ -1,10 +1,27 @@
 {
   "name": "shot2code-desktop",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Turn screenshots, mockups and screen recordings into clean code using AI",
   "author": "Arasani Rohith Reddy",
   "license": "MIT",
+  "homepage": "https://github.com/ArasaniRohithReddy/shot2code",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArasaniRohithReddy/shot2code.git",
+    "directory": "desktop"
+  },
+  "bugs": {
+    "url": "https://github.com/ArasaniRohithReddy/shot2code/issues"
+  },
+  "keywords": [
+    "screenshot-to-code",
+    "electron",
+    "ai",
+    "code-generation",
+    "github-copilot",
+    "desktop-app"
+  ],
   "main": "main.js",
   "scripts": {
     "start": "electron .",

@@ -13,6 +13,7 @@ import {
 import { toast } from "react-hot-toast";
 
 import Variants from "../variants/Variants";
+import ConversationEmptyState from "./ConversationEmptyState";
 import UpdateImageUpload, { UpdateImagePreview } from "../UpdateImageUpload";
 import AgentActivity from "../agent/AgentActivity";
 import { formatCompletedGenerationDuration } from "../agent/generation-time";
@@ -33,6 +34,7 @@ interface SidebarProps {
   regenerate: () => void;
   cancelCodeGeneration: () => void;
   onOpenVersions: () => void;
+  onOpenCode: () => void;
   designSystem: DesignSystemSelectorProps;
   modelSelector: ModelSelectorProps;
   historyError?: string | null;
@@ -85,6 +87,7 @@ function Sidebar({
   regenerate,
   cancelCodeGeneration,
   onOpenVersions,
+  onOpenCode,
   designSystem,
   modelSelector,
   historyError,
@@ -215,6 +218,14 @@ function Sidebar({
   const isSelectedVariantError = selectedVariantState.isError;
   const isSelectedVariantCancelled = selectedVariantState.isCancelled;
   const selectedVariantErrorMessage = selectedVariant?.errorMessage;
+  const hasMultipleOptions = (currentCommit?.variants.length ?? 0) > 1;
+  // Nothing has been asked yet: one version, no agent trace to read. Replace
+  // the empty column with openers instead of dead space.
+  const showConversationEmptyState =
+    canUpdateSelectedVariant &&
+    !isViewingOlderVersion &&
+    totalVersions === 1 &&
+    selectedVariantEvents.length === 0;
 
   // Auto-resize textarea to fit content
   const autoResize = useCallback(() => {
@@ -224,6 +235,24 @@ function Sidebar({
       textarea.style.height = textarea.scrollHeight + "px";
     }
   }, []);
+
+  // Starters land in the composer rather than sending straight away, so the
+  // suggestion stays editable.
+  const applyStarter = useCallback(
+    (instruction: string) => {
+      setUpdateInstruction(instruction);
+      window.requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+        textarea.focus();
+        textarea.setSelectionRange(
+          textarea.value.length,
+          textarea.value.length
+        );
+      });
+    },
+    [setUpdateInstruction]
+  );
 
   // Focus the composer whenever a completed option becomes selected.
   useEffect(() => {
@@ -286,9 +315,11 @@ function Sidebar({
       aria-label={`Option ${selectedVariantIndex + 1} details`}
       className="flex h-full min-h-0 flex-col"
     >
-      <div className="shrink-0 border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-4 py-2">
-        <Variants />
-      </div>
+      {hasMultipleOptions && (
+        <div className="shrink-0 border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-4 py-2">
+          <Variants />
+        </div>
+      )}
 
       {historyError && (
         <div
@@ -422,6 +453,16 @@ function Sidebar({
         )}
 
         {!isViewingOlderVersion && <AgentActivity />}
+
+        {showConversationEmptyState && (
+          <ConversationEmptyState
+            variant={
+              currentCommit?.type === "code_create" ? "imported" : "generated"
+            }
+            onUseStarter={applyStarter}
+            onOpenCode={onOpenCode}
+          />
+        )}
 
         {/* Retry any AI-generated version. The retry is a new descendant of
             the selected source while replaying its original request context. */}

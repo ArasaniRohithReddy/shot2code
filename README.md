@@ -1,19 +1,57 @@
 # shot2code
 
+[![Release](https://img.shields.io/github/v/release/ArasaniRohithReddy/shot2code?label=release&sort=semver)](https://github.com/ArasaniRohithReddy/shot2code/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Platform: Windows 10/11 x64](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078d4)](#install)
+[![Changelog](https://img.shields.io/badge/changelog-keep%20a%20changelog-e05735)](CHANGELOG.md)
+
 Turn screenshots, mockups, designs and screen recordings into clean, working
 code — using AI, on your own machine.
 
 shot2code is a **desktop app for Windows**. Everything runs locally: your
 screenshots, your code and your API keys never leave your computer.
 
+## Screenshots
+
+<!-- Every image below has descriptive alt text; the summaries repeat the key
+     detail so the gallery is usable without loading the images. -->
+
+The workspace at 1920×1080 — the icon rail, the chat panel and the Code tab:
+
+![shot2code at 1920 by 1080. On the left, a narrow icon rail with Chat, Versions, New, Shortcuts and Settings. Next to it, a chat panel showing a "No model provider saved in this browser" callout with "Add a key in Settings" and "Setup guide" actions, a warning that project history could not be saved, an "Imported existing code" message, and the empty state "Your project is loaded. What should change?" offering three suggestions: make the layout responsive, fix accessibility issues, and polish spacing and typography. On the right, the Code tab shows index.html with Entry and Preview badges, Format, Copy, Download and CodePen actions, syntax-highlighted HTML on a dark editor background, and a status bar reading "HTML · 26 lines — Tab moves focus outside the editor; Ctrl+] indents".](docs/assets/workspace-full-hd.png)
+
+The same workspace at 1440×900, in the light and dark themes:
+
+| Light | Dark |
+|---|---|
+| ![The shot2code workspace at 1440 by 900 in the light theme: a light icon rail and chat panel on the left, and on the right the Code tab with index.html open in a dark syntax-highlighted editor, the "Version 1 — Latest" stepper above it and the "HTML · 26 lines" status bar below.](docs/assets/code-workspace.png) | ![The same 1440 by 900 workspace in the dark theme: the icon rail, chat panel and Code tab all use dark surfaces, with the same index.html file open and the "HTML · 26 lines" status bar at the bottom.](docs/assets/code-workspace-dark.png) |
+
+The chat adapts down to narrow windows, so an edit is always one sentence away:
+
+| Tablet width (768×1024) | Narrow window (352×700) |
+|---|---|
+| ![The shot2code chat panel in a 768 by 1024 window: the icon rail becomes a top bar above a Preview and Chat switcher, followed by the "No model provider saved in this browser" callout, a notice that project history could not be saved, an "Imported existing code" message, and the "Your project is loaded. What should change?" card offering "Make the layout responsive", "Fix accessibility issues" and "Polish spacing and typography" above the "Tell the AI what to change" composer.](docs/assets/chat-tablet.png) | ![The shot2code chat panel in a 352 by 700 window: the same provider callout, suggestions and composer stacked in a single column, with the panel switcher at the top.](docs/assets/chat-narrow.png) |
+
+<details>
+<summary>The Code tab at tablet width (768×1024)</summary>
+
+![The shot2code Code tab in a 768 by 1024 window: a Preview and Chat switcher replaces the side-by-side layout, the file header shows index.html with its Entry and Preview badges, the toolbar actions collapse to icons, the editor fills the rest of the window, and the status bar reads "HTML · 26 lines".](docs/assets/workspace-tablet.png)
+
+</details>
+
 ## Install
+
+**Requirements:** Windows 10 or 11, 64-bit (x64). The installer unpacks roughly
+600 MB, because the Python backend and a headless Chromium ship with the app.
+There are no macOS or Linux builds; on those platforms, run it
+[from source](#running-from-source).
 
 Download the latest build from
 [Releases](https://github.com/ArasaniRohithReddy/shot2code/releases/latest):
 
 | File | Use |
 |---|---|
-| `shot2code-<version>-x64.exe` | **Recommended.** Installer with shortcuts |
+| `shot2code-<version>-x64.exe` | **Recommended.** Installer with shortcuts, and the only self-updating format |
 | `shot2code-<version>-x64.msi` | Per-machine managed deployment; updates are administrator-controlled |
 | `shot2code-<version>-x64.zip` | Portable — unzip and run `shot2code.exe` |
 
@@ -22,14 +60,27 @@ Download the latest build from
 > the file → **Properties** → **Unblock** → **Apply**. See
 > [Troubleshooting](Troubleshooting.md).
 
+Because there is no signature to check, verify the download instead. Published
+SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
+[v0.3.1](docs/releases/v0.3.1/SHA256SUMS.txt) and
+[v0.3.0](docs/releases/v0.3.0/SHA256SUMS.txt):
+
+```powershell
+Get-FileHash .\shot2code-0.3.1-x64.exe -Algorithm SHA256
+```
+
 First launch takes about a minute while the bundled backend starts. Later
 launches are quicker.
 
 NSIS-installed builds check GitHub Releases automatically. Settings shows the
 running version, update status, download progress, **Check now**, and
 **Restart & install** when an update is ready. Updates install silently after
-the backend, Copilot CLI and Chromium process tree has fully stopped. MSI
-installs are per-machine and leave upgrades to the administrator.
+the backend, Copilot CLI and Chromium process tree has fully stopped — and if
+that shutdown can't be confirmed, the install is aborted and stays retryable
+rather than replacing a running app. MSI installs are per-machine and leave
+upgrades to the administrator.
+
+What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 
 ## Using it
 
@@ -56,7 +107,12 @@ Supported output stacks:
 Other things it can do:
 
 - **Select an element and edit it** by describing the change
-- **Version history** — every generation is a commit you can step back through
+- **Version history** — every generation is a commit you can step back through,
+  and retried versions keep a link to the version they re-roll
+- **Projects are saved on your machine** — a local SQLite database
+  (`history.sqlite3` under `%LOCALAPPDATA%\shot2code\`) keeps your projects,
+  versions and prompts, so **Recent projects** can pick up where you left off.
+  Deleting a project removes it and its versions from the device.
 - **Screenshot preview** — the agent renders its own output in a headless
   browser and visually checks its work
 - **Asset extraction** — reuses the real logos and images from your screenshot
@@ -71,6 +127,9 @@ Other things it can do:
 - **Project export** — generated single-page output uses an explicit Vite
   strategy for every supported stack, while multi-file source projects are
   preserved without inventing unsafe framework scaffolds.
+- **A workspace you can quiet down** — collapse the chat panel to give the
+  preview or the editor the full window, and reformat an HTML, CSS, JavaScript
+  or JSON file with the **Format** action, which only ever changes whitespace.
 
 ### Keyboard shortcuts
 
@@ -80,8 +139,10 @@ shortcut reference. Project actions use conflict-free Ctrl+Alt combinations:
 **Ctrl+Alt+U** opens Upload, **Ctrl+Alt+S** opens Settings, and
 **Ctrl+Alt+E** exports the current project. Use **Ctrl+1–4** for Preview, Code,
 Chat, and Versions, and **Ctrl+Shift+Enter** to retry an AI-generated version.
-Navigation shortcuts pause while typing or while a dialog is open. In the code
-editor, Tab moves focus out and **Ctrl+]** indents.
+On wide windows, pressing **Ctrl+3** again collapses the chat panel, and
+**Ctrl+1** or **Ctrl+4** bring it back. Navigation shortcuts pause while typing
+or while a dialog is open. In the code editor, Tab moves focus out and
+**Ctrl+]** indents.
 
 ### Preview and CodePen
 
@@ -233,25 +294,57 @@ docker build --build-arg INSTALL_CHROMIUM=false -t shot2code-backend ./backend
 
 ### Building the desktop app
 
-```bash
-cd frontend && pnpm build && cd ..
-cd backend && uv run pyinstaller shot2code-backend.spec --noconfirm --distpath dist-pyinstaller
-PLAYWRIGHT_BROWSERS_PATH=backend/dist-pyinstaller/shot2code-backend/ms-playwright \
-  uv run --project backend playwright install chromium-headless-shell
+Windows 10/11 x64, PowerShell, from the repository root:
 
-cp -r frontend/dist desktop/renderer
-cp -r backend/dist-pyinstaller/shot2code-backend desktop/backend-dist
+```powershell
+# Renderer
+cd frontend
+pnpm install
+pnpm build
+cd ..
 
-cd desktop && npm install && npx electron-builder --win nsis zip --publish never
+# Backend, frozen with PyInstaller
+cd backend
+uv sync
+uv run pyinstaller shot2code-backend.spec --noconfirm --distpath dist-pyinstaller
+
+# Only the headless shell: the app always launches headless
+$env:PLAYWRIGHT_BROWSERS_PATH = "$PWD\dist-pyinstaller\shot2code-backend\ms-playwright"
+uv run playwright install chromium-headless-shell
+Remove-Item Env:\PLAYWRIGHT_BROWSERS_PATH
+cd ..
+
+# Stage the payloads electron-builder expects
+Remove-Item -Recurse -Force desktop\renderer, desktop\backend-dist -ErrorAction SilentlyContinue
+Copy-Item -Recurse frontend\dist desktop\renderer
+Copy-Item -Recurse backend\dist-pyinstaller\shot2code-backend desktop\backend-dist
+
+# Installers -> desktop\dist
+cd desktop
+npm install
+npx electron-builder --win nsis msi zip --publish never
 ```
 
-Pushing a `v*` tag builds and publishes all three formats to Releases via
-GitHub Actions.
+That produces the NSIS `.exe` and its `.exe.blockmap`, `latest.yml`, the `.msi`
+and the portable `.zip` in `desktop/dist`.
+
+Pushing a `v*` tag runs a GitHub Actions workflow that builds all three formats
+to prove packaging still works — it deliberately **never publishes**. Releases
+are cut from a locally verified build; see
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md) — what changed in each release
 - [Troubleshooting](Troubleshooting.md) — install warnings, blank windows, sign-in
+- [Support](SUPPORT.md) — where to ask, and what to include in a report
+- [Security](SECURITY.md) — reporting vulnerabilities, API keys, unsigned
+  binaries, update integrity, and how imported code is handled
+- [Contributing](CONTRIBUTING.md) — setup, tests, and pull request conventions
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Testing](TESTING.md) — how to run tests and type checks
+- [Releasing](docs/RELEASING.md) — versioning, artifacts, and the publish sequence
+- [Checksums](docs/releases/) — SHA-256 hashes for published downloads
 - [Evaluation](Evaluation.md) — comparing models and prompts
 - [design-docs/](design-docs/) — how the agent, variants and history work
 - [AGENTS.md](AGENTS.md) — conventions for working in this repo
@@ -267,6 +360,13 @@ The backend runs an agent loop: the model calls tools (`create_file`,
 executes them and feeds results back. Providers live in
 `backend/agent/providers/`.
 
+## Contributing
+
+Issues and pull requests are welcome. Start with
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup and the exact test commands, and
+[AGENTS.md](AGENTS.md) for the conventions and the non-obvious traps. Please
+report security problems privately — see [SECURITY.md](SECURITY.md).
+
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

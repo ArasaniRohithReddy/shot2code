@@ -82,6 +82,17 @@ node --check main.js
 node --check preload.js
 ```
 
+The update install path has its own tests, run with Node's built-in runner:
+
+```bash
+cd desktop
+node --test update-lifecycle.test.js
+```
+
+They cover the single-installer guard, the abort-and-stay-retryable path when
+the backend cannot be stopped, and — on Windows — that the backend process tree
+is really gone before an installer is launched.
+
 To run the shell against the source tree (it starts the backend through uv and
 loads `desktop/renderer` if present, otherwise the Vite dev server):
 
@@ -105,6 +116,8 @@ It records backend startup, renderer load failures, crashes and console errors.
 
 - Touched backend code: `uv run pytest` and `uv run pyright`
 - Touched frontend code: `pnpm exec tsc --noEmit` and `pnpm lint`
+- Touched the desktop shell: `node --check main.js`, `node --check preload.js`
+  and `node --test update-lifecycle.test.js`
 - Touched both: all of the above
 
 Anything that changes how the UI is loaded (routing, asset paths, `window.open`)

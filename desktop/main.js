@@ -7,11 +7,15 @@ const {
   session,
   desktopCapturer,
 } = require("electron");
-const { spawn, spawnSync } = require("child_process");
+const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const net = require("net");
 const http = require("http");
+const {
+  createUpdateInstaller,
+  terminateWindowsProcessTreeSync,
+} = require("./update-lifecycle");
 
 const untrustedPreloadPath = path.join(__dirname, "untrusted-preload.js");
 
@@ -347,7 +351,7 @@ function initAutoUpdate() {
       // The default isSilent=false opens the full NSIS setup wizard and waits
       // for user input, which made auto-update look stuck. Install silently
       // and force the updated app to relaunch.
-      desktopUpdater.quitAndInstall(true, true);
+      installDownloadedUpdate();
     }
   });
 
@@ -435,27 +439,49 @@ function createWindow() {
 }
 
 function stopBackend() {
-  if (!backendProcess || backendProcess.killed) return;
+  if (!backendProcess) return true;
+  if (
+    backendProcess.exitCode !== null ||
+    backendProcess.signalCode !== null
+  ) {
+    backendProcess = null;
+    return true;
+  }
+
   log("stopping backend");
   try {
     if (process.platform === "win32") {
       // The updater starts replacing resources immediately after before-quit.
       // Waiting for the full Python/Copilot/Chromium tree to die prevents a
       // partial install with locked native DLLs.
-      const result = spawnSync(
-        "taskkill",
-        ["/pid", String(backendProcess.pid), "/f", "/t"],
-        { windowsHide: true, encoding: "utf8" }
-      );
-      if (result.error) throw result.error;
+      terminateWindowsProcessTreeSync(backendProcess);
     } else {
       backendProcess.kill("SIGTERM");
     }
   } catch (err) {
     log(`failed to stop backend: ${err.message}`);
+    return false;
   }
   backendProcess = null;
+  log("backend stopped");
+  return true;
 }
+
+const installDownloadedUpdate = createUpdateInstaller({
+  getUpdater: () => desktopUpdater,
+  isDownloaded: () => updateState.status === "downloaded",
+  stopBackend,
+  log,
+  onError: (err) => {
+    log(`auto-update: install aborted (${err.message})`);
+    publishUpdateState({
+      status: "error",
+      progress: null,
+      message:
+        "The update was not started because shot2code could not shut down safely. Quit the app and try again.",
+    });
+  },
+});
 
 // A second instance would fight over the single backend, so refuse it.
 if (!app.requestSingleInstanceLock()) {
@@ -485,9 +511,7 @@ if (!app.requestSingleInstanceLock()) {
       return updateState;
     });
     ipcMain.handle("shot2code:install-update", () => {
-      if (!desktopUpdater || updateState.status !== "downloaded") return false;
-      setTimeout(() => desktopUpdater.quitAndInstall(true, true), 100);
-      return true;
+      return installDownloadedUpdate();
     });
 
     createSplash();

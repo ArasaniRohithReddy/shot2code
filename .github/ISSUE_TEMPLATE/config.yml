@@ -1,0 +1,17 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 🔧 Troubleshooting guide
+    url: https://github.com/ArasaniRohithReddy/shot2code/blob/main/Troubleshooting.md
+    about: Install warnings, blank windows, "backend did not become ready", Copilot sign-in, missing models, imports that find nothing. Most problems are answered here.
+  - name: 💬 Support and where to ask
+    url: https://github.com/ArasaniRohithReddy/shot2code/blob/main/SUPPORT.md
+    about: What to try first, what to include in a report, and what is out of scope.
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/ArasaniRohithReddy/shot2code/security/advisories/new
+    about: Report privately through GitHub Security Advisories. Please do not open a public issue.
+  - name: 📦 Releases and checksums
+    url: https://github.com/ArasaniRohithReddy/shot2code/releases/latest
+    about: Download the latest build. The Windows builds are unsigned — verify the SHA-256 against docs/releases/.
+  - name: 🛠️ Contributing and running from source
+    url: https://github.com/ArasaniRohithReddy/shot2code/blob/main/CONTRIBUTING.md
+    about: Backend (uv), frontend (pnpm), desktop packaging, tests and PR conventions.

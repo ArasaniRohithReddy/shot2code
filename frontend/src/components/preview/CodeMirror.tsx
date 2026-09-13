@@ -1,6 +1,13 @@
 import { useEffect, useRef } from "react";
 import { EditorState, type Extension } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers, ViewUpdate } from "@codemirror/view";
+import {
+  EditorView,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  keymap,
+  lineNumbers,
+  ViewUpdate,
+} from "@codemirror/view";
 import { espresso, cobalt } from "thememirror";
 import {
   defaultKeymap,
@@ -28,6 +35,31 @@ interface Props {
   readOnly?: boolean;
   onCodeChange: (code: string) => void;
 }
+
+/**
+ * The wrapper used to be hard-coded to a blue that belonged to neither theme,
+ * so an Espresso (light) editor sat on a dark slab and Cobalt's own background
+ * was slightly wrong. These values come from the theme definitions themselves;
+ * the gutter is nudged away from the canvas so line numbers read as chrome.
+ */
+const EDITOR_SURFACES: Record<
+  EditorTheme,
+  { canvas: string; gutter: string; rule: string }
+> = {
+  [EditorTheme.COBALT]: {
+    canvas: "#00254b",
+    gutter: "#001b39",
+    rule: "#0b3d73",
+  },
+  [EditorTheme.ESPRESSO]: {
+    canvas: "#ffffff",
+    gutter: "#f4f4f5",
+    rule: "#e4e4e7",
+  },
+};
+
+const MONO_STACK =
+  'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
 
 function getLanguageExtension(language: ProjectFileLanguage): Extension {
   switch (language) {
@@ -79,6 +111,8 @@ function CodeMirror({
   useEffect(() => {
     if (!ref.current) return;
 
+    const surface = EDITOR_SURFACES[editorTheme];
+
     const editorState = EditorState.create({
       doc: codeRef.current,
       extensions: [
@@ -89,6 +123,8 @@ function CodeMirror({
           { key: "Mod-Shift-z", run: redo, preventDefault: true },
         ]),
         lineNumbers(),
+        highlightActiveLine(),
+        highlightActiveLineGutter(),
         bracketMatching(),
         getLanguageExtension(language),
         editorTheme === EditorTheme.ESPRESSO ? espresso : cobalt,
@@ -100,9 +136,22 @@ function CodeMirror({
           "aria-describedby": "project-editor-keyboard-help",
         }),
         EditorView.theme({
-          "&": { height: "100%" },
-          ".cm-scroller": { overflow: "auto" },
-          ".cm-content": { minHeight: "100%" },
+          "&": { height: "100%", fontSize: "13px" },
+          ".cm-scroller": {
+            overflow: "auto",
+            fontFamily: MONO_STACK,
+            lineHeight: "1.65",
+          },
+          ".cm-content": { minHeight: "100%", paddingBlock: "8px" },
+          ".cm-gutters": {
+            backgroundColor: surface.gutter,
+            borderRight: `1px solid ${surface.rule}`,
+            userSelect: "none",
+          },
+          ".cm-lineNumbers .cm-gutterElement": {
+            padding: "0 10px 0 12px",
+            minWidth: "2ch",
+          },
         }),
         EditorView.updateListener.of((update: ViewUpdate) => {
           if (update.docChanged) {
@@ -133,7 +182,8 @@ function CodeMirror({
 
   return (
     <div
-      className="h-full min-h-0 overflow-hidden bg-[#193549] focus-within:ring-2 focus-within:ring-violet-500 focus-within:ring-inset"
+      className="h-full min-h-0 overflow-hidden focus-within:ring-2 focus-within:ring-violet-500 focus-within:ring-inset"
+      style={{ backgroundColor: EDITOR_SURFACES[editorTheme].canvas }}
       ref={ref}
     />
   );
