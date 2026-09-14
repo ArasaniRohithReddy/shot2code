@@ -24,7 +24,13 @@ from custom_types import InputMode
 from llm import (
     COPILOT_MODELS,
     Llm,
-    get_copilot_api_name,
+)
+from model_catalog import (
+    ModelCatalog,
+    ProviderCredentials,
+    build_catalog,
+    filter_selection,
+    parse_selected_models,
 )
 from typing import (
     Any,
@@ -33,6 +39,7 @@ from typing import (
     Dict,
     List,
     Literal,
+    Sequence,
     cast,
     get_args,
 )
@@ -87,6 +94,46 @@ from ws.constants import APP_ERROR_WEB_SOCKET_CODE  # type: ignore
 router = APIRouter()
 
 
+def variant_limit(
+    generation_type: Literal["create", "update"], input_mode: InputMode
+) -> int:
+    """How many variants a run may produce.
+
+    Edit/update flows stay at two variants to keep latency and cost down, and
+    video at two because each variant re-reads the whole recording. A user's
+    model picks are capped by this rather than overriding it.
+    """
+    if input_mode == "video":
+        return NUM_VARIANTS_VIDEO
+    if generation_type == "update":
+        return 2
+    return NUM_VARIANTS
+
+
+def _cycle(models: Sequence[Llm], count: int) -> List[Llm]:
+    """[A, B] with count=5 becomes [A, B, A, B, A]."""
+    if not models:
+        return []
+    return [models[index % len(models)] for index in range(count)]
+
+
+def _empty_models() -> List[Llm]:
+    return []
+
+
+def _empty_strings() -> List[str]:
+    return []
+
+
+@dataclass
+class ModelSelection:
+    """The models a run will use, plus anything the user should be told."""
+
+    models: List[Llm] = field(default_factory=_empty_models)
+    notices: List[str] = field(default_factory=_empty_strings)
+    dropped: List[str] = field(default_factory=_empty_strings)
+
+
 @dataclass
 class PipelineContext:
     """Context object that carries state through the pipeline"""
@@ -97,6 +144,7 @@ class PipelineContext:
     extracted_params: "ExtractedParams | None" = None
     prompt_messages: List[ChatCompletionMessageParam] = field(default_factory=list)
     variant_models: List[Llm] = field(default_factory=list)
+    planned_variant_count: int = 0
     completions: List[str] = field(default_factory=list)
     variant_completions: Dict[int, str] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -273,7 +321,11 @@ class ExtractedParams:
     asset_base_url: str = ""
     design_system: str | None = None
     copilot_github_token: str | None = None
-    copilot_models: List[Llm] | None = None
+    # Models the user explicitly picked, across every provider.
+    selected_models: List[Llm] = field(default_factory=_empty_models)
+    # Ids the request asked for that this build does not know, kept so the
+    # client can be told which picks were ignored instead of guessing.
+    unknown_selected_models: List[str] = field(default_factory=_empty_strings)
     retry_models: List[Llm] | None = None
 
 
@@ -327,19 +379,15 @@ class ParameterExtractionStage:
             params, "copilotGithubToken", COPILOT_GITHUB_TOKEN
         )
 
-        # Models the user explicitly picked in Settings. Unknown ids are
-        # dropped rather than failing the run, so a stale saved selection
-        # can't wedge generation.
-        raw_copilot_models: object = params.get("copilotModels")
-        copilot_models: List[Llm] | None = None
-        if isinstance(raw_copilot_models, list) and raw_copilot_models:
-            by_value = {m.value: m for m in COPILOT_MODELS}
-            picked = [
-                by_value[value]
-                for value in cast(list[object], raw_copilot_models)
-                if isinstance(value, str) and value in by_value
-            ]
-            copilot_models = picked or None
+        # Models the user explicitly picked, from any provider. `copilotModels`
+        # is the name older clients used for the same list, so it is still
+        # honoured. Unknown ids are collected rather than dropped silently.
+        raw_selected_models: object = params.get("selectedModels")
+        if not isinstance(raw_selected_models, list) or not raw_selected_models:
+            raw_selected_models = params.get("copilotModels")
+        selected_models, unknown_selected_models = parse_selected_models(
+            raw_selected_models
+        )
 
         raw_retry_models: object = params.get("retryModels")
         retry_models: List[Llm] | None = None
@@ -422,7 +470,8 @@ class ParameterExtractionStage:
             replicate_api_key=replicate_api_key,
             openai_base_url=openai_base_url,
             copilot_github_token=copilot_github_token,
-            copilot_models=copilot_models,
+            selected_models=list(selected_models),
+            unknown_selected_models=list(unknown_selected_models),
             retry_models=retry_models,
             generation_type=generation_type,
             prompt=prompt,
@@ -450,7 +499,7 @@ class ParameterExtractionStage:
 
 
 class ModelSelectionStage:
-    """Handles selection of variant models based on available API keys and generation type"""
+    """Turns a user's model picks (or the lack of them) into variant models."""
 
     def __init__(self, throw_error: Callable[[str], Coroutine[Any, Any, None]]):
         self.throw_error = throw_error
@@ -459,117 +508,171 @@ class ModelSelectionStage:
         self,
         generation_type: Literal["create", "update"],
         input_mode: InputMode,
-        openai_api_key: str | None,
-        anthropic_api_key: str | None,
+        openai_api_key: str | None = None,
+        anthropic_api_key: str | None = None,
         gemini_api_key: str | None = None,
         copilot_available: bool = False,
-        copilot_models: List[Llm] | None = None,
+        copilot_model_ids: Sequence[str] = (),
+        selected_models: Sequence[Llm] = (),
+        unknown_selected_models: Sequence[str] = (),
         retry_models: List[Llm] | None = None,
-    ) -> List[Llm]:
-        """Select appropriate models based on available API keys"""
-        try:
-            num_variants = 2 if generation_type == "update" else NUM_VARIANTS
+        catalog: ModelCatalog | None = None,
+    ) -> ModelSelection:
+        """Pick the models each variant runs on, and say what was skipped."""
+        resolved_catalog = catalog or build_catalog(
+            ProviderCredentials(
+                openai_api_key=openai_api_key,
+                anthropic_api_key=anthropic_api_key,
+                gemini_api_key=gemini_api_key,
+                copilot_available=copilot_available,
+                copilot_model_ids=tuple(copilot_model_ids),
+            )
+        )
+        limit = variant_limit(generation_type, input_mode)
 
-            if retry_models:
-                variant_models = list(retry_models)
-            # An explicit Copilot choice in Settings wins over auto-selection,
-            # except for video which only Gemini can do.
-            elif copilot_models and input_mode != "video":
-                variant_models = [
-                    copilot_models[i % len(copilot_models)]
-                    for i in range(num_variants)
-                ]
-            else:
-                variant_models = self._get_variant_models(
-                    generation_type,
-                    input_mode,
-                    num_variants,
-                    openai_api_key,
-                    anthropic_api_key,
-                    gemini_api_key,
-                    copilot_available,
-                    copilot_models,
+        # A retry replays the exact lineup the original run used, so it is not
+        # re-filtered: reproducing the earlier result is the point.
+        if retry_models:
+            return self._describe(ModelSelection(models=list(retry_models)))
+
+        notices: List[str] = []
+        if selected_models or unknown_selected_models:
+            result = filter_selection(
+                selected_models,
+                resolved_catalog,
+                unknown_ids=unknown_selected_models,
+                input_mode=input_mode,
+            )
+            if result.notice:
+                notices.append(result.notice)
+            if result.models:
+                return self._describe(
+                    ModelSelection(
+                        models=list(result.models[:limit]),
+                        notices=notices,
+                        dropped=[item.id for item in result.dropped],
+                    )
                 )
 
-            # Print the variant models (one per line)
-            print("Variant models:")
-            for index, model in enumerate(variant_models):
-                print(f"Variant {index + 1}: {model.value}")
-
-            return variant_models
+        try:
+            models = self._auto_models(
+                generation_type,
+                input_mode,
+                limit,
+                resolved_catalog,
+            )
         except Exception:
-            await self.throw_error(
+            await self.throw_error(self._no_credentials_message(input_mode, notices))
+            raise Exception("No API key")
+
+        if notices:
+            notices.append("Fell back to automatic model selection.")
+        return self._describe(
+            ModelSelection(
+                models=models,
+                notices=notices,
+                dropped=[],
+            )
+        )
+
+    def _describe(self, selection: "ModelSelection") -> "ModelSelection":
+        print("Variant models:")
+        for index, model in enumerate(selection.models):
+            print(f"Variant {index + 1}: {model.value}")
+        for notice in selection.notices:
+            print(f"Model selection notice: {notice}")
+        return selection
+
+    def _no_credentials_message(
+        self, input_mode: InputMode, notices: Sequence[str]
+    ) -> str:
+        if input_mode == "video":
+            base = (
+                "Video needs a Gemini API key or GitHub Copilot credentials. Add "
+                "GEMINI_API_KEY to backend/.env or in the settings dialog, or sign in "
+                "with GitHub (run `gh auth login` or `copilot`) to use your Copilot "
+                "subscription."
+            )
+        else:
+            base = (
                 "No API key found and no GitHub Copilot credentials detected. Either sign in "
                 "with GitHub (run `gh auth login` or `copilot`) to use your Copilot subscription, "
                 "or add OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY to backend/.env or "
                 "in the settings dialog. If you add it to .env, restart the backend server."
             )
-            raise Exception("No API key")
+        if notices:
+            return f"{' '.join(notices)} {base}"
+        return base
 
-    def _get_variant_models(
+    def _auto_models(
         self,
         generation_type: Literal["create", "update"],
         input_mode: InputMode,
         num_variants: int,
-        openai_api_key: str | None,
-        anthropic_api_key: str | None,
-        gemini_api_key: str | None,
-        copilot_available: bool = False,
-        copilot_models: List[Llm] | None = None,
+        catalog: ModelCatalog,
     ) -> List[Llm]:
-        """Simple model cycling that scales with num_variants"""
+        """The default lineup when the user has not picked models."""
+        available = set(catalog.available_providers)
+        has_openai = "openai" in available
+        has_anthropic = "anthropic" in available
+        has_gemini = "gemini" in available
 
-        # Video mode: Gemini reads video natively and is the better path, so it
-        # stays the default. Copilot can also do it - the provider samples the
-        # recording into frames - but only when explicitly chosen, since the
-        # SDK cannot accept video itself.
+        # Video mode: Gemini reads a recording natively and stays the default.
+        # Copilot can also do it - the provider samples the recording into
+        # frames - so it is the fallback when there is no Gemini key.
         if input_mode == "video":
+            if has_gemini:
+                return list(VIDEO_VARIANT_MODELS)
+            copilot_models = self._copilot_auto_models(catalog)
             if copilot_models:
-                return [
-                    copilot_models[i % len(copilot_models)]
-                    for i in range(NUM_VARIANTS_VIDEO)
-                ]
-            if not gemini_api_key:
-                raise Exception(
-                    "Video mode needs either a Gemini API key or Copilot models "
-                    "selected in Settings. Add GEMINI_API_KEY to backend/.env, "
-                    "or pick Copilot models to use your Copilot subscription."
-                )
-            return list(VIDEO_VARIANT_MODELS)
+                return _cycle(copilot_models, NUM_VARIANTS_VIDEO)
+            raise Exception("No video-capable credentials")
 
-        # Define models based on available API keys
-        if gemini_api_key and anthropic_api_key and openai_api_key:
+        if has_gemini and has_anthropic and has_openai:
             if input_mode == "text" and generation_type == "create":
                 models = list(ALL_KEYS_MODELS_TEXT_CREATE)
             elif generation_type == "update":
                 models = list(ALL_KEYS_MODELS_UPDATE)
             else:
                 models = list(ALL_KEYS_MODELS_DEFAULT)
-        elif gemini_api_key and anthropic_api_key:
+        elif has_gemini and has_anthropic:
             models = list(GEMINI_ANTHROPIC_MODELS)
-        elif gemini_api_key and openai_api_key:
+        elif has_gemini and has_openai:
             models = list(GEMINI_OPENAI_MODELS)
-        elif openai_api_key and anthropic_api_key:
+        elif has_openai and has_anthropic:
             models = list(OPENAI_ANTHROPIC_MODELS)
-        elif gemini_api_key:
+        elif has_gemini:
             models = list(GEMINI_ONLY_MODELS)
-        elif anthropic_api_key:
+        elif has_anthropic:
             models = list(ANTHROPIC_ONLY_MODELS)
-        elif openai_api_key:
+        elif has_openai:
             models = list(OPENAI_ONLY_MODELS)
-        elif copilot_available:
-            # No provider keys, but the user has Copilot credentials - run
-            # entirely on their Copilot subscription.
-            models = list(COPILOT_ONLY_MODELS)
         else:
-            raise Exception("No OpenAI or Anthropic key")
+            # No provider keys, but the user may have Copilot credentials - run
+            # entirely on their Copilot subscription.
+            models = self._copilot_auto_models(catalog)
+            if not models:
+                raise Exception("No usable credentials")
 
-        # Cycle through models: [A, B] with num=5 becomes [A, B, A, B, A]
-        selected_models: List[Llm] = []
-        for i in range(num_variants):
-            selected_models.append(models[i % len(models)])
+        return _cycle(models, num_variants)
 
-        return selected_models
+    def _copilot_auto_models(self, catalog: ModelCatalog) -> List[Llm]:
+        """Preferred Copilot models first, then whatever else the plan offers."""
+        offered = {
+            model.id
+            for provider in catalog.providers
+            if provider.id == "copilot" and provider.available
+            for model in provider.models
+        }
+        preferred = [
+            model for model in COPILOT_ONLY_MODELS if model.value in offered
+        ]
+        remaining = [
+            model
+            for model in COPILOT_MODELS
+            if model.value in offered and model not in preferred
+        ]
+        return preferred + remaining
 
 
 class PromptCreationStage:
@@ -827,19 +930,21 @@ class StatusBroadcastMiddleware(Middleware):
     async def process(
         self, context: PipelineContext, next_func: Callable[[], Awaitable[None]]
     ) -> None:
-        # Determine variant count based on input mode and generation type.
-        # Edit/update flows use two variants to keep latency and cost down.
+        # The planned count. One variant runs per selected model, capped by the
+        # per-mode limit; with no selection the automatic lineup fills the cap.
+        # Stale filtering can still shrink this, in which case the generation
+        # middleware sends a corrected count before any variant starts.
         assert context.extracted_params is not None
-        is_video_mode = context.extracted_params.input_mode == "video"
-        is_update = context.extracted_params.generation_type == "update"
-        if context.extracted_params.retry_models:
-            num_variants = len(context.extracted_params.retry_models)
-        elif is_video_mode:
-            num_variants = NUM_VARIANTS_VIDEO
-        elif is_update:
-            num_variants = 2
+        params = context.extracted_params
+        limit = variant_limit(params.generation_type, params.input_mode)
+        if params.retry_models:
+            num_variants = len(params.retry_models)
+        elif params.selected_models:
+            num_variants = min(len(params.selected_models), limit)
         else:
-            num_variants = NUM_VARIANTS
+            num_variants = limit
+
+        context.planned_variant_count = num_variants
 
         # Tell frontend how many variants we're using
         await context.send_message("variantCount", str(num_variants), 0)
@@ -872,61 +977,54 @@ class CodeGenerationMiddleware(Middleware):
     ) -> None:
         try:
             assert context.extracted_params is not None
+            params = context.extracted_params
 
-            # Select models (handles video mode internally)
-            copilot_snapshot = await get_copilot_snapshot(
-                context.extracted_params.copilot_github_token
+            # The catalog is what makes a pick runnable: it knows which
+            # providers have credentials and, for Copilot, which models the
+            # signed-in plan currently lists.
+            copilot_snapshot = await get_copilot_snapshot(params.copilot_github_token)
+            catalog = build_catalog(
+                ProviderCredentials(
+                    openai_api_key=params.openai_api_key,
+                    anthropic_api_key=params.anthropic_api_key,
+                    gemini_api_key=params.gemini_api_key,
+                    copilot_available=copilot_snapshot.available,
+                    copilot_login=copilot_snapshot.login,
+                    copilot_model_ids=tuple(
+                        str(model["id"])
+                        for model in copilot_snapshot.models
+                        if bool(model.get("vision"))
+                    ),
+                )
             )
-            copilot_available = copilot_snapshot.available
-            selected_copilot_models = context.extracted_params.copilot_models
-            current_ids = {
-                str(model["id"]) for model in copilot_snapshot.models
-            }
-            if selected_copilot_models and copilot_available and current_ids:
-                selected_copilot_models = [
-                    model
-                    for model in selected_copilot_models
-                    if get_copilot_api_name(model) in current_ids
-                ] or None
-            elif (
-                not selected_copilot_models
-                and copilot_available
-                and current_ids
-                and not context.extracted_params.openai_api_key
-                and not context.extracted_params.anthropic_api_key
-                and not context.extracted_params.gemini_api_key
-            ):
-                preferred = [
-                    model
-                    for model in COPILOT_ONLY_MODELS
-                    if get_copilot_api_name(model) in current_ids
-                ]
-                remaining = [
-                    model
-                    for model in COPILOT_MODELS
-                    if get_copilot_api_name(model) in current_ids
-                    and model not in preferred
-                ]
-                selected_copilot_models = (preferred + remaining) or None
 
             model_selector = ModelSelectionStage(context.throw_error)
-            context.variant_models = await model_selector.select_models(
-                generation_type=context.extracted_params.generation_type,
-                input_mode=context.extracted_params.input_mode,
-                openai_api_key=context.extracted_params.openai_api_key,
-                anthropic_api_key=context.extracted_params.anthropic_api_key,
-                gemini_api_key=context.extracted_params.gemini_api_key,
-                copilot_available=copilot_available,
-                copilot_models=selected_copilot_models,
-                retry_models=context.extracted_params.retry_models,
+            selection = await model_selector.select_models(
+                generation_type=params.generation_type,
+                input_mode=params.input_mode,
+                selected_models=params.selected_models,
+                unknown_selected_models=params.unknown_selected_models,
+                retry_models=params.retry_models,
+                catalog=catalog,
             )
-            await context.send_message(
-                "variantModels",
-                None,
-                0,
-                {"models": [model.value for model in context.variant_models]},
-                None,
-            )
+            context.variant_models = selection.models
+
+            # Stale picks can shrink the run below the count already announced;
+            # correct it before any variant reports progress.
+            if len(context.variant_models) != context.planned_variant_count:
+                await context.send_message(
+                    "variantCount", str(len(context.variant_models)), 0
+                )
+                context.planned_variant_count = len(context.variant_models)
+
+            model_data: Dict[str, Any] = {
+                "models": [model.value for model in context.variant_models]
+            }
+            if selection.dropped:
+                model_data["droppedModels"] = selection.dropped
+            if selection.notices:
+                model_data["notice"] = " ".join(selection.notices)
+            await context.send_message("variantModels", None, 0, model_data, None)
 
             generation_stage = AgenticGenerationStage(
                 send_message=context.send_message,

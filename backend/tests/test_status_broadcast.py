@@ -161,3 +161,102 @@ async def test_retry_broadcasts_the_original_variant_count() -> None:
 
     assert sent_messages[0] == ("variantCount", "3", 0)
     assert [message[2] for message in sent_messages[1:]] == [0, 1, 2]
+
+
+def _context_with(**overrides: Any) -> PipelineContext:
+    sent: list[tuple[str, str | None, int]] = []
+
+    async def send_message(
+        msg_type: str,
+        value: str | None,
+        variant_index: int,
+        data: Any = None,
+        eventId: Any = None,
+    ) -> None:
+        sent.append((msg_type, value, variant_index))
+
+    context = PipelineContext(websocket=MagicMock())
+    context.ws_comm = cast(
+        Any,
+        SimpleNamespace(send_message=send_message, throw_error=AsyncMock()),
+    )
+    params: dict[str, Any] = {
+        "stack": "html_tailwind",
+        "input_mode": "image",
+        "should_generate_images": True,
+        "openai_api_key": "key",
+        "anthropic_api_key": None,
+        "gemini_api_key": None,
+        "replicate_api_key": None,
+        "openai_base_url": None,
+        "generation_type": "create",
+        "prompt": {"text": "Build", "images": [], "videos": []},
+        "history": [],
+        "file_state": None,
+        "option_codes": [],
+    }
+    params.update(overrides)
+    context.extracted_params = ExtractedParams(**params)
+    context.metadata["sent"] = sent
+    return context
+
+
+@pytest.mark.asyncio
+async def test_one_variant_is_announced_per_selected_model() -> None:
+    context = _context_with(
+        selected_models=[Llm.GPT_5_5_HIGH, Llm.GPT_5_6_SOL_LOW],
+    )
+
+    await StatusBroadcastMiddleware().process(context, AsyncMock())
+
+    sent = context.metadata["sent"]
+    assert sent[0] == ("variantCount", "2", 0)
+    assert [message[2] for message in sent[1:]] == [0, 1]
+    assert context.planned_variant_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_single_selected_model_announces_a_single_variant() -> None:
+    context = _context_with(selected_models=[Llm.GPT_5_5_HIGH])
+
+    await StatusBroadcastMiddleware().process(context, AsyncMock())
+
+    assert context.metadata["sent"][0] == ("variantCount", "1", 0)
+
+
+@pytest.mark.asyncio
+async def test_selection_beyond_the_limit_is_capped() -> None:
+    context = _context_with(
+        selected_models=[
+            Llm.GPT_5_5_LOW,
+            Llm.GPT_5_5_MEDIUM,
+            Llm.GPT_5_5_HIGH,
+            Llm.GPT_5_5_XHIGH,
+            Llm.GPT_5_6_SOL_LOW,
+        ],
+    )
+
+    await StatusBroadcastMiddleware().process(context, AsyncMock())
+
+    assert context.metadata["sent"][0] == ("variantCount", "4", 0)
+
+
+@pytest.mark.asyncio
+async def test_update_selection_is_capped_at_two() -> None:
+    context = _context_with(
+        generation_type="update",
+        selected_models=[Llm.GPT_5_5_LOW, Llm.GPT_5_5_MEDIUM, Llm.GPT_5_5_HIGH],
+    )
+
+    await StatusBroadcastMiddleware().process(context, AsyncMock())
+
+    assert context.metadata["sent"][0] == ("variantCount", "2", 0)
+
+
+@pytest.mark.asyncio
+async def test_no_selection_announces_the_full_limit() -> None:
+    context = _context_with()
+
+    await StatusBroadcastMiddleware().process(context, AsyncMock())
+
+    assert context.metadata["sent"][0] == ("variantCount", "4", 0)

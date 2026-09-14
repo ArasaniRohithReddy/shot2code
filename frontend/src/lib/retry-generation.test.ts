@@ -383,3 +383,86 @@ describe("retry generation planning", () => {
     expect(plan.request.fileState?.content).toContain("Option two");
   });
 });
+
+describe("retry model provenance", () => {
+  it("replays the exact models the source options ran on", () => {
+    const source = createSourceCommit();
+    source.variants[0].model = "gpt-5.5 (high thinking)";
+    source.variants[1].model = "claude-opus-5 (max effort)";
+
+    const plan = buildRetryGenerationPlan({
+      sourceCommit: source,
+      commits: { [source.hash]: source },
+      fallbackInputMode: "image",
+      fallbackStack: Stack.HTML_TAILWIND,
+      ...assetRegistry(),
+    });
+
+    expect(plan.request.retryModels).toEqual([
+      "gpt-5.5 (high thinking)",
+      "claude-opus-5 (max effort)",
+    ]);
+    expect(plan.initialVariantModels).toEqual([
+      "gpt-5.5 (high thinking)",
+      "claude-opus-5 (max effort)",
+    ]);
+  });
+
+  it("recovers a mixed-provider selection when no context was stored", () => {
+    const source = createSourceCommit();
+    delete source.generationContext;
+    source.variants[0].model = "gpt-5.5 (high thinking)";
+    source.variants[1].model = "copilot/claude-opus-5";
+
+    const plan = buildRetryGenerationPlan({
+      sourceCommit: source,
+      commits: { [source.hash]: source },
+      fallbackInputMode: "image",
+      fallbackStack: Stack.HTML_TAILWIND,
+      ...assetRegistry(),
+    });
+
+    expect(plan.generationContext.selectedModels).toEqual([
+      "gpt-5.5 (high thinking)",
+      "copilot/claude-opus-5",
+    ]);
+  });
+
+  it("skips options that never recorded a model", () => {
+    const source = createSourceCommit();
+    delete source.generationContext;
+    source.variants[0].model = undefined;
+    source.variants[1].model = "gemini-3.6-flash (low thinking)";
+
+    const plan = buildRetryGenerationPlan({
+      sourceCommit: source,
+      commits: { [source.hash]: source },
+      fallbackInputMode: "image",
+      fallbackStack: Stack.HTML_TAILWIND,
+      ...assetRegistry(),
+    });
+
+    expect(plan.generationContext.selectedModels).toEqual([
+      "gemini-3.6-flash (low thinking)",
+    ]);
+    // A partial lineup cannot be replayed exactly, so the backend re-selects.
+    expect(plan.request.retryModels).toBeUndefined();
+  });
+
+  it("prefers the stored generation context over the option models", () => {
+    const source = createSourceCommit();
+
+    const plan = buildRetryGenerationPlan({
+      sourceCommit: source,
+      commits: { [source.hash]: source },
+      fallbackInputMode: "image",
+      fallbackStack: Stack.HTML_TAILWIND,
+      ...assetRegistry(),
+    });
+
+    expect(plan.generationContext.selectedModels).toEqual([
+      "copilot/model-a",
+      "copilot/model-b",
+    ]);
+  });
+});

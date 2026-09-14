@@ -23,7 +23,7 @@ from costs.token_usage import TokenUsage
 from agent.tools import CanonicalToolDefinition, ToolCall
 from fs_logging.agent_runs import AgentRunRecorder
 from fs_logging.prompt_reports import PromptReportLogger
-from llm import Llm
+from llm import Llm, get_gemini_api_name, get_gemini_thinking_level
 
 
 DEFAULT_VIDEO_FPS = 10
@@ -41,63 +41,10 @@ def serialize_gemini_tools(tools: List[CanonicalToolDefinition]) -> List[types.T
     return [types.Tool(function_declarations=declarations)]
 
 
-def _get_gemini_api_model_name(model: Llm) -> str:
-    if model in [
-        Llm.GEMINI_3_FLASH_PREVIEW_HIGH,
-        Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL,
-    ]:
-        return "gemini-3-flash-preview"
-    if model in [
-        Llm.GEMINI_3_5_FLASH_HIGH,
-        Llm.GEMINI_3_5_FLASH_MEDIUM,
-        Llm.GEMINI_3_5_FLASH_LOW,
-        Llm.GEMINI_3_5_FLASH_MINIMAL,
-    ]:
-        return "gemini-3.5-flash"
-    if model in [
-        Llm.GEMINI_3_6_FLASH_HIGH,
-        Llm.GEMINI_3_6_FLASH_MEDIUM,
-        Llm.GEMINI_3_6_FLASH_LOW,
-        Llm.GEMINI_3_6_FLASH_MINIMAL,
-    ]:
-        return "gemini-3.6-flash"
-    if model in [
-        Llm.GEMINI_3_1_PRO_PREVIEW_HIGH,
-        Llm.GEMINI_3_1_PRO_PREVIEW_MEDIUM,
-        Llm.GEMINI_3_1_PRO_PREVIEW_LOW,
-    ]:
-        return "gemini-3.1-pro-preview"
-    return model.value
-
-
-def _get_thinking_level_for_model(model: Llm) -> str:
-    if model in [
-        Llm.GEMINI_3_FLASH_PREVIEW_HIGH,
-        Llm.GEMINI_3_1_PRO_PREVIEW_HIGH,
-        Llm.GEMINI_3_5_FLASH_HIGH,
-        Llm.GEMINI_3_6_FLASH_HIGH,
-    ]:
-        return "high"
-    if model in [
-        Llm.GEMINI_3_1_PRO_PREVIEW_LOW,
-        Llm.GEMINI_3_5_FLASH_LOW,
-        Llm.GEMINI_3_6_FLASH_LOW,
-    ]:
-        return "low"
-    if model in [
-        Llm.GEMINI_3_1_PRO_PREVIEW_MEDIUM,
-        Llm.GEMINI_3_5_FLASH_MEDIUM,
-        Llm.GEMINI_3_6_FLASH_MEDIUM,
-    ]:
-        return "medium"
-    if model in [
-        Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL,
-        Llm.GEMINI_3_5_FLASH_MINIMAL,
-        Llm.GEMINI_3_6_FLASH_MINIMAL,
-    ]:
-        return "minimal"
-    return "high"
-
+# The model -> API id/thinking-level tables live in llm.py so the catalog and
+# the provider agree on one definition. Re-exported for existing callers.
+_get_gemini_api_model_name = get_gemini_api_name
+_get_thinking_level_for_model = get_gemini_thinking_level
 
 def _extract_text_from_content(content: str | List[Dict[str, Any]]) -> str:
     if isinstance(content, str):

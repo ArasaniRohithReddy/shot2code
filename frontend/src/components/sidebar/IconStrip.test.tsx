@@ -55,6 +55,20 @@ describe("IconStrip conversation control", () => {
     expect(html).not.toContain("aria-expanded");
   });
 
+  it("labels the history rail entry as History", () => {
+    const html = renderToStaticMarkup(
+      <IconStrip
+        {...BASE_PROPS}
+        canCollapseConversation
+        isConversationOpen={false}
+      />
+    );
+
+    expect(html).toContain('aria-label="History (Ctrl+4)"');
+    expect(html).toContain('data-testid="toggle-history"');
+    expect(html).not.toContain("Versions");
+  });
+
   it("hides the project controls before a project exists", () => {
     const html = renderToStaticMarkup(
       <IconStrip
@@ -67,7 +81,7 @@ describe("IconStrip conversation control", () => {
     );
 
     expect(html).not.toContain('data-testid="toggle-conversation"');
-    expect(html).not.toContain("Versions (Ctrl+4)");
+    expect(html).not.toContain("History (Ctrl+4)");
     expect(html).toContain("Start a new project (Ctrl+Alt+N)");
   });
 });

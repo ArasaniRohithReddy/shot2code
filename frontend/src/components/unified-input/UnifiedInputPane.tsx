@@ -69,10 +69,17 @@ function UnifiedInputPane({
   };
 
   const modelSelectorProps: ModelSelectorProps = {
-    selectedModels: settings.copilotModels ?? [],
+    selectedModels: settings.selectedModels ?? [],
     setSelectedModels: (models) =>
-      setSettings((s) => ({ ...s, copilotModels: models })),
+      setSettings((s) => ({ ...s, selectedModels: models })),
     githubToken: settings.copilotGithubToken,
+    openAiApiKey: settings.openAiApiKey,
+    anthropicApiKey: settings.anthropicApiKey,
+    geminiApiKey: settings.geminiApiKey,
+    planContext: {
+      generationType: "create",
+      inputMode: activeTab === "text" ? "text" : "image",
+    },
   };
 
   return (

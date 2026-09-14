@@ -121,9 +121,11 @@ export function buildRetryGenerationPlan({
     : unique(
         requestSource.variants
           .map((variant) => variant.model)
+          // Any provider's model can be reselected on a retry, so the id is
+          // kept as-is rather than filtered to one provider's prefix.
           .filter(
             (model): model is string =>
-              typeof model === "string" && model.startsWith("copilot/")
+              typeof model === "string" && model.length > 0
           )
       );
   const designSystem =

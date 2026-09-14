@@ -28,8 +28,26 @@ If changes touch both, run both sets.
 ## Model providers
 
 Providers live in `backend/agent/providers/` and implement the `ProviderSession`
-protocol in `base.py`. `factory.py` maps a model to its provider using the
-membership sets in `llm.py`.
+protocol in `base.py`. `llm.py` is the single source of model identity: the
+`Llm` enum (whose value is the id that crosses the wire), the `ModelProvider`
+literal, the per-provider API-name/effort tables, and the `model_from_value` /
+`provider_for_model` lookups. `factory.py` routes on `provider_for_model` and
+raises `MissingProviderCredentialError`, which names the provider and the key to
+add.
+
+`model_catalog.py` decides what a user may *pick*. Copilot is discovered live
+from the signed-in plan; OpenAI, Anthropic and Gemini use the maintained tables
+in `llm.py`, because no reliable listing endpoint for vision-capable,
+agent-usable models is wired into shot2code. It is a pure function of the
+credentials passed in - callers merge request and environment keys first - so it
+stays testable, and it never returns a credential. `routes/models.py` exposes it
+as `GET`/`POST /api/models`.
+
+Selection flows through `ModelSelectionStage` in `routes/generate_code.py`:
+retry lineups replay verbatim, explicit picks produce one variant per model
+capped by `variant_limit`, and an empty selection falls back to the sets in
+`model_choice_sets.py`. Anything skipped is reported to the client rather than
+dropped silently.
 
 `github_copilot.py` is different from the others: the Copilot SDK is an *agent
 runtime* that owns its own planning loop and calls tools through handlers, while

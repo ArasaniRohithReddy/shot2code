@@ -38,7 +38,7 @@ interface CodeGenerationCallbacks {
   onVariantComplete: (variantIndex: number) => void;
   onVariantError: (variantIndex: number, error: string) => void;
   onVariantCount: (count: number) => void;
-  onVariantModels: (models: string[]) => void;
+  onVariantModels: (models: string[], notice?: string) => void;
   onThinking: (content: string, variantIndex: number, eventId?: string) => void;
   onAssistant: (content: string, variantIndex: number, eventId?: string) => void;
   onToolStart: (data: any, variantIndex: number, eventId?: string) => void;
@@ -80,7 +80,14 @@ export function generateCode(
     } else if (response.type === "variantCount") {
       callbacks.onVariantCount(parseInt(response.value || "1"));
     } else if (response.type === "variantModels") {
-      callbacks.onVariantModels(response.data?.models || []);
+      // The backend drops picks it cannot run (no key, retired model) and says
+      // so here, so a silently shorter option list always has an explanation.
+      const notice =
+        typeof response.data?.notice === "string"
+          ? response.data.notice
+          : undefined;
+      callbacks.onVariantModels(response.data?.models || [], notice);
+      if (notice) toast(notice);
     } else if (response.type === "thinking") {
       callbacks.onThinking(response.value || "", response.variantIndex, response.eventId);
     } else if (response.type === "assistant") {

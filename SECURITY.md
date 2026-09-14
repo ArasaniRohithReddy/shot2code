@@ -11,8 +11,9 @@ release rather than as patches to older installers.
 
 | Version | Supported |
 |---|---|
-| 0.3.1 | ✅ Yes — current release |
-| 0.3.0 | ⚠️ Superseded by the corrective 0.3.1 release; update when you can |
+| 0.3.2 | ✅ Yes — current release |
+| 0.3.1 | ⚠️ Superseded by the installer-hardening release; update when you can |
+| 0.3.0 | ❌ No — its updater could replace a live backend; upgrade immediately |
 | < 0.3 | ❌ No — upgrade to the [latest release](https://github.com/ArasaniRohithReddy/shot2code/releases/latest) |
 
 ## Reporting a vulnerability
@@ -78,10 +79,10 @@ Because there is no signature to check, verify the download yourself:
    this repository.
 2. Compare the SHA-256 hash with the checksums published in
    [`docs/releases/`](docs/releases/) — for example
-   [v0.3.1](docs/releases/v0.3.1/SHA256SUMS.txt):
+   [v0.3.2](docs/releases/v0.3.2/SHA256SUMS.txt):
 
    ```powershell
-   Get-FileHash .\shot2code-0.3.1-x64.exe -Algorithm SHA256
+   Get-FileHash .\shot2code-0.3.2-x64.exe -Algorithm SHA256
    ```
 
 3. Only then click **More info → Run anyway**, or right-click the file →

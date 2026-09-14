@@ -33,7 +33,7 @@ interface SidebarProps {
   doUpdate: (instruction: string) => void;
   regenerate: () => void;
   cancelCodeGeneration: () => void;
-  onOpenVersions: () => void;
+  onOpenHistory: () => void;
   onOpenCode: () => void;
   designSystem: DesignSystemSelectorProps;
   modelSelector: ModelSelectorProps;
@@ -86,7 +86,7 @@ function Sidebar({
   doUpdate,
   regenerate,
   cancelCodeGeneration,
-  onOpenVersions,
+  onOpenHistory,
   onOpenCode,
   designSystem,
   modelSelector,
@@ -344,14 +344,15 @@ function Sidebar({
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               <button
-                onClick={onOpenVersions}
-                className="rounded-lg border border-violet-400 dark:border-violet-600 px-3 py-1.5 text-xs font-semibold text-violet-800 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors"
+                onClick={onOpenHistory}
+                aria-label={`Open History, currently viewing version ${currentVersionNumber} of ${totalVersions}`}
+                className="min-h-11 rounded-lg border border-violet-400 dark:border-violet-600 px-3 py-1.5 text-xs font-semibold text-violet-800 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
               >
-                All versions
+                Open History
               </button>
               <button
                 onClick={() => latestCommitHash && setHead(latestCommitHash)}
-                className="rounded-lg bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-400 px-3 py-1.5 text-xs font-semibold text-white dark:text-violet-950 transition-colors"
+                className="min-h-11 rounded-lg bg-violet-600 hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-400 px-3 py-1.5 text-xs font-semibold text-white dark:text-violet-950 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
               >
                 Back to latest
               </button>

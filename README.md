@@ -16,26 +16,26 @@ screenshots, your code and your API keys never leave your computer.
 <!-- Every image below has descriptive alt text; the summaries repeat the key
      detail so the gallery is usable without loading the images. -->
 
-The workspace at 1920×1080 — the icon rail, the chat panel and the Code tab:
+The workspace at 1920×1080 — chat, History and the centered desktop preview:
 
-![shot2code at 1920 by 1080. On the left, a narrow icon rail with Chat, Versions, New, Shortcuts and Settings. Next to it, a chat panel showing a "No model provider saved in this browser" callout with "Add a key in Settings" and "Setup guide" actions, a warning that project history could not be saved, an "Imported existing code" message, and the empty state "Your project is loaded. What should change?" offering three suggestions: make the layout responsive, fix accessibility issues, and polish spacing and typography. On the right, the Code tab shows index.html with Entry and Preview badges, Format, Copy, Download and CodePen actions, syntax-highlighted HTML on a dark editor background, and a status bar reading "HTML · 26 lines — Tab moves focus outside the editor; Ctrl+] indents".](docs/assets/workspace-full-hd.png)
+![shot2code at 1920 by 1080. A narrow rail labels Chat, History, New, Shortcuts and Settings. The conversation panel shows two generated options and their activity. The main workspace displays a 1366-pixel desktop preview centered on a neutral backdrop, with Desktop, Mobile and Code tabs, Fit and 100 percent controls, a History 2 of 2 control, Select and edit, download and refresh actions.](docs/assets/workspace-full-hd.png)
 
-The same workspace at 1440×900, in the light and dark themes:
+The Code workspace in the light and dark themes:
 
 | Light | Dark |
 |---|---|
-| ![The shot2code workspace at 1440 by 900 in the light theme: a light icon rail and chat panel on the left, and on the right the Code tab with index.html open in a dark syntax-highlighted editor, the "Version 1 — Latest" stepper above it and the "HTML · 26 lines" status bar below.](docs/assets/code-workspace.png) | ![The same 1440 by 900 workspace in the dark theme: the icon rail, chat panel and Code tab all use dark surfaces, with the same index.html file open and the "HTML · 26 lines" status bar at the bottom.](docs/assets/code-workspace-dark.png) |
+| ![The shot2code Code workspace at 1920 by 1080 in the light theme. The left conversation panel shows two model options; the main area shows index.html formatted across 88 lines with Entry and Preview badges, Format, Copy, Download and CodePen actions, and a language and line-count status bar.](docs/assets/code-workspace.png) | ![The shot2code Code workspace at 1440 by 900 in the dark theme. The rail, conversation panel, toolbar, file header and syntax-highlighted editor use coordinated dark surfaces while preserving the same History, model-option and file actions.](docs/assets/code-workspace-dark.png) |
 
 The chat adapts down to narrow windows, so an edit is always one sentence away:
 
 | Tablet width (768×1024) | Narrow window (352×700) |
 |---|---|
-| ![The shot2code chat panel in a 768 by 1024 window: the icon rail becomes a top bar above a Preview and Chat switcher, followed by the "No model provider saved in this browser" callout, a notice that project history could not be saved, an "Imported existing code" message, and the "Your project is loaded. What should change?" card offering "Make the layout responsive", "Fix accessibility issues" and "Polish spacing and typography" above the "Tell the AI what to change" composer.](docs/assets/chat-tablet.png) | ![The shot2code chat panel in a 352 by 700 window: the same provider callout, suggestions and composer stacked in a single column, with the panel switcher at the top.](docs/assets/chat-narrow.png) |
+| ![The shot2code Chat workspace at 768 by 1024. The rail becomes a top bar, Preview and Chat are paired beside a separate History button, two generated model options are visible, and the agent activity and update composer remain usable in one column.](docs/assets/chat-tablet.png) | ![The shot2code Chat workspace at 352 by 700. Preview and Chat remain paired beside the responsive History affordance, while the conversation and update composer stack without horizontal overflow.](docs/assets/chat-narrow.png) |
 
 <details>
-<summary>The Code tab at tablet width (768×1024)</summary>
+<summary>The centered Preview and History controls at tablet width</summary>
 
-![The shot2code Code tab in a 768 by 1024 window: a Preview and Chat switcher replaces the side-by-side layout, the file header shows index.html with its Entry and Preview badges, the toolbar actions collapse to icons, the editor fills the rest of the window, and the status bar reads "HTML · 26 lines".](docs/assets/workspace-tablet.png)
+![The shot2code Preview workspace at 1024 by 768. Preview and Chat share a segmented control beside a separate History button. The preview toolbar stays on one row with Fit 75 percent and 100 percent controls, and the generated page remains centered below it.](docs/assets/workspace-tablet.png)
 
 </details>
 
@@ -62,6 +62,7 @@ Download the latest build from
 
 Because there is no signature to check, verify the download instead. Published
 SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
+[v0.3.2](docs/releases/v0.3.2/SHA256SUMS.txt),
 [v0.3.1](docs/releases/v0.3.1/SHA256SUMS.txt) and
 [v0.3.0](docs/releases/v0.3.0/SHA256SUMS.txt):
 
@@ -107,8 +108,10 @@ Supported output stacks:
 Other things it can do:
 
 - **Select an element and edit it** by describing the change
-- **Version history** — every generation is a commit you can step back through,
-  and retried versions keep a link to the version they re-roll
+- **History** — every generation is a commit you can step back through, and
+  retried versions keep a link to the version they re-roll. Open it from the
+  **History** button in the preview toolbar, the app rail, the tablet/mobile
+  header, or with **Ctrl+4**.
 - **Projects are saved on your machine** — a local SQLite database
   (`history.sqlite3` under `%LOCALAPPDATA%\shot2code\`) keeps your projects,
   versions and prompts, so **Recent projects** can pick up where you left off.
@@ -138,7 +141,7 @@ shortcut reference. Project actions use conflict-free Ctrl+Alt combinations:
 **Ctrl+Alt+N** starts a project, **Ctrl+Alt+I** opens Import,
 **Ctrl+Alt+U** opens Upload, **Ctrl+Alt+S** opens Settings, and
 **Ctrl+Alt+E** exports the current project. Use **Ctrl+1–4** for Preview, Code,
-Chat, and Versions, and **Ctrl+Shift+Enter** to retry an AI-generated version.
+Chat, and History, and **Ctrl+Shift+Enter** to retry an AI-generated version.
 On wide windows, pressing **Ctrl+3** again collapses the chat panel, and
 **Ctrl+1** or **Ctrl+4** bring it back. Navigation shortcuts pause while typing
 or while a dialog is open. In the code editor, Tab moves focus out and
@@ -154,6 +157,13 @@ shows a deterministic fallback/diagnostic while leaving every source file
 available for editing and project download. Generated preview documents run in
 an opaque-origin sandbox with a restrictive CSP; select-and-edit communicates
 through validated, per-preview messages instead of direct parent-window access.
+
+The preview renders a fixed-width canvas — 1366px for desktop, 375px for mobile
+— centred on a neutral backdrop so a wide window never leaves a misleading blank
+strip beside it. **Fit** scales the desktop canvas down to the window (the
+button shows the current percentage) and **100%** keeps it at its original size,
+scrolling instead of clipping. Below 640px the canvas always fits, because a
+1366px page at 100% cannot be read on a phone.
 
 CodePen sharing is available only when the selected stack can run honestly in a
 browser-only Pen. The app splits document head, HTML, CSS and JavaScript, keeps
@@ -238,6 +248,23 @@ You need **one** provider. GitHub Copilot is easiest because it needs no API key
 Keys go in **Settings** (gear icon) and are stored on your device only.
 Replicate is the exception — it must be set in `backend/.env`.
 
+### Picking which models generate
+
+**Settings → Models** lists every provider you have credentials for, grouped by
+provider, and the compact picker in the composer and edit toolbar shows the same
+list. Tick the models you want: each generation produces **one option per
+selected model**, up to the per-run limit (four for a new generation, two for an
+edit or a video). Leave everything unchecked and shot2code chooses for you.
+
+Copilot's list is discovered live from your plan; the API-key providers use a
+validated list maintained with shot2code, so each entry is a model this app has
+actually been run against. Superseded models are hidden behind **Show deprecated
+models**, and a saved pick that can no longer run — a retired model, or one whose
+key you removed — is flagged so you can clear it instead of silently losing an
+option. Models that can't read images never appear, since turning a screenshot
+into code requires image input, and video runs only offer models that can read a
+recording.
+
 ### GitHub Copilot
 
 shot2code uses the official
@@ -252,11 +279,6 @@ credentials in this order:
 So if you already use the GitHub CLI, it just works — Settings shows which
 account was picked up. Otherwise create a fine-grained token with the
 **Copilot Requests** permission.
-
-Settings lists the models your plan actually offers. Tick the ones you want and
-each generation produces one variant per selected model; leave them unchecked to
-let shot2code choose. Models that can't read images are hidden, since turning a
-screenshot into code requires image input.
 
 ## Running from source
 

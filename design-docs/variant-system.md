@@ -12,24 +12,27 @@ Changing this value automatically scales the entire system to support any number
 
 ## Model Selection
 
-Models cycle based on available API keys:
+A run's models come from one of three places, checked in this order:
 
-```python
-# Both API keys present
-models = [claude_model, Llm.GPT_4_1_NANO_2025_04_14]
+1. **Retry.** `retryModels` replays the exact lineup the original run used, so
+   the earlier result can be reproduced. It is never re-filtered.
+2. **Explicit picks.** `selectedModels` (any provider; older clients send the
+   same list as `copilotModels`) produces **one variant per selected model**,
+   capped by the per-run limit. Picks whose provider has no credential, whose
+   Copilot plan no longer lists them, or which cannot read video in video mode
+   are dropped and reported to the client through the `variantModels` message.
+3. **Automatic.** With no picks, the lineup comes from
+   `backend/routes/model_choice_sets.py` based on which providers are available,
+   cycling to fill the limit: models `[A, B]` with a limit of 5 become
+   `[A, B, A, B, A]`.
 
-# Claude only  
-models = [claude_model, Llm.CLAUDE_4_5_SONNET_2025_09_29]
+**Variant limits** (`variant_limit` in `generate_code.py`): 4 for a create, 2
+for an update, 2 for video.
 
-# OpenAI only
-models = [Llm.GPT_4O_2024_11_20]
-```
-
-**Cycling:** If models = [A, B] and NUM_VARIANTS = 5, result is [A, B, A, B, A]
-
-**Generation Type:**
-- **Create**: Primary model is Claude 3.7 Sonnet
-- **Update**: Primary model is Claude Sonnet 4.5
+**Availability** comes from `backend/model_catalog.py`, which combines live
+Copilot discovery with the maintained per-provider tables in `llm.py` and the
+credentials supplied with the request. The same catalog backs `GET`/`POST`
+`/api/models`, which the frontend pickers read.
 
 ## Frontend
 
@@ -49,8 +52,10 @@ models = [Llm.GPT_4O_2024_11_20]
 ## Architecture
 
 ### Backend
-- `StatusBroadcastMiddleware` sends `variantCount` to frontend
-- `ModelSelectionStage` cycles through available models
+- `StatusBroadcastMiddleware` sends the planned `variantCount` to the frontend;
+  `CodeGenerationMiddleware` corrects it if stale picks shrink the run
+- `ModelSelectionStage` resolves retry / explicit / automatic selection
+- `model_catalog.py` decides which providers and models are selectable
 - Pipeline generates variants in parallel via WebSocket
 
 ### Frontend  
@@ -61,8 +66,12 @@ models = [Llm.GPT_4O_2024_11_20]
 ## WebSocket Messages
 
 ```typescript
-"variantCount" | "chunk" | "status" | "setCode" | "variantComplete" | "variantError"
+"variantCount" | "variantModels" | "chunk" | "status" | "setCode" | "variantComplete" | "variantError"
 ```
+
+`variantModels` carries `{ models, droppedModels?, notice? }`. The notice
+explains any pick that was skipped, so a shorter-than-expected option list is
+never unexplained.
 
 ## Implementation Notes
 
@@ -74,6 +83,10 @@ models = [Llm.GPT_4O_2024_11_20]
 ## Key Files
 
 - `backend/config.py` - NUM_VARIANTS setting
+- `backend/model_catalog.py` - provider availability and the selectable catalog
+- `backend/routes/models.py` - `/api/models`, read by the frontend pickers
 - `backend/routes/generate_code.py` - Model selection pipeline  
+- `frontend/src/lib/model-selection.ts` - catalog helpers, migration, planning
+- `frontend/src/components/settings/ModelCatalogPicker.tsx` - shared picker UI
 - `frontend/src/components/variants/Variants.tsx` - UI and shortcuts
 - `frontend/src/store/project-store.ts` - State management

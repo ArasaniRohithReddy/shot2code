@@ -31,7 +31,8 @@ function MediaThumbnail({
       ) : firstVideo ? (
         <button
           type="button"
-          className="relative w-full h-full"
+          aria-label="Play the input recording"
+          className="pointer-events-auto relative w-full h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
           onClick={(e) => {
             e.stopPropagation();
             onPlayClick?.();
@@ -129,7 +130,7 @@ export function HistoryAncestryLinks({
       {retrySource && (
         <button
           type="button"
-          className="rounded px-1 py-0.5 text-[10px] font-medium text-violet-700 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-violet-300 dark:hover:bg-violet-900/40"
+          className="pointer-events-auto flex min-h-6 items-center rounded px-1.5 text-[10px] font-medium text-violet-700 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-violet-300 dark:hover:bg-violet-900/40"
           aria-label={`Go to retry source version ${retrySource.version}`}
           onClick={(event) => {
             event.stopPropagation();
@@ -142,7 +143,7 @@ export function HistoryAncestryLinks({
       {parentLink && (
         <button
           type="button"
-          className="rounded px-1 py-0.5 text-[10px] text-gray-500 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-gray-400 dark:hover:bg-zinc-700"
+          className="pointer-events-auto flex min-h-6 items-center rounded px-1.5 text-[10px] text-gray-600 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-gray-300 dark:hover:bg-zinc-700"
           aria-label={`Go to branch parent version ${parentLink.version}`}
           onClick={(event) => {
             event.stopPropagation();
@@ -156,7 +157,7 @@ export function HistoryAncestryLinks({
         <button
           key={descendant.hash}
           type="button"
-          className="rounded px-1 py-0.5 text-[10px] font-medium text-blue-700 hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-300 dark:hover:bg-blue-900/40"
+          className="pointer-events-auto flex min-h-6 items-center rounded px-1.5 text-[10px] font-medium text-blue-700 hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-300 dark:hover:bg-blue-900/40"
           aria-label={`Go to retry descendant version ${descendant.version}`}
           onClick={(event) => {
             event.stopPropagation();
@@ -209,22 +210,28 @@ export default function HistoryDisplay() {
         return (
           <div
             key={item.hash}
-            className={`rounded-xl border transition-all ${
+            className={`relative rounded-xl border transition-all ${
               isActive
-                ? "bg-white dark:bg-zinc-800 border-blue-200 dark:border-blue-800 shadow-sm"
-                : "bg-white dark:bg-zinc-900 border-gray-100 dark:border-zinc-800 hover:border-gray-200 dark:hover:border-zinc-700"
+                ? "bg-white dark:bg-zinc-800 border-blue-300 dark:border-blue-700 shadow-sm"
+                : "bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800 hover:border-gray-300 dark:hover:border-zinc-700"
             }`}
           >
-            <div
-              className="flex items-center gap-3 px-3 py-2.5 cursor-pointer"
+            {/* A full-row overlay keeps the whole entry clickable and reachable
+                by keyboard without nesting the inline buttons inside it. */}
+            <button
+              type="button"
               onClick={() => setHead(item.hash)}
-            >
+              aria-current={isActive ? "true" : undefined}
+              aria-label={`Show version ${versionNumber}: ${item.summary}`}
+              className="absolute inset-0 z-0 cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500"
+            />
+            <div className="pointer-events-none relative flex items-center gap-3 px-3 py-2.5">
               {/* Version number badge */}
               <span
                 className={`shrink-0 flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-semibold ${
                   isActive
-                    ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
-                    : "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-gray-500"
+                    ? "bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200"
+                    : "bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-300"
                 }`}
               >
                 {versionNumber}
@@ -242,12 +249,12 @@ export default function HistoryDisplay() {
                   <span
                     className={`text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded ${
                       item.type === "Create"
-                        ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400"
+                        ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
                         : item.type === "Retry"
                           ? "bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300"
                           : item.type === "Edit"
-                            ? "bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400"
-                            : "bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                            ? "bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                            : "bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
                     }`}
                   >
                     {item.type}
@@ -263,16 +270,16 @@ export default function HistoryDisplay() {
                   className={`text-sm mt-0.5 line-clamp-2 ${
                     isActive
                       ? "font-medium text-gray-900 dark:text-white"
-                      : "text-gray-600 dark:text-gray-400"
+                      : "text-gray-600 dark:text-gray-300"
                   }`}
                 >
                   {item.summary}
                   {item.selectedElementTag && (
                     <>
                       {" "}
-                      <span className="text-gray-300 dark:text-gray-600">&middot;</span>
+                      <span className="text-gray-400 dark:text-gray-500" aria-hidden="true">&middot;</span>
                       {" "}
-                      <code className="text-xs font-mono text-violet-600 dark:text-violet-400">&lt;{item.selectedElementTag}&gt;</code>
+                      <code className="text-xs font-mono text-violet-700 dark:text-violet-300">&lt;{item.selectedElementTag}&gt;</code>
                     </>
                   )}
                 </p>
@@ -285,12 +292,18 @@ export default function HistoryDisplay() {
                     e.stopPropagation();
                     setExpandedHash(isExpanded ? null : item.hash);
                   }}
-                  className="shrink-0 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 p-1 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-700 transition-colors"
+                  aria-expanded={isExpanded}
+                  aria-label={
+                    isExpanded
+                      ? `Hide details for version ${versionNumber}`
+                      : `Show details for version ${versionNumber}`
+                  }
+                  className="pointer-events-auto shrink-0 flex h-11 w-11 items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
                 >
                   {isExpanded ? (
-                    <BsChevronDown className="w-3 h-3" />
+                    <BsChevronDown className="w-3 h-3" aria-hidden="true" />
                   ) : (
-                    <BsChevronRight className="w-3 h-3" />
+                    <BsChevronRight className="w-3 h-3" aria-hidden="true" />
                   )}
                 </button>
               )}
@@ -298,14 +311,14 @@ export default function HistoryDisplay() {
 
             {/* Expanded details */}
             {isExpanded && (
-              <div className="px-3 pb-3 pl-12">
+              <div className="relative px-3 pb-3 pl-12">
                 {item.summary.length > 30 && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 break-words">
+                  <p className="text-xs text-gray-600 dark:text-gray-300 break-words">
                     {item.summary}
                   </p>
                 )}
                 {item.selectedElementTag && (
-                  <p className="text-xs text-violet-500 dark:text-violet-400 mt-1">
+                  <p className="text-xs text-violet-700 dark:text-violet-300 mt-1">
                     Target: <code className="font-mono text-[10px] bg-violet-100 dark:bg-violet-900/30 px-1 py-0.5 rounded">&lt;{item.selectedElementTag}&gt;</code>
                   </p>
                 )}

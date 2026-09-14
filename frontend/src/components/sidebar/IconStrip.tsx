@@ -1,5 +1,5 @@
 import {
-  LuClock,
+  LuHistory,
   LuKeyboard,
   LuMessageSquare,
   LuPanelLeftClose,
@@ -99,13 +99,14 @@ function IconStrip({
           <button
             onClick={onToggleHistory}
             className={`${RAIL_BUTTON} ${isHistoryOpen ? RAIL_ACTIVE : RAIL_IDLE}`}
-            title="Versions (Ctrl+4)"
-            aria-label="Versions (Ctrl+4)"
+            title="History (Ctrl+4)"
+            aria-label="History (Ctrl+4)"
             aria-pressed={isHistoryOpen}
+            data-testid="toggle-history"
           >
-            <LuClock className="w-[18px] h-[18px]" aria-hidden="true" />
+            <LuHistory className="w-[18px] h-[18px]" aria-hidden="true" />
             <span className="hidden text-[10px] leading-none xl:block">
-              Versions
+              History
             </span>
           </button>
         )}

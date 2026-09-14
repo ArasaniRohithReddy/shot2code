@@ -13,6 +13,68 @@ in this file; see the git history for those changes.
 
 Nothing yet.
 
+## [0.3.2] - 2026-09-14
+
+Released as [shot2code v0.3.2](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.2).
+Checksums for the published Windows artifacts:
+[docs/releases/v0.3.2/SHA256SUMS.txt](docs/releases/v0.3.2/SHA256SUMS.txt).
+
+This corrective release protects updates that start from an older client,
+extends model selection to every supported code provider, and finishes the
+responsive Preview and History experience.
+
+### Fixed
+
+- **Old clients can no longer replace a live backend.** The NSIS installer runs
+  a pre-install safeguard before uninstalling or replacing the existing
+  application. It identifies processes by executable path under the installed
+  `resources\backend` directory, terminates each captured process tree
+  synchronously, and verifies that no matching process remains. It never uses
+  a process-name-wide kill, so unrelated processes with the same executable
+  name are left alone.
+- **Installer failure is closed and diagnosable.** If the installed backend
+  tree cannot be confirmed stopped, replacement is aborted with an actionable
+  interactive message or a silent-install exit code. Diagnostics are written
+  to `%TEMP%\shot2code-installer-preinstall.log`.
+- **Windows development consoles cannot crash prompt logging.** Prompt-preview
+  diagnostics are encoded safely for the active output stream, including
+  strict cp1252 consoles, instead of allowing Unicode box-drawing characters
+  or prompt text to raise `UnicodeEncodeError` during generation.
+- **The 100% preview no longer hugs the left edge.** Fixed-width desktop
+  canvases are centred inside a neutral framed viewport; narrower windows
+  retain deliberate horizontal scrolling without clipping the canvas start.
+- **History is discoverable at every width.** User-facing navigation now says
+  **History** consistently, with a separate labelled responsive destination
+  beside Preview and Chat. History rows are keyboard-operable buttons with
+  improved focus, target sizes and contrast.
+
+### Added
+
+- **Model selection for every code-generation provider.** Settings and the
+  compact composer picker group available models under GitHub Copilot, OpenAI,
+  Anthropic and Google Gemini. One option is generated for each selected model,
+  subject to the existing per-run variant limit.
+- **Credential-aware model catalogue API.** `/api/models` reports provider
+  availability and model capabilities without returning secrets. Copilot
+  models are discovered from the signed-in account; API-key providers use
+  maintained, validated catalogues.
+- **Safe selection migration and stale-model handling.** Existing
+  `copilotModels` and non-default `codeGenerationModel` settings migrate into
+  the provider-neutral `selectedModels` list. Removed credentials, retired
+  models and unsupported media choices are reported explicitly.
+- **Installer-level regression coverage.** Desktop tests cover NSIS wiring,
+  installed process-tree shutdown, survival of unrelated same-name processes,
+  failure-closed behavior and the application updater lifecycle.
+
+### Changed
+
+- Preview controls are grouped by purpose and use a clearer **Fit / 100%**
+  segmented control plus a labelled **History n/m** control.
+- Retries preserve the actual provider/model choices used by their source
+  generation, and history records the concrete model for each variant.
+- Public screenshots and documentation now show the centred Preview, History
+  terminology, responsive destinations and multi-provider model interface.
+
 ## [0.3.1] - 2026-09-13
 
 Released as [shot2code v0.3.1](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.1).
@@ -255,6 +317,7 @@ real multi-file project you can edit, and previews run in a locked-down sandbox.
 - CodePen sharing requires explicit confirmation before any code leaves the
   device.
 
-[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.0

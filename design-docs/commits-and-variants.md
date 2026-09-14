@@ -268,7 +268,7 @@ selection, asset-extraction choice, and composed design context. This lets a ret
 of a retry reproduce the same request without applying an edit twice. Starting a
 retry immediately promotes any prior draft and stores the new retry draft in one
 project-snapshot transaction. Failed or cancelled retries remain navigable, and
-the Versions UI links both `Retried from vN` and every `Retried as vN` descendant.
+the History UI links both `Retried from vN` and every `Retried as vN` descendant.
 Historical versions keep their option-specific files and chat histories selectable
 without rewriting the immutable SQLite version.
 

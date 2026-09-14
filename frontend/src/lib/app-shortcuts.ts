@@ -5,7 +5,7 @@ export type AppShortcutCommand =
   | "show-preview"
   | "show-code"
   | "show-chat"
-  | "show-versions"
+  | "show-history"
   | "show-settings"
   | "export-project"
   | "retry-generation"
@@ -74,9 +74,9 @@ export const APP_SHORTCUTS: AppShortcutDefinition[] = [
     keys: ["Mod", "3"],
   },
   {
-    command: "show-versions",
+    command: "show-history",
     group: "Workspace",
-    label: "Show versions",
+    label: "Show History",
     keys: ["Mod", "4"],
   },
   {
@@ -124,7 +124,7 @@ export function getAppShortcutCommand(
     case "Digit3":
       return "show-chat";
     case "Digit4":
-      return "show-versions";
+      return "show-history";
     case "Slash":
       return "show-shortcuts";
     default:

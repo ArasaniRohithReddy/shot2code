@@ -133,3 +133,103 @@ async def test_extracts_retry_models_in_order_and_drops_unknown_values() -> None
         Llm.GPT_5_6_SOL_HIGH,
         Llm.CLAUDE_OPUS_5_HIGH,
     ]
+
+
+@pytest.mark.asyncio
+async def test_extracts_selected_models_across_providers() -> None:
+    stage = ParameterExtractionStage(AsyncMock())
+
+    extracted = await stage.extract_and_validate(
+        {
+            "generatedCodeConfig": "html_tailwind",
+            "inputMode": "text",
+            "prompt": {"text": "hello"},
+            "selectedModels": [
+                Llm.GPT_5_6_SOL_HIGH.value,
+                Llm.CLAUDE_OPUS_5_MAX.value,
+                Llm.GEMINI_3_6_FLASH_LOW.value,
+                Llm.COPILOT_GPT_5_6_SOL.value,
+            ],
+        }
+    )
+
+    assert extracted.selected_models == [
+        Llm.GPT_5_6_SOL_HIGH,
+        Llm.CLAUDE_OPUS_5_MAX,
+        Llm.GEMINI_3_6_FLASH_LOW,
+        Llm.COPILOT_GPT_5_6_SOL,
+    ]
+    assert extracted.unknown_selected_models == []
+
+
+@pytest.mark.asyncio
+async def test_selected_models_keeps_unknown_ids_for_reporting() -> None:
+    stage = ParameterExtractionStage(AsyncMock())
+
+    extracted = await stage.extract_and_validate(
+        {
+            "generatedCodeConfig": "html_tailwind",
+            "inputMode": "text",
+            "prompt": {"text": "hello"},
+            "selectedModels": [
+                Llm.GPT_5_5_HIGH.value,
+                "gpt-9000 (max thinking)",
+                "",
+                17,
+                Llm.GPT_5_5_HIGH.value,
+            ],
+        }
+    )
+
+    assert extracted.selected_models == [Llm.GPT_5_5_HIGH]
+    assert extracted.unknown_selected_models == ["gpt-9000 (max thinking)"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_copilot_models_field_still_selects_models() -> None:
+    """Clients saved before the picker covered every provider send this name."""
+    stage = ParameterExtractionStage(AsyncMock())
+
+    extracted = await stage.extract_and_validate(
+        {
+            "generatedCodeConfig": "html_tailwind",
+            "inputMode": "text",
+            "prompt": {"text": "hello"},
+            "copilotModels": [Llm.COPILOT_CLAUDE_OPUS_5.value],
+        }
+    )
+
+    assert extracted.selected_models == [Llm.COPILOT_CLAUDE_OPUS_5]
+
+
+@pytest.mark.asyncio
+async def test_selected_models_wins_over_the_legacy_field() -> None:
+    stage = ParameterExtractionStage(AsyncMock())
+
+    extracted = await stage.extract_and_validate(
+        {
+            "generatedCodeConfig": "html_tailwind",
+            "inputMode": "text",
+            "prompt": {"text": "hello"},
+            "selectedModels": [Llm.GPT_5_5_HIGH.value],
+            "copilotModels": [Llm.COPILOT_CLAUDE_OPUS_5.value],
+        }
+    )
+
+    assert extracted.selected_models == [Llm.GPT_5_5_HIGH]
+
+
+@pytest.mark.asyncio
+async def test_no_selection_means_automatic() -> None:
+    stage = ParameterExtractionStage(AsyncMock())
+
+    extracted = await stage.extract_and_validate(
+        {
+            "generatedCodeConfig": "html_tailwind",
+            "inputMode": "text",
+            "prompt": {"text": "hello"},
+        }
+    )
+
+    assert extracted.selected_models == []
+    assert extracted.unknown_selected_models == []

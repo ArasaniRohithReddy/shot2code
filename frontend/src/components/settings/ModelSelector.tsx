@@ -1,130 +1,132 @@
-import { useEffect, useState } from "react";
-import { LuBrain, LuCheck } from "react-icons/lu";
+import { useState } from "react";
+import { LuBrain, LuRefreshCw } from "react-icons/lu";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import ModelCatalogPicker from "./ModelCatalogPicker";
+import { useModelCatalog } from "../../hooks/useModelCatalog";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../ui/popover";
-import { HTTP_BACKEND_URL } from "../../config";
+  describeSelection,
+  describeSelectionHint,
+  type VariantPlanContext,
+} from "../../lib/model-selection";
 
 export interface ModelSelectorProps {
   selectedModels: string[];
   setSelectedModels: (models: string[]) => void;
   githubToken?: string | null;
-}
-
-interface CopilotModel {
-  id: string;
-  vision: boolean;
+  openAiApiKey?: string | null;
+  anthropicApiKey?: string | null;
+  geminiApiKey?: string | null;
+  /** Shapes the option-count hint and hides models the mode cannot use. */
+  planContext?: VariantPlanContext;
 }
 
 /**
- * Compact Copilot model picker for the update toolbar, so the models can be
- * changed while iterating instead of only from Settings.
+ * Compact model picker for the composer and update toolbar.
+ *
+ * Every configured provider appears here, not just Copilot, so models can be
+ * switched while iterating instead of only from Settings.
  */
 function ModelSelector({
   selectedModels,
   setSelectedModels,
   githubToken,
+  openAiApiKey,
+  anthropicApiKey,
+  geminiApiKey,
+  planContext = { generationType: "create", inputMode: "image" },
 }: ModelSelectorProps) {
-  const [models, setModels] = useState<CopilotModel[]>([]);
-  const [available, setAvailable] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const token = githubToken?.trim();
-    fetch(
-      token
-        ? `${HTTP_BACKEND_URL}/api/copilot/capabilities`
-        : `${HTTP_BACKEND_URL}/api/capabilities`,
-      token
-        ? {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token }),
-          }
-        : undefined
-    )
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled || !data) return;
-        setAvailable(Boolean(data.copilot));
-        setModels(Array.isArray(data.copilot_models) ? data.copilot_models : []);
-      })
-      .catch(() => {
-        /* leave hidden when the backend can't be reached */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [githubToken]);
-
-  const visionModels = models.filter((m) => m.vision);
-  if (!available || visionModels.length === 0) return null;
-
+  const [showDeprecated, setShowDeprecated] = useState(false);
   const selected = selectedModels ?? [];
+  const { catalog, isLoading, error, staleModels, refresh } = useModelCatalog({
+    credentials: {
+      openAiApiKey,
+      anthropicApiKey,
+      geminiApiKey,
+      copilotGithubToken: githubToken,
+    },
+    selectedModels: selected,
+  });
+
+  const hasProviders = catalog.providers.some((provider) => provider.available);
+  // Nothing to choose from and nothing saved: stay out of the way.
+  if (!hasProviders && selected.length === 0) return null;
+
   const toggle = (value: string) =>
     setSelectedModels(
       selected.includes(value)
-        ? selected.filter((v) => v !== value)
+        ? selected.filter((entry) => entry !== value)
         : [...selected, value]
     );
 
-  const label =
-    selected.length === 0
-      ? "Auto"
-      : selected.length === 1
-        ? selected[0].replace("copilot/", "")
-        : `${selected.length} models`;
+  const label = describeSelection(selected, catalog);
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          title="Choose which Copilot models generate each variant"
-          className="flex min-h-11 max-w-full items-center gap-1.5 rounded-lg px-2 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+          aria-label={`Models: ${label}. Choose which models generate each option`}
+          title="Choose which models generate each option"
+          className="flex min-h-11 max-w-full items-center gap-1.5 rounded-lg px-2 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
         >
-          <LuBrain className="w-[18px] h-[18px]" />
-          <span className="max-w-[110px] truncate notranslate" translate="no">
+          <LuBrain aria-hidden="true" className="h-[18px] w-[18px]" />
+          <span className="notranslate max-w-[140px] truncate" translate="no">
             {label}
           </span>
+          {staleModels.length > 0 && (
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+          )}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-2">
-        <p className="px-2 pb-2 text-xs text-gray-500 dark:text-zinc-400">
-          One variant per selected model. None selected means shot2code picks.
-        </p>
-        <div className="max-h-64 overflow-y-auto">
-          {visionModels.map((m) => {
-            const value = `copilot/${m.id}`;
-            const checked = selected.includes(value);
-            return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => toggle(value)}
-                className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-zinc-800"
-              >
-                <span className="notranslate truncate" translate="no">
-                  {m.id}
-                </span>
-                {checked && (
-                  <LuCheck className="w-4 h-4 shrink-0 text-violet-600 dark:text-violet-400" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-        {selected.length > 0 && (
+      <PopoverContent
+        align="start"
+        className="w-[min(22rem,calc(100vw-2rem))] p-2 sm:w-96"
+      >
+        <div className="flex items-center justify-between gap-2 px-2 pb-1">
+          <h2 className="text-xs font-semibold text-gray-700 dark:text-zinc-200">
+            Models
+          </h2>
           <button
             type="button"
-            onClick={() => setSelectedModels([])}
-            className="mt-1 w-full rounded px-2 py-1.5 text-left text-xs text-violet-600 hover:bg-gray-100 dark:text-violet-400 dark:hover:bg-zinc-800"
+            onClick={() => void refresh()}
+            disabled={isLoading}
+            className="flex min-h-8 items-center gap-1.5 rounded px-2 text-xs text-violet-600 hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-wait disabled:opacity-60 dark:text-violet-400 dark:hover:bg-violet-950/30"
           >
-            Reset to automatic
+            <LuRefreshCw
+              aria-hidden="true"
+              className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`}
+            />
+            Refresh
           </button>
+        </div>
+
+        {error && (
+          <p
+            role="alert"
+            className="mx-2 mb-2 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200"
+          >
+            {error}
+          </p>
         )}
+
+        <ModelCatalogPicker
+          catalog={catalog}
+          selectedModels={selected}
+          onToggleModel={toggle}
+          onClearSelection={() => setSelectedModels([])}
+          onRemoveStale={() =>
+            setSelectedModels(
+              selected.filter((entry) => !staleModels.includes(entry))
+            )
+          }
+          staleModels={staleModels}
+          showDeprecated={showDeprecated}
+          onShowDeprecatedChange={setShowDeprecated}
+          inputMode={planContext.inputMode}
+          hint={describeSelectionHint(selected, planContext)}
+          idPrefix="composer-model"
+          compact
+        />
       </PopoverContent>
     </Popover>
   );

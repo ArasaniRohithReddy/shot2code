@@ -1,5 +1,12 @@
 from enum import Enum
-from typing import TypedDict
+from typing import Literal, TypedDict, get_args
+
+# Every provider shot2code can route a generation to. Keeping this a Literal
+# (rather than a bare str) means a typo in a provider name is a type error
+# instead of a model that silently never matches.
+ModelProvider = Literal["openai", "anthropic", "gemini", "copilot"]
+
+MODEL_PROVIDERS: tuple[ModelProvider, ...] = get_args(ModelProvider)
 
 
 # Actual model versions that are passed to the LLMs and stored in our logs
@@ -91,7 +98,7 @@ class Completion(TypedDict):
 # Explicitly map each model to the provider backing it.  This keeps provider
 # groupings authoritative and avoids relying on name conventions when checking
 # models elsewhere in the codebase.
-MODEL_PROVIDER: dict[Llm, str] = {
+MODEL_PROVIDER: dict[Llm, ModelProvider] = {
     # OpenAI models
     Llm.GPT_5_4_MINI_LOW: "openai",
     Llm.GPT_5_4_2026_03_05_NONE: "openai",
@@ -175,6 +182,24 @@ ANTHROPIC_MODELS = {m for m, p in MODEL_PROVIDER.items() if p == "anthropic"}
 GEMINI_MODELS = {m for m, p in MODEL_PROVIDER.items() if p == "gemini"}
 COPILOT_MODELS = {m for m, p in MODEL_PROVIDER.items() if p == "copilot"}
 
+# Every model keyed by the string that crosses the wire (the enum value). The
+# websocket request, history records and eval logs all identify a model by this
+# string, so parsing goes through one place.
+MODELS_BY_VALUE: dict[str, Llm] = {model.value: model for model in Llm}
+
+
+def model_from_value(value: object) -> Llm | None:
+    """The model a client-supplied id refers to, or ``None`` when unknown."""
+    if not isinstance(value, str):
+        return None
+    return MODELS_BY_VALUE.get(value)
+
+
+def provider_for_model(model: Llm) -> ModelProvider:
+    """The provider that serves a model. Total over the enum by construction."""
+    return MODEL_PROVIDER[model]
+
+
 # Copilot model ids as reported by the SDK's list_models(), plus the reasoning
 # effort to request. All of these are vision-capable, which screenshot-to-code
 # requires.
@@ -256,3 +281,129 @@ def get_openai_api_name(model: Llm) -> str:
 
 def get_openai_reasoning_effort(model: Llm) -> str | None:
     return OPENAI_MODEL_CONFIG.get(model, {}).get("reasoning_effort")
+
+
+# Anthropic API model ids plus the thinking effort each variant requests.
+ANTHROPIC_MODEL_CONFIG: dict[Llm, dict[str, str]] = {
+    Llm.CLAUDE_OPUS_5_LOW: {"api_name": "claude-opus-5", "effort": "low"},
+    Llm.CLAUDE_OPUS_5_MEDIUM: {"api_name": "claude-opus-5", "effort": "medium"},
+    Llm.CLAUDE_OPUS_5_HIGH: {"api_name": "claude-opus-5", "effort": "high"},
+    Llm.CLAUDE_OPUS_5_XHIGH: {"api_name": "claude-opus-5", "effort": "xhigh"},
+    Llm.CLAUDE_OPUS_5_MAX: {"api_name": "claude-opus-5", "effort": "max"},
+    Llm.CLAUDE_OPUS_4_8_LOW: {"api_name": "claude-opus-4-8", "effort": "low"},
+    Llm.CLAUDE_OPUS_4_8_MEDIUM: {"api_name": "claude-opus-4-8", "effort": "medium"},
+    Llm.CLAUDE_OPUS_4_8_HIGH: {"api_name": "claude-opus-4-8", "effort": "high"},
+    Llm.CLAUDE_OPUS_4_8_XHIGH: {"api_name": "claude-opus-4-8", "effort": "xhigh"},
+    Llm.CLAUDE_OPUS_4_8_MAX: {"api_name": "claude-opus-4-8", "effort": "max"},
+    Llm.CLAUDE_FABLE_5_LOW: {"api_name": "claude-fable-5", "effort": "low"},
+    Llm.CLAUDE_FABLE_5_MEDIUM: {"api_name": "claude-fable-5", "effort": "medium"},
+    Llm.CLAUDE_FABLE_5_HIGH: {"api_name": "claude-fable-5", "effort": "high"},
+    Llm.CLAUDE_FABLE_5_XHIGH: {"api_name": "claude-fable-5", "effort": "xhigh"},
+    Llm.CLAUDE_FABLE_5_MAX: {"api_name": "claude-fable-5", "effort": "max"},
+}
+
+
+def get_anthropic_api_name(model: Llm) -> str:
+    return ANTHROPIC_MODEL_CONFIG.get(model, {}).get("api_name", model.value)
+
+
+def get_anthropic_effort(model: Llm) -> str:
+    configured_effort = ANTHROPIC_MODEL_CONFIG.get(model, {}).get("effort")
+    if configured_effort:
+        return configured_effort
+    if model == Llm.CLAUDE_SONNET_4_6:
+        return "high"
+    return "max"
+
+
+# Gemini API model ids plus the thinking level each variant requests.
+GEMINI_MODEL_CONFIG: dict[Llm, dict[str, str]] = {
+    Llm.GEMINI_3_FLASH_PREVIEW_HIGH: {
+        "api_name": "gemini-3-flash-preview",
+        "thinking_level": "high",
+    },
+    Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL: {
+        "api_name": "gemini-3-flash-preview",
+        "thinking_level": "minimal",
+    },
+    Llm.GEMINI_3_1_PRO_PREVIEW_HIGH: {
+        "api_name": "gemini-3.1-pro-preview",
+        "thinking_level": "high",
+    },
+    Llm.GEMINI_3_1_PRO_PREVIEW_MEDIUM: {
+        "api_name": "gemini-3.1-pro-preview",
+        "thinking_level": "medium",
+    },
+    Llm.GEMINI_3_1_PRO_PREVIEW_LOW: {
+        "api_name": "gemini-3.1-pro-preview",
+        "thinking_level": "low",
+    },
+    Llm.GEMINI_3_5_FLASH_HIGH: {
+        "api_name": "gemini-3.5-flash",
+        "thinking_level": "high",
+    },
+    Llm.GEMINI_3_5_FLASH_MEDIUM: {
+        "api_name": "gemini-3.5-flash",
+        "thinking_level": "medium",
+    },
+    Llm.GEMINI_3_5_FLASH_LOW: {
+        "api_name": "gemini-3.5-flash",
+        "thinking_level": "low",
+    },
+    Llm.GEMINI_3_5_FLASH_MINIMAL: {
+        "api_name": "gemini-3.5-flash",
+        "thinking_level": "minimal",
+    },
+    Llm.GEMINI_3_6_FLASH_HIGH: {
+        "api_name": "gemini-3.6-flash",
+        "thinking_level": "high",
+    },
+    Llm.GEMINI_3_6_FLASH_MEDIUM: {
+        "api_name": "gemini-3.6-flash",
+        "thinking_level": "medium",
+    },
+    Llm.GEMINI_3_6_FLASH_LOW: {
+        "api_name": "gemini-3.6-flash",
+        "thinking_level": "low",
+    },
+    Llm.GEMINI_3_6_FLASH_MINIMAL: {
+        "api_name": "gemini-3.6-flash",
+        "thinking_level": "minimal",
+    },
+}
+
+
+def get_gemini_api_name(model: Llm) -> str:
+    return GEMINI_MODEL_CONFIG.get(model, {}).get("api_name", model.value)
+
+
+def get_gemini_thinking_level(model: Llm) -> str:
+    return GEMINI_MODEL_CONFIG.get(model, {}).get("thinking_level", "high")
+
+
+def get_model_api_name(model: Llm) -> str:
+    """The id the provider's own API knows this model by."""
+    provider = provider_for_model(model)
+    if provider == "openai":
+        return get_openai_api_name(model)
+    if provider == "anthropic":
+        return get_anthropic_api_name(model)
+    if provider == "gemini":
+        return get_gemini_api_name(model)
+    return get_copilot_api_name(model)
+
+
+def get_model_effort(model: Llm) -> str | None:
+    """The reasoning/thinking setting a model variant requests, if any.
+
+    Unlike the provider-level helpers this never substitutes a default: a model
+    with no configured effort has none to display.
+    """
+    provider = provider_for_model(model)
+    if provider == "openai":
+        return OPENAI_MODEL_CONFIG.get(model, {}).get("reasoning_effort")
+    if provider == "anthropic":
+        return ANTHROPIC_MODEL_CONFIG.get(model, {}).get("effort")
+    if provider == "gemini":
+        return GEMINI_MODEL_CONFIG.get(model, {}).get("thinking_level")
+    return COPILOT_MODEL_CONFIG.get(model, {}).get("reasoning_effort")

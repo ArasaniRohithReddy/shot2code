@@ -12,6 +12,12 @@ import {
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { HTTP_BACKEND_URL } from "../../config";
+import ModelCatalogPicker from "./ModelCatalogPicker";
+import { useModelCatalog } from "../../hooks/useModelCatalog";
+import {
+  credentialsFromSettings,
+  describeSelectionHint,
+} from "../../lib/model-selection";
 import toast from "react-hot-toast";
 
 interface Props {
@@ -28,14 +34,22 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   >(null);
   const [copilotAvailable, setCopilotAvailable] = useState<boolean | null>(null);
   const [copilotLogin, setCopilotLogin] = useState<string | null>(null);
-  const [copilotModels, setCopilotModels] = useState<
-    { id: string; vision: boolean }[]
-  >([]);
-  const [isRefreshingCopilot, setIsRefreshingCopilot] = useState(false);
+  const [showDeprecatedModels, setShowDeprecatedModels] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateState, setUpdateState] =
     useState<Shot2CodeUpdateState | null>(null);
   const initialCopilotToken = useRef(settings.copilotGithubToken);
+
+  const {
+    catalog,
+    isLoading: isCatalogLoading,
+    error: catalogError,
+    staleModels,
+    refresh: refreshCatalog,
+  } = useModelCatalog({
+    credentials: credentialsFromSettings(settings),
+    selectedModels: settings.selectedModels ?? [],
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -60,9 +74,6 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
         if (!cancelled && data && typeof data.copilot === "boolean") {
           setCopilotAvailable(data.copilot);
           setCopilotLogin(data.copilot_login ?? null);
-          setCopilotModels(
-            Array.isArray(data.copilot_models) ? data.copilot_models : []
-          );
         }
       })
       .catch(() => {
@@ -97,9 +108,11 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
     };
   }, []);
 
-  const refreshCopilotModels = async () => {
-    setIsRefreshingCopilot(true);
+  // Re-probing Copilot goes through the same refresh so the sign-in line and
+  // the model list can never disagree about who is signed in.
+  const refreshModelCatalog = async () => {
     try {
+      await refreshCatalog();
       const token = settings.copilotGithubToken?.trim();
       const response = await fetch(
         token
@@ -117,13 +130,8 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
       const data = await response.json();
       setCopilotAvailable(Boolean(data.copilot));
       setCopilotLogin(data.copilot_login ?? null);
-      setCopilotModels(
-        Array.isArray(data.copilot_models) ? data.copilot_models : []
-      );
     } catch {
-      toast.error("Could not refresh Copilot models");
-    } finally {
-      setIsRefreshingCopilot(false);
+      toast.error("Could not refresh the model list");
     }
   };
 
@@ -353,6 +361,73 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
             </div>
           )}
 
+          {/* Models */}
+          <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
+              <h2 className="text-sm font-medium text-gray-900 dark:text-white">
+                Models
+              </h2>
+              <button
+                type="button"
+                onClick={() => void refreshModelCatalog()}
+                disabled={isCatalogLoading}
+                className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-xs text-violet-600 transition-colors duration-200 hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-wait disabled:opacity-60 dark:text-violet-400 dark:hover:bg-violet-950/30"
+              >
+                <LuRefreshCw
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 ${
+                    isCatalogLoading ? "animate-spin" : ""
+                  }`}
+                />
+                Refresh
+              </button>
+            </div>
+            <div className="space-y-3 p-4">
+              {catalogError && (
+                <p
+                  role="alert"
+                  className="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200"
+                >
+                  {catalogError}
+                </p>
+              )}
+              <ModelCatalogPicker
+                catalog={catalog}
+                selectedModels={settings.selectedModels ?? []}
+                onToggleModel={(modelId) =>
+                  setSettings((s) => {
+                    const current = s.selectedModels ?? [];
+                    return {
+                      ...s,
+                      selectedModels: current.includes(modelId)
+                        ? current.filter((entry) => entry !== modelId)
+                        : [...current, modelId],
+                    };
+                  })
+                }
+                onClearSelection={() =>
+                  setSettings((s) => ({ ...s, selectedModels: [] }))
+                }
+                onRemoveStale={() =>
+                  setSettings((s) => ({
+                    ...s,
+                    selectedModels: (s.selectedModels ?? []).filter(
+                      (entry) => !staleModels.includes(entry)
+                    ),
+                  }))
+                }
+                staleModels={staleModels}
+                showDeprecated={showDeprecatedModels}
+                onShowDeprecatedChange={setShowDeprecatedModels}
+                hint={describeSelectionHint(settings.selectedModels ?? [], {
+                  generationType: "create",
+                  inputMode: "image",
+                })}
+                idPrefix="settings-model"
+              />
+            </div>
+          </div>
+
           {/* GitHub Copilot */}
           <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
             <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
@@ -370,11 +445,11 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                     </p>
                     <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
                       shot2code can generate using your GitHub Copilot
-                      subscription — no API key needed. Pick any{" "}
+                      subscription — no API key needed. Its models appear under{" "}
                       <span className="notranslate" translate="no">
-                        Copilot:
+                        GitHub Copilot
                       </span>{" "}
-                      model below.
+                      in Models above.
                     </p>
                   </div>
                 </div>
@@ -396,87 +471,6 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   Checking GitHub Copilot sign-in…
                 </p>
               )}
-
-              <div>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                    Models
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void refreshCopilotModels()}
-                    disabled={isRefreshingCopilot}
-                    className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-xs text-violet-600 transition-colors duration-200 hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-wait disabled:opacity-60 dark:text-violet-400 dark:hover:bg-violet-950/30"
-                  >
-                    <LuRefreshCw
-                      className={`h-3.5 w-3.5 ${
-                        isRefreshingCopilot ? "animate-spin" : ""
-                      }`}
-                    />
-                    Refresh
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                  {copilotModels.length > 0
-                    ? "Pick which models to generate with. Each generation produces one variant per selected model. Leave all unchecked to let shot2code choose."
-                    : copilotAvailable
-                      ? "No models are cached yet. Refresh to query the models your Copilot plan currently offers."
-                      : "Sign in to see the models your Copilot plan offers."}
-                </p>
-
-                {copilotModels.length > 0 && (
-                  <div className="mt-3 max-h-64 space-y-1 overflow-y-auto rounded-md border border-gray-200 p-2 dark:border-zinc-700">
-                    {copilotModels
-                      .filter((m) => m.vision)
-                      .map((m) => {
-                        const value = `copilot/${m.id}`;
-                        const checked = (settings.copilotModels ?? []).includes(value);
-                        return (
-                          <label
-                            key={m.id}
-                            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50 dark:hover:bg-zinc-800"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) =>
-                                setSettings((s) => ({
-                                  ...s,
-                                  copilotModels: e.target.checked
-                                    ? [...(s.copilotModels ?? []), value]
-                                    : (s.copilotModels ?? []).filter((v) => v !== value),
-                                }))
-                              }
-                            />
-                            <span className="notranslate" translate="no">
-                              {m.id}
-                            </span>
-                          </label>
-                        );
-                      })}
-                  </div>
-                )}
-
-                {copilotModels.some((m) => !m.vision) && (
-                  <p className="mt-2 text-xs text-gray-400 dark:text-zinc-500">
-                    {copilotModels.filter((m) => !m.vision).length} model(s)
-                    hidden because they can't read images, which shot2code
-                    requires.
-                  </p>
-                )}
-
-                {(settings.copilotModels ?? []).length > 0 && (
-                  <button
-                    type="button"
-                    className="mt-2 text-xs text-violet-600 hover:underline dark:text-violet-400"
-                    onClick={() =>
-                      setSettings((s) => ({ ...s, copilotModels: [] }))
-                    }
-                  >
-                    Clear selection ({(settings.copilotModels ?? []).length} selected)
-                  </button>
-                )}
-              </div>
 
               <div>
                 <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">

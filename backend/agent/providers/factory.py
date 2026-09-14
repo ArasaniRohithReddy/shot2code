@@ -18,13 +18,29 @@ from agent.tools import canonical_tool_definitions
 from config import COPILOT_GITHUB_TOKEN, REPLICATE_API_KEY
 from fs_logging.agent_runs import AgentRunRecorder
 from llm import (
-    ANTHROPIC_MODELS,
-    COPILOT_MODELS,
-    GEMINI_MODELS,
-    OPENAI_MODELS,
     Llm,
+    ModelProvider,
+    provider_for_model,
 )
+from model_catalog import PROVIDER_CREDENTIAL_LABELS, PROVIDER_LABELS
 from preview_screenshot import is_screenshot_preview_available
+
+
+class MissingProviderCredentialError(Exception):
+    """Raised when a model's provider has no usable credential configured.
+
+    Carries the provider so callers can say which key to add rather than
+    reporting a generic failure.
+    """
+
+    def __init__(self, provider: ModelProvider, model: Llm):
+        self.provider = provider
+        self.model = model
+        super().__init__(
+            f"{PROVIDER_LABELS[provider]} is missing a "
+            f"{PROVIDER_CREDENTIAL_LABELS[provider]}, which "
+            f"{model.value} needs. Add it in Settings or backend/.env."
+        )
 
 
 def _contains_video(messages: list[ChatCompletionMessageParam]) -> bool:
@@ -65,9 +81,11 @@ def create_provider_session(
         screenshot_enabled=is_screenshot_preview_available(),
     )
 
-    if model in OPENAI_MODELS:
+    provider = provider_for_model(model)
+
+    if provider == "openai":
         if not openai_api_key:
-            raise Exception("OpenAI API key is missing.")
+            raise MissingProviderCredentialError(provider, model)
 
         client = AsyncOpenAI(api_key=openai_api_key, base_url=openai_base_url)
         return OpenAIProviderSession(
@@ -78,9 +96,9 @@ def create_provider_session(
             recorder=recorder,
         )
 
-    if model in ANTHROPIC_MODELS:
+    if provider == "anthropic":
         if not anthropic_api_key:
-            raise Exception("Anthropic API key is missing.")
+            raise MissingProviderCredentialError(provider, model)
 
         client = AsyncAnthropic(api_key=anthropic_api_key)
         return AnthropicProviderSession(
@@ -91,9 +109,9 @@ def create_provider_session(
             recorder=recorder,
         )
 
-    if model in GEMINI_MODELS:
+    if provider == "gemini":
         if not gemini_api_key:
-            raise Exception("Gemini API key is missing.")
+            raise MissingProviderCredentialError(provider, model)
 
         client = genai.Client(api_key=gemini_api_key)
         return GeminiProviderSession(
@@ -104,7 +122,7 @@ def create_provider_session(
             recorder=recorder,
         )
 
-    if model in COPILOT_MODELS:
+    if provider == "copilot":
         # A video becomes several frames, and Copilot enforces a per-request
         # image limit. screenshot_preview returns yet more images which
         # accumulate across turns and push the request over that limit, so drop

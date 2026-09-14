@@ -20,12 +20,22 @@ export interface Settings {
   isImageGenerationEnabled: boolean;
   editorTheme: EditorTheme;
   generatedCodeConfig: Stack;
+  /**
+   * @deprecated Superseded by `selectedModels`. Kept so a settings blob saved
+   * by an older build can still be migrated on load.
+   */
   codeGenerationModel: CodeGenerationModel;
   selectedDesignSystemId: string | null;
   anthropicApiKey: string | null;
   geminiApiKey: string | null;
   copilotGithubToken: string | null;
+  /**
+   * @deprecated Superseded by `selectedModels`, which holds the same ids for
+   * every provider rather than Copilot alone.
+   */
   copilotModels: string[];
+  /** Model ids to generate with; empty means shot2code chooses. */
+  selectedModels: string[];
   projectContext: ProjectContext | null;
 }
 
@@ -113,7 +123,6 @@ export interface CodeGenerationParams {
   retryModels?: string[];
   isAssetExtractionEnabled?: boolean;
 }
-
 export type FullGenerationSettings = CodeGenerationParams &
   Settings & {
     designSystem?: string | null;

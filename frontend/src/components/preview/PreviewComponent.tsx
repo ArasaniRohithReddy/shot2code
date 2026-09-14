@@ -10,6 +10,7 @@ import {
   parsePreviewToHostMessage,
   PREVIEW_SANDBOX,
 } from "../../lib/preview-bridge";
+import { computePreviewCanvasLayout } from "./preview-layout";
 
 interface Props {
   code: string;
@@ -19,9 +20,6 @@ interface Props {
   refreshToken?: number;
 }
 
-const MOBILE_VIEWPORT_WIDTH = 375;
-export const DESKTOP_VIEWPORT_WIDTH = 1366;
-
 function PreviewComponent({
   code,
   device,
@@ -30,7 +28,8 @@ function PreviewComponent({
   refreshToken = 0,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
   const previewIdRef = useRef(`${device}-${nanoid(10)}`);
   const previousNonceRef = useRef<string | null>(null);
   const throttledCode = useThrottle(code, 200);
@@ -121,40 +120,33 @@ function PreviewComponent({
 
   useEffect(() => {
     const updateScale = () => {
-      const wrapper = wrapperRef.current;
+      const viewport = viewportRef.current;
+      const canvas = canvasRef.current;
       const iframe = iframeRef.current;
-      if (!wrapper || !iframe) return;
+      if (!viewport || !canvas || !iframe) return;
 
-      const viewportWidth = wrapper.clientWidth;
-      const viewportHeight = wrapper.clientHeight;
+      const layout = computePreviewCanvasLayout({
+        device,
+        viewMode: activeMode,
+        viewportWidth: viewport.clientWidth,
+        viewportHeight: viewport.clientHeight,
+      });
 
-      if (device === "desktop") {
-        const scaleValue =
-          activeMode === "fit"
-            ? Math.min(1, viewportWidth / DESKTOP_VIEWPORT_WIDTH)
-            : 1;
-        const iframeHeight =
-          scaleValue > 0 ? viewportHeight / scaleValue : viewportHeight;
+      onScaleChange?.(layout.scale);
 
-        onScaleChange?.(scaleValue);
-        iframe.style.width = `${DESKTOP_VIEWPORT_WIDTH}px`;
-        iframe.style.height = `${iframeHeight}px`;
-        iframe.style.transform = `scale(${scaleValue})`;
-        iframe.style.transformOrigin = "top left";
-        return;
-      }
+      canvas.style.width = `${layout.canvasWidth}px`;
+      canvas.style.height = `${layout.canvasHeight}px`;
 
-      onScaleChange?.(1);
-      iframe.style.width = `${MOBILE_VIEWPORT_WIDTH}px`;
-      iframe.style.height = `${viewportHeight}px`;
-      iframe.style.transform = "scale(1)";
+      iframe.style.width = `${layout.iframeWidth}px`;
+      iframe.style.height = `${layout.iframeHeight}px`;
+      iframe.style.transform = `scale(${layout.scale})`;
       iframe.style.transformOrigin = "top left";
     };
 
     updateScale();
     window.addEventListener("resize", updateScale);
     const resizeObserver = new ResizeObserver(updateScale);
-    if (wrapperRef.current) resizeObserver.observe(wrapperRef.current);
+    if (viewportRef.current) resizeObserver.observe(viewportRef.current);
 
     return () => {
       window.removeEventListener("resize", updateScale);
@@ -164,29 +156,31 @@ function PreviewComponent({
 
   return (
     <div
-      className={`flex-1 min-h-0 relative ${
-        device === "mobile"
-          ? "flex justify-center overflow-hidden bg-gray-100 dark:bg-zinc-900"
-          : activeMode === "fit"
-            ? "flex justify-center overflow-hidden"
-            : "overflow-auto"
-      }`}
+      ref={viewportRef}
+      data-testid={`preview-viewport-${device}`}
+      className="relative min-h-0 flex-1 overflow-auto bg-gray-100 dark:bg-zinc-900"
     >
-      <div
-        ref={wrapperRef}
-        className={`w-full h-full ${device === "mobile" ? "flex justify-center" : ""}`}
-      >
-        <iframe
-          id={`preview-${device}`}
-          ref={iframeRef}
-          title="Preview"
-          className="border-0 bg-white"
-          sandbox={PREVIEW_SANDBOX}
-          referrerPolicy="no-referrer"
-          allow="camera 'none'; microphone 'none'; geolocation 'none'; display-capture 'none'"
-          srcDoc={sandboxedDocument.html}
-          onLoad={postBridgeState}
-        />
+      {/* `w-fit min-w-full` centres the canvas while it is narrower than the
+          viewport and falls back to scrolling instead of clipping once it is
+          wider. */}
+      <div className="flex min-h-full w-fit min-w-full justify-center">
+        <div
+          ref={canvasRef}
+          data-testid={`preview-canvas-${device}`}
+          className="shrink-0 overflow-hidden bg-white shadow-md ring-1 ring-black/10 dark:shadow-none dark:ring-white/10"
+        >
+          <iframe
+            id={`preview-${device}`}
+            ref={iframeRef}
+            title="Preview"
+            className="block border-0 bg-white"
+            sandbox={PREVIEW_SANDBOX}
+            referrerPolicy="no-referrer"
+            allow="camera 'none'; microphone 'none'; geolocation 'none'; display-capture 'none'"
+            srcDoc={sandboxedDocument.html}
+            onLoad={postBridgeState}
+          />
+        </div>
       </div>
     </div>
   );

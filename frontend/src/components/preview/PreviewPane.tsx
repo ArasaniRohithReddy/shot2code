@@ -12,6 +12,7 @@ import {
   LuDownload,
   LuFileCode2,
   LuAlertTriangle,
+  LuHistory,
 } from "react-icons/lu";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
@@ -36,6 +37,7 @@ import {
   PREVIEW_SANDBOX,
 } from "../../lib/preview-bridge";
 import ImageScanningPreview from "./ImageScanningPreview";
+import useMediaQuery, { SM_MEDIA_QUERY } from "../../hooks/useMediaQuery";
 import {
   createProjectPreviewArtifact,
   getProjectExportState,
@@ -81,7 +83,7 @@ function openInNewTab(code: string) {
 
 interface Props {
   settings: Settings;
-  onOpenVersions: () => void;
+  onOpenHistory: () => void;
   activeTab: PreviewTab;
   onActiveTabChange: (tab: PreviewTab) => void;
   exportRequested: boolean;
@@ -154,7 +156,7 @@ function PreviewArtifactNotice({
 
 function PreviewPane({
   settings,
-  onOpenVersions,
+  onOpenHistory,
   activeTab,
   onActiveTabChange,
   exportRequested,
@@ -172,6 +174,12 @@ function PreviewPane({
   const [desktopScale, setDesktopScale] = useState(1);
   const [desktopViewMode, setDesktopViewMode] = useState<"fit" | "actual">("fit");
   const [previewRefreshToken, setPreviewRefreshToken] = useState(0);
+  // Below `sm` the 1366px canvas at 100% is unusable, so the choice is hidden
+  // and the preview stays scaled instead of stranding the user at 100%.
+  const canChooseDesktopZoom = useMediaQuery(SM_MEDIA_QUERY);
+  const effectiveDesktopViewMode = canChooseDesktopZoom
+    ? desktopViewMode
+    : "fit";
 
   // Sorted commit list for version navigation
   const sortedCommits = useMemo(() =>
@@ -183,6 +191,7 @@ function PreviewPane({
   const totalVersions = sortedCommits.length;
   const canGoPrev = currentVersionIndex > 0;
   const canGoNext = currentVersionIndex < totalVersions - 1;
+  const isLatestVersion = currentVersionIndex === totalVersions - 1;
 
   const currentCommit = head ? commits[head] : undefined;
   const selectedVariantIndex = currentCommit?.selectedVariantIndex ?? 0;
@@ -268,49 +277,79 @@ function PreviewPane({
         }}
         className="flex-1 flex flex-col min-h-0"
       >
-        <div className="relative flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-2 py-2 dark:border-zinc-800 dark:bg-zinc-950 sm:px-4">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <div className="relative flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-2 py-2 dark:border-zinc-800 dark:bg-zinc-950 sm:px-3">
+          {/* View controls: what is being previewed, and at what size */}
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <TabsList>
-              <TabsTrigger value="desktop" title="Desktop" data-testid="tab-desktop">
+              <TabsTrigger
+                value="desktop"
+                title="Desktop"
+                data-testid="tab-desktop"
+                className="text-gray-700 dark:text-zinc-300"
+              >
                 <FaDesktop />
               </TabsTrigger>
-              <TabsTrigger value="mobile" title="Mobile" data-testid="tab-mobile">
+              <TabsTrigger
+                value="mobile"
+                title="Mobile"
+                data-testid="tab-mobile"
+                className="text-gray-700 dark:text-zinc-300"
+              >
                 <FaMobile />
               </TabsTrigger>
-              <TabsTrigger value="code" title="Code" data-testid="tab-code" className="gap-2">
+              <TabsTrigger
+                value="code"
+                title="Code"
+                data-testid="tab-code"
+                className="gap-2 text-gray-700 dark:text-zinc-300"
+              >
                 <FaCode />
                 Code
               </TabsTrigger>
             </TabsList>
             {(activeTab === "desktop" || activeTab === "mobile") && (
               <div className="inline-flex items-center gap-2">
-                {activeTab === "desktop" && (
-                  <div className="inline-flex items-center rounded-lg bg-gray-100 p-1 dark:bg-zinc-800">
+                {activeTab === "desktop" && canChooseDesktopZoom && (
+                  <div
+                    role="group"
+                    aria-label="Desktop preview size"
+                    className="inline-flex items-center rounded-lg bg-gray-100 p-0.5 dark:bg-zinc-800"
+                  >
                     <button
                       type="button"
                       onClick={() => setDesktopViewMode("fit")}
-                      title="Scale down to fit the screen"
-                      className={`min-h-9 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                      title="Scale the 1366px canvas down to fit the window"
+                      aria-pressed={desktopViewMode === "fit"}
+                      aria-label={
+                        desktopScale < 1
+                          ? `Fit the preview to the window, currently ${Math.round(
+                              desktopScale * 100
+                            )} percent`
+                          : "Fit the preview to the window"
+                      }
+                      className={`min-h-11 rounded-md px-3 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
                         desktopViewMode === "fit"
                           ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-600 dark:text-zinc-100"
-                          : "text-gray-500 hover:text-gray-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                          : "text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100"
                       }`}
                     >
-                      Scale
+                      Fit
                       {desktopScale < 1 && (
-                        <span className="ml-1 text-violet-600 dark:text-violet-300 font-bold">
-                          ({Math.round(desktopScale * 100)}%)
+                        <span className="ml-1 font-semibold tabular-nums text-violet-700 dark:text-violet-200">
+                          {Math.round(desktopScale * 100)}%
                         </span>
                       )}
                     </button>
                     <button
                       type="button"
                       onClick={() => setDesktopViewMode("actual")}
-                      title="View at original size (100%)"
-                      className={`min-h-9 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                      title="Show the 1366px canvas at its original size"
+                      aria-pressed={desktopViewMode === "actual"}
+                      aria-label="Show the preview at 100 percent"
+                      className={`min-h-11 rounded-md px-3 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
                         desktopViewMode === "actual"
                           ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-600 dark:text-zinc-100"
-                          : "text-gray-500 hover:text-gray-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                          : "text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100"
                       }`}
                     >
                       100%
@@ -331,103 +370,118 @@ function PreviewPane({
             )}
           </div>
 
-          {/* Version navigation */}
-          {totalVersions > 0 && (
-            <div className="order-3 flex w-full shrink-0 items-center justify-center gap-1 rounded-full border border-gray-200/50 bg-gray-100/50 p-1 backdrop-blur-sm dark:border-zinc-700/50 dark:bg-zinc-800/50 md:order-none md:w-auto">
-              <Button
-                onClick={() => canGoPrev && setHead(sortedCommits[currentVersionIndex - 1].hash)}
-                variant="ghost"
-                size="icon"
-                title="Previous version"
-                className={`h-11 w-11 rounded-full hover:bg-white dark:hover:bg-zinc-700 ${!canGoPrev ? "cursor-not-allowed opacity-30" : ""}`}
-                disabled={!canGoPrev}
+          {/* History navigation and artifact actions */}
+          <div className="flex flex-1 flex-wrap items-center justify-end gap-x-3 gap-y-2">
+            {totalVersions > 0 && (
+              <div
+                role="group"
+                aria-label="Project history"
+                className="flex shrink-0 items-center gap-0.5 rounded-full border border-gray-200 bg-gray-50 p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
               >
-                <LuChevronLeft className="w-3.5 h-3.5" />
-              </Button>
-              <button
-                type="button"
-                onClick={onOpenVersions}
-                className="flex min-h-11 w-32 cursor-pointer items-center justify-center gap-2 rounded-full px-1 transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-                title="View all versions"
-              >
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 leading-none">
-                  Version {currentVersionIndex + 1}
-                </span>
-                {currentVersionIndex === totalVersions - 1 && (
-                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300 leading-none flex items-center h-4">
-                    Latest
+                <Button
+                  onClick={() => canGoPrev && setHead(sortedCommits[currentVersionIndex - 1].hash)}
+                  variant="ghost"
+                  size="icon"
+                  title="Previous version"
+                  aria-label="Go to the previous version"
+                  className={`hidden h-11 w-11 rounded-full hover:bg-white dark:hover:bg-zinc-700 lg:inline-flex ${!canGoPrev ? "cursor-not-allowed opacity-40" : ""}`}
+                  disabled={!canGoPrev}
+                >
+                  <LuChevronLeft className="h-4 w-4" aria-hidden="true" />
+                </Button>
+                <button
+                  type="button"
+                  onClick={onOpenHistory}
+                  data-testid="open-history"
+                  className="flex min-h-11 cursor-pointer items-center gap-2 rounded-full px-3 text-gray-700 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-gray-200 dark:hover:bg-zinc-700"
+                  title="Open History (Ctrl+4)"
+                  aria-label={`Open History, version ${currentVersionIndex + 1} of ${totalVersions}`}
+                >
+                  <LuHistory className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span className="text-xs font-semibold leading-none">
+                    History
                   </span>
+                  <span
+                    className={`flex h-5 items-center rounded-full px-1.5 text-[10px] font-semibold leading-none tabular-nums ${
+                      isLatestVersion
+                        ? "bg-gray-200 text-gray-700 dark:bg-zinc-700 dark:text-zinc-100"
+                        : "bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200"
+                    }`}
+                  >
+                    {currentVersionIndex + 1}/{totalVersions}
+                  </span>
+                </button>
+                <Button
+                  onClick={() => canGoNext && setHead(sortedCommits[currentVersionIndex + 1].hash)}
+                  variant="ghost"
+                  size="icon"
+                  title="Next version"
+                  aria-label="Go to the next version"
+                  className={`hidden h-11 w-11 rounded-full hover:bg-white dark:hover:bg-zinc-700 lg:inline-flex ${!canGoNext ? "cursor-not-allowed opacity-40" : ""}`}
+                  disabled={!canGoNext}
+                >
+                  <LuChevronRight className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </div>
+            )}
+
+            <div className="flex shrink-0 items-center gap-1">
+              {canSelectAndEdit &&
+                (activeTab === "desktop" || activeTab === "mobile") && (
+                  <SelectAndEditToolbarButton />
                 )}
-              </button>
+              {(appState === AppState.CODE_READY || isSelectedVariantComplete) && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Download preview artifact or full project"
+                      aria-label="Download preview artifact or full project"
+                      className="h-11 w-11"
+                      data-testid="download-code"
+                    >
+                      <LuDownload />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-72 p-2">
+                    <button
+                      type="button"
+                      onClick={() => void downloadPreviewArtifact()}
+                      aria-label="Download the composed preview HTML artifact"
+                      className="w-full cursor-pointer rounded px-3 py-2 text-left text-sm transition-colors duration-200 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:hover:bg-zinc-800"
+                    >
+                      <span className="block font-medium">Preview HTML</span>
+                      <span className="block text-xs text-gray-600 dark:text-zinc-300">
+                        The composed, self-contained preview entry
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void downloadProject()}
+                      aria-label={`Download the full project with ${Object.keys(project.files).length} files`}
+                      data-testid="download-project"
+                      className="w-full cursor-pointer rounded px-3 py-2 text-left text-sm transition-colors duration-200 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:hover:bg-zinc-800"
+                    >
+                      <span className="block font-medium">Project folder</span>
+                      <span className="block text-xs text-gray-600 dark:text-zinc-300">
+                        ZIP of all {Object.keys(project.files).length} files; complete JSON backup if export is unavailable
+                      </span>
+                    </button>
+                  </PopoverContent>
+                </Popover>
+              )}
               <Button
-                onClick={() => canGoNext && setHead(sortedCommits[currentVersionIndex + 1].hash)}
+                onClick={() => setPreviewRefreshToken((value) => value + 1)}
                 variant="ghost"
                 size="icon"
-                title="Next version"
-                className={`h-11 w-11 rounded-full hover:bg-white dark:hover:bg-zinc-700 ${!canGoNext ? "cursor-not-allowed opacity-30" : ""}`}
-                disabled={!canGoNext}
+                title="Refresh preview artifact"
+                aria-label="Refresh preview artifact"
+                className="h-11 w-11"
               >
-                <LuChevronRight className="w-3.5 h-3.5" />
+                <LuRefreshCw />
               </Button>
             </div>
-          )}
-
-          <div className="ml-auto flex shrink-0 self-start items-center gap-1">
-            {canSelectAndEdit &&
-              (activeTab === "desktop" || activeTab === "mobile") && (
-                <SelectAndEditToolbarButton />
-              )}
-            {(appState === AppState.CODE_READY || isSelectedVariantComplete) && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title="Download preview artifact or full project"
-                    aria-label="Download preview artifact or full project"
-                    className="h-11 w-11"
-                    data-testid="download-code"
-                  >
-                    <LuDownload />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-72 p-2">
-                  <button
-                    type="button"
-                    onClick={() => void downloadPreviewArtifact()}
-                    aria-label="Download the composed preview HTML artifact"
-                    className="w-full cursor-pointer rounded px-3 py-2 text-left text-sm transition-colors duration-200 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:hover:bg-zinc-800"
-                  >
-                    <span className="block font-medium">Preview HTML</span>
-                    <span className="block text-xs text-gray-500 dark:text-zinc-400">
-                      The composed, self-contained preview entry
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void downloadProject()}
-                    aria-label={`Download the full project with ${Object.keys(project.files).length} files`}
-                    data-testid="download-project"
-                    className="w-full cursor-pointer rounded px-3 py-2 text-left text-sm transition-colors duration-200 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:hover:bg-zinc-800"
-                  >
-                    <span className="block font-medium">Project folder</span>
-                    <span className="block text-xs text-gray-500 dark:text-zinc-400">
-                      ZIP of all {Object.keys(project.files).length} files; complete JSON backup if export is unavailable
-                    </span>
-                  </button>
-                </PopoverContent>
-              </Popover>
-            )}
-            <Button
-              onClick={() => setPreviewRefreshToken((value) => value + 1)}
-              variant="ghost"
-              size="icon"
-              title="Refresh preview artifact"
-              aria-label="Refresh preview artifact"
-              className="h-11 w-11"
-            >
-              <LuRefreshCw />
-            </Button>
           </div>
         </div>
         <TabsContent value="desktop" className="flex-1 min-h-0 mt-0 data-[state=active]:flex data-[state=active]:flex-col">
@@ -443,7 +497,7 @@ function PreviewPane({
                 code={previewCode}
                 device="desktop"
                 onScaleChange={setDesktopScale}
-                viewMode={desktopViewMode}
+                viewMode={effectiveDesktopViewMode}
                 refreshToken={previewRefreshToken}
               />
             </>
@@ -461,7 +515,7 @@ function PreviewPane({
               <PreviewComponent
                 code={previewCode}
                 device="mobile"
-                viewMode="actual"
+                viewMode="fit"
                 refreshToken={previewRefreshToken}
               />
             </>

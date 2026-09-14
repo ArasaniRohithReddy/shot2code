@@ -35,4 +35,8 @@ export function useMediaQuery(query: string): boolean {
 /** Matches Tailwind's `xl` breakpoint, where the workspace gains side rails. */
 export const XL_MEDIA_QUERY = "(min-width: 1280px)";
 
+/** Matches Tailwind's `sm` breakpoint, the smallest width with room for
+ *  secondary toolbar controls. */
+export const SM_MEDIA_QUERY = "(min-width: 640px)";
+
 export default useMediaQuery;

@@ -15,6 +15,7 @@ from routes import (
     evals,
     export,
     design_systems,
+    models,
     prompt_reports,
     agent_runs,
     eval_sets,
@@ -73,6 +74,7 @@ app.include_router(generate_code.router)
 app.include_router(screenshot.router)
 app.include_router(home.router)
 app.include_router(capabilities.router)
+app.include_router(models.router)
 app.include_router(evals.router)
 app.include_router(export.router)
 app.include_router(design_systems.router)

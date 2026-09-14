@@ -1,7 +1,8 @@
 import copy
 import json
+import sys
 import textwrap
-from typing import List
+from typing import List, TextIO
 from openai.types.chat import ChatCompletionMessageParam
 
 
@@ -139,7 +140,21 @@ def format_prompt_preview(
     return "\n".join(parts)
 
 
-def print_prompt_preview(prompt_messages: List[ChatCompletionMessageParam]) -> None:
+def _console_safe_text(text: str, stream: TextIO) -> str:
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    try:
+        return text.encode(encoding, errors="replace").decode(
+            encoding, errors="replace"
+        )
+    except LookupError:
+        return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
+def print_prompt_preview(
+    prompt_messages: List[ChatCompletionMessageParam],
+    stream: TextIO | None = None,
+) -> None:
+    output = stream or sys.stdout
     preview = format_prompt_preview(prompt_messages)
     lines = preview.split("\n")
     max_length = max(len(line) for line in lines) if lines else 20
@@ -147,26 +162,26 @@ def print_prompt_preview(prompt_messages: List[ChatCompletionMessageParam]) -> N
 
     title = "PROMPT PREVIEW"
     max_length = max(max_length, len(title) + 4)
+    rendered = ["┌─" + "─" * max_length + "─┐"]
 
-    print("┌─" + "─" * max_length + "─┐")
     title_padding = (max_length - len(title)) // 2
-    print(
+    rendered.append(
         f"│ {' ' * title_padding}{title}{' ' * (max_length - len(title) - title_padding)} │"
     )
-    print("├─" + "─" * max_length + "─┤")
+    rendered.append("├─" + "─" * max_length + "─┤")
 
     for line in lines:
         if len(line) <= max_length:
-            print(f"│ {line:<{max_length}} │")
+            rendered.append(f"│ {line:<{max_length}} │")
         else:
             wrapped = textwrap.wrap(
                 line, width=max_length, break_long_words=False, break_on_hyphens=False
             )
             for wrapped_line in wrapped:
-                print(f"│ {wrapped_line:<{max_length}} │")
+                rendered.append(f"│ {wrapped_line:<{max_length}} │")
 
-    print("└─" + "─" * max_length + "─┘")
-    print()
+    rendered.append("└─" + "─" * max_length + "─┘")
+    print(_console_safe_text("\n".join(rendered), output), file=output)
 
 
 def truncate_data_strings(data: List[ChatCompletionMessageParam]):  # type: ignore

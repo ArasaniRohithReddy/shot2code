@@ -27,7 +27,7 @@ from costs.token_usage import TokenUsage
 from agent.tools import CanonicalToolDefinition, ToolCall, parse_json_arguments
 from fs_logging.agent_runs import AgentRunRecorder
 from fs_logging.prompt_reports import PromptReportLogger
-from llm import Llm
+from llm import Llm, get_anthropic_api_name, get_anthropic_effort
 
 THINKING_MODELS: set[str] = set()
 ADAPTIVE_THINKING_MODELS = {
@@ -49,36 +49,10 @@ ADAPTIVE_THINKING_MODELS = {
     Llm.CLAUDE_SONNET_4_6.value,
 }
 
-ANTHROPIC_MODEL_CONFIG: dict[Llm, dict[str, str]] = {
-    Llm.CLAUDE_OPUS_5_LOW: {"api_name": "claude-opus-5", "effort": "low"},
-    Llm.CLAUDE_OPUS_5_MEDIUM: {"api_name": "claude-opus-5", "effort": "medium"},
-    Llm.CLAUDE_OPUS_5_HIGH: {"api_name": "claude-opus-5", "effort": "high"},
-    Llm.CLAUDE_OPUS_5_XHIGH: {"api_name": "claude-opus-5", "effort": "xhigh"},
-    Llm.CLAUDE_OPUS_5_MAX: {"api_name": "claude-opus-5", "effort": "max"},
-    Llm.CLAUDE_OPUS_4_8_LOW: {"api_name": "claude-opus-4-8", "effort": "low"},
-    Llm.CLAUDE_OPUS_4_8_MEDIUM: {"api_name": "claude-opus-4-8", "effort": "medium"},
-    Llm.CLAUDE_OPUS_4_8_HIGH: {"api_name": "claude-opus-4-8", "effort": "high"},
-    Llm.CLAUDE_OPUS_4_8_XHIGH: {"api_name": "claude-opus-4-8", "effort": "xhigh"},
-    Llm.CLAUDE_OPUS_4_8_MAX: {"api_name": "claude-opus-4-8", "effort": "max"},
-    Llm.CLAUDE_FABLE_5_LOW: {"api_name": "claude-fable-5", "effort": "low"},
-    Llm.CLAUDE_FABLE_5_MEDIUM: {"api_name": "claude-fable-5", "effort": "medium"},
-    Llm.CLAUDE_FABLE_5_HIGH: {"api_name": "claude-fable-5", "effort": "high"},
-    Llm.CLAUDE_FABLE_5_XHIGH: {"api_name": "claude-fable-5", "effort": "xhigh"},
-    Llm.CLAUDE_FABLE_5_MAX: {"api_name": "claude-fable-5", "effort": "max"},
-}
-
-
-def _get_anthropic_api_model_name(model: Llm) -> str:
-    return ANTHROPIC_MODEL_CONFIG.get(model, {}).get("api_name", model.value)
-
-
-def _get_anthropic_effort(model: Llm) -> str:
-    configured_effort = ANTHROPIC_MODEL_CONFIG.get(model, {}).get("effort")
-    if configured_effort:
-        return configured_effort
-    if model == Llm.CLAUDE_SONNET_4_6:
-        return "high"
-    return "max"
+# The model -> API id/effort tables live in llm.py so the catalog and the
+# provider agree on one definition. Re-exported here for existing callers.
+_get_anthropic_api_model_name = get_anthropic_api_name
+_get_anthropic_effort = get_anthropic_effort
 
 
 def _anthropic_image_blocks(

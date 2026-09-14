@@ -16,9 +16,10 @@ import toast from "react-hot-toast";
 import { nanoid } from "nanoid";
 import { Stack } from "./lib/stacks";
 import { CodeGenerationModel } from "./lib/models";
+import { withMigratedModelSelection } from "./lib/model-selection";
 import { buildGenerationContext } from "./lib/project-context-summary";
 import useBrowserTabIndicator from "./hooks/useBrowserTabIndicator";
-import { LuChevronLeft, LuPanelLeftClose } from "react-icons/lu";
+import { LuChevronLeft, LuHistory, LuPanelLeftClose } from "react-icons/lu";
 import {
   buildAssistantHistoryMessage,
   buildUpdateGenerationRequest,
@@ -138,6 +139,7 @@ function App() {
       screenshotOneApiKey: null,
       copilotGithubToken: null,
       copilotModels: [],
+      selectedModels: [],
       isImageGenerationEnabled: true,
       editorTheme: EditorTheme.COBALT,
       generatedCodeConfig: Stack.HTML_TAILWIND,
@@ -147,6 +149,12 @@ function App() {
     },
     "setting"
   );
+  // Settings saved before the picker covered every provider keep their model
+  // choice under an older field; move it across once, on load.
+  useEffect(() => {
+    setSettings((current) => withMigratedModelSelection(current));
+  }, [setSettings]);
+
   const [appTheme, setAppTheme] = usePersistedState<AppTheme>(
     AppTheme.SYSTEM,
     "app-theme"
@@ -429,7 +437,7 @@ function App() {
       : {
           inputMode: requestParams.inputMode,
           stack: settings.generatedCodeConfig,
-          selectedModels: [...(settings.copilotModels ?? [])],
+          selectedModels: [...(settings.selectedModels ?? [])],
           ...(requestParams.isAssetExtractionEnabled === undefined
             ? {}
             : {
@@ -453,6 +461,7 @@ function App() {
       inputMode: generationContext.inputMode,
       generatedCodeConfig: generationContext.stack,
       copilotModels: [...generationContext.selectedModels],
+      selectedModels: [...generationContext.selectedModels],
       ...(generationContext.isAssetExtractionEnabled === undefined
         ? {}
         : {
@@ -1070,7 +1079,7 @@ function App() {
               ?.focus();
           }, 0);
           break;
-        case "show-versions":
+        case "show-history":
           if (!requireProject()) break;
           setIsSettingsOpen(false);
           setIsHistoryOpen(true);
@@ -1166,7 +1175,7 @@ function App() {
             setMobilePane("chat");
           }}
           onToggleConversation={() => {
-            // Coming back from Versions or Settings always reveals the
+            // Coming back from History or Settings always reveals the
             // conversation; only a second press on an already-visible panel
             // collapses it.
             if (isHistoryOpen || isSettingsOpen) {
@@ -1197,39 +1206,66 @@ function App() {
 
       {isCodingOrReady && !isSettingsOpen && (
         <div className="border-b border-gray-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950 xl:hidden">
-          <div className="grid grid-cols-2 rounded-xl bg-gray-100 p-1 dark:bg-zinc-800">
+          <div className="flex items-center gap-2">
+            <div className="grid min-w-0 flex-1 grid-cols-2 rounded-xl bg-gray-100 p-1 dark:bg-zinc-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsHistoryOpen(false);
+                  setMobilePane("preview");
+                }}
+                aria-pressed={mobilePane === "preview" && !isHistoryOpen}
+                className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                  mobilePane === "preview" && !isHistoryOpen
+                    ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-700 dark:text-white"
+                    : "text-gray-600 dark:text-zinc-300"
+                }`}
+              >
+                Preview
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsHistoryOpen(false);
+                  setMobilePane("chat");
+                }}
+                aria-pressed={mobilePane === "chat" && !isHistoryOpen}
+                className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                  mobilePane === "chat" && !isHistoryOpen
+                    ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-700 dark:text-white"
+                    : "text-gray-600 dark:text-zinc-300"
+                }`}
+              >
+                Chat
+              </button>
+            </div>
+            {/* History is a third destination rather than a third tab, so the
+                Preview/Chat pair keeps its full width. */}
             <button
               type="button"
               onClick={() => {
-                setIsHistoryOpen(false);
-                setMobilePane("preview");
+                setIsHistoryOpen(true);
+                setIsSettingsOpen(false);
+                setIsConversationCollapsed(false);
+                setMobilePane("chat");
               }}
-              aria-pressed={mobilePane === "preview" && !isHistoryOpen}
-              className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                mobilePane === "preview"
-                  ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-700 dark:text-white"
-                  : "text-gray-500 dark:text-zinc-400"
+              aria-pressed={isHistoryOpen}
+              title="History (Ctrl+4)"
+              data-testid="mobile-open-history"
+              className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                isHistoryOpen
+                  ? "border-violet-300 bg-violet-100 text-violet-900 dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-100"
+                  : "border-gray-200 text-gray-700 hover:bg-gray-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
               }`}
             >
-              Preview
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobilePane("chat")}
-              aria-pressed={mobilePane === "chat"}
-              className={`min-h-11 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                mobilePane === "chat"
-                  ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-700 dark:text-white"
-                  : "text-gray-500 dark:text-zinc-400"
-              }`}
-            >
-              Chat
+              <LuHistory className="h-4 w-4 shrink-0" aria-hidden="true" />
+              History
             </button>
           </div>
         </div>
       )}
 
-      {/* Conversation panel - shows the chat, version history, or neither */}
+      {/* Conversation panel - shows the chat, project history, or neither */}
       {showContentPanel && !isSettingsOpen && (
         <div
           id="conversation-panel"
@@ -1241,7 +1277,7 @@ function App() {
         >
           <div className="hidden shrink-0 items-center justify-between gap-2 border-b border-gray-200 px-2 dark:border-zinc-800 xl:flex">
             <h2 className="px-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400">
-              {isHistoryOpen ? "Versions" : "Chat"}
+              {isHistoryOpen ? "History" : "Chat"}
             </h2>
             <div className="flex items-center">
               {isHistoryOpen && (
@@ -1274,7 +1310,7 @@ function App() {
               <div className="mt-3">
                 <div className="mb-3 flex items-center justify-between px-1 xl:hidden">
                   <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400">
-                    Versions
+                    History
                   </h2>
                   <button
                     onClick={() => setIsHistoryOpen(false)}
@@ -1313,13 +1349,20 @@ function App() {
                     onManage: () => openDesignSystemsManager(),
                   }}
                   modelSelector={{
-                    selectedModels: settings.copilotModels ?? [],
+                    selectedModels: settings.selectedModels ?? [],
                     setSelectedModels: (models) =>
-                      setSettings((s) => ({ ...s, copilotModels: models })),
+                      setSettings((s) => ({ ...s, selectedModels: models })),
                     githubToken: settings.copilotGithubToken,
+                    openAiApiKey: settings.openAiApiKey,
+                    anthropicApiKey: settings.anthropicApiKey,
+                    geminiApiKey: settings.geminiApiKey,
+                    planContext: {
+                      generationType: "update",
+                      inputMode: "image",
+                    },
                   }}
                   historyError={projectHistory.historyError}
-                  onOpenVersions={() => {
+                  onOpenHistory={() => {
                     setIsHistoryOpen(true);
                     setMobilePane("chat");
                   }}
@@ -1388,7 +1431,7 @@ function App() {
                 onActiveTabChange={setActivePreviewTab}
                 exportRequested={isExportRequested}
                 onExportRequestHandled={handleExportRequestHandled}
-                onOpenVersions={() => {
+                onOpenHistory={() => {
                   setIsHistoryOpen(true);
                   setMobilePane("chat");
                 }}

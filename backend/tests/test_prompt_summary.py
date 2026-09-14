@@ -173,3 +173,25 @@ def test_print_prompt_preview():
     assert "PROMPT PREVIEW" in output
     assert "1. SYSTEM" in output
     assert "2. USER [1 media]" in output
+
+
+def test_print_prompt_preview_is_safe_for_windows_cp1252_console():
+    messages = [
+        {
+            "role": "user",
+            "content": "Add a footer — keep the café label and ✓ status.",
+        }
+    ]
+    raw_output = io.BytesIO()
+    cp1252_output = io.TextIOWrapper(raw_output, encoding="cp1252", errors="strict")
+
+    print_prompt_preview(
+        cast(list[ChatCompletionMessageParam], messages),
+        stream=cp1252_output,
+    )
+    cp1252_output.flush()
+
+    output = raw_output.getvalue().decode("cp1252")
+    assert "PROMPT PREVIEW" in output
+    assert "Add a footer" in output
+    assert "caf" in output
