@@ -33,7 +33,7 @@ describe("app shortcuts", () => {
     ["2", "show-code"],
     ["3", "show-chat"],
     ["4", "show-history"],
-    ["/", "show-shortcuts"],
+    ["/", "show-help"],
   ])("maps Ctrl+%s to %s", (key, command) => {
     expect(getAppShortcutCommand(keyboardEvent(key))).toBe(command);
   });

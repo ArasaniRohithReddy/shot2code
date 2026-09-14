@@ -11,11 +11,12 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const net = require("net");
-const http = require("http");
 const {
   createUpdateInstaller,
   terminateWindowsProcessTreeSync,
 } = require("./update-lifecycle");
+const { waitForBackend } = require("./backend-readiness");
+const { installZoomControls } = require("./zoom-controls");
 
 const untrustedPreloadPath = path.join(__dirname, "untrusted-preload.js");
 
@@ -134,51 +135,10 @@ function startBackend(port) {
   return child;
 }
 
-/** Poll a cheap liveness endpoint until the backend answers. */
-function waitForBackend(port, timeoutMs = 180000) {
-  const deadline = Date.now() + timeoutMs;
-  let settled = false;
-
-  return new Promise((resolve, reject) => {
-    const finish = (err) => {
-      if (settled) return;
-      settled = true;
-      err ? reject(err) : resolve();
-    };
-
-    const attempt = () => {
-      if (settled) return;
-      const req = http.get(
-        { host: "127.0.0.1", port, path: "/api/health", timeout: 5000 },
-        (res) => {
-          res.resume();
-          if (res.statusCode && res.statusCode < 500) return finish();
-          retry();
-        }
-      );
-      req.on("error", retry);
-      req.on("timeout", () => {
-        req.destroy();
-        retry();
-      });
-    };
-
-    const retry = () => {
-      if (settled) return;
-      if (Date.now() > deadline) {
-        return finish(new Error("Backend did not become ready in time."));
-      }
-      setTimeout(attempt, 400);
-    };
-
-    attempt();
-  });
-}
-
 /**
- * The frozen backend needs up to ~70s on a cold start (Python bootstrap plus
- * Chromium and Copilot probes). Without this the app shows nothing at all and
- * looks hung, so put a window up immediately and report progress.
+ * Frozen Python still has a visible cold-start cost. Put a window up
+ * immediately while the shell waits for the bounded core health check;
+ * optional Chromium and Copilot discovery continue after core readiness.
  */
 function createSplash() {
   splashWindow = new BrowserWindow({
@@ -395,6 +355,11 @@ function createWindow() {
   mainWindow.webContents.on("console-message", (_e, level, message, line, sourceId) => {
     if (level >= 2) log(`renderer console [${level}] ${message} (${sourceId}:${line})`);
   });
+  installZoomControls(mainWindow.webContents, {
+    onZoom: ({ command, factor }) => {
+      log(`page zoom ${command}: ${Math.round(factor * 100)}%`);
+    },
+  });
 
   // Keep real external links in the user's browser, but let the app open its
   // own preview windows (blob:/data:/about:) internally - shell.openExternal
@@ -523,9 +488,10 @@ if (!app.requestSingleInstanceLock()) {
       process.env.SHOT2CODE_BACKEND_HTTP = `http://127.0.0.1:${port}`;
       process.env.SHOT2CODE_BACKEND_WS = `ws://127.0.0.1:${port}`;
 
+      const backendStartedAt = Date.now();
       backendProcess = startBackend(port);
-      await waitForBackend(port);
-      log(`backend ready on ${port}`);
+      await waitForBackend(port, { backendProcess });
+      log(`backend ready on ${port} in ${Date.now() - backendStartedAt}ms`);
     } catch (err) {
       log(`startup failed: ${err.message}`);
       closeSplash();

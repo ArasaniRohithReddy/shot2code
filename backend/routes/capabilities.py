@@ -7,7 +7,10 @@ from copilot_auth import (
     get_copilot_snapshot,
     probe_copilot_auth,
 )
-from preview_screenshot import probe_screenshot_preview
+from preview_screenshot import (
+    is_screenshot_preview_available,
+    probe_screenshot_preview,
+)
 
 router = APIRouter()
 
@@ -32,8 +35,10 @@ class CopilotCapabilitiesRequest(BaseModel):
 async def get_capabilities(refresh: bool = False) -> Capabilities:
     """Backend feature availability for the frontend to reflect in settings."""
     copilot_available = await probe_copilot_auth(force=refresh)
+    if refresh:
+        await probe_screenshot_preview(force=True)
     return Capabilities(
-        screenshot_preview=await probe_screenshot_preview(),
+        screenshot_preview=is_screenshot_preview_available(),
         copilot=copilot_available,
         copilot_login=copilot_login() if copilot_available else None,
         copilot_models=[
@@ -54,7 +59,7 @@ async def get_copilot_capabilities(
         force=True,
     )
     return Capabilities(
-        screenshot_preview=await probe_screenshot_preview(),
+        screenshot_preview=is_screenshot_preview_available(),
         copilot=snapshot.available,
         copilot_login=snapshot.login,
         copilot_models=[

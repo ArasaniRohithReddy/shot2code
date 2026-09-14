@@ -333,7 +333,9 @@ function Sidebar({
       {/* Prominent banner when viewing an older version */}
       {isViewingOlderVersion && currentVersionNumber !== null && (
         <div className="shrink-0 border-b border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-900/30 px-4 py-2.5">
-          <div className="flex items-center justify-between gap-3">
+          {/* Wraps rather than squeezing: at the narrowest panel width the two
+              actions drop below the label instead of truncating to icons. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <div className="flex items-center gap-2 min-w-0">
               <LuHistory className="w-4 h-4 shrink-0 text-violet-600 dark:text-violet-400" />
               <div className="min-w-0">
@@ -364,7 +366,7 @@ function Sidebar({
       {/* Scrollable content */}
       <div
         ref={middlePaneRef}
-        className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar-stable px-6 pt-4"
+        className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto sidebar-scrollbar-stable px-4 pt-4"
       >
         {latestChangeSummary && (
           <div className="mb-4 flex flex-col items-end">
@@ -546,7 +548,7 @@ function Sidebar({
       {/* Pinned bottom: prompt box + option selector */}
       {canUpdateSelectedVariant && (
         <div
-            className="shrink-0 border-t border-gray-200 bg-gray-50 dark:border-zinc-800 dark:bg-zinc-900 px-4 py-4"
+            className="shrink-0 border-t border-gray-200 bg-gray-50 dark:border-zinc-800 dark:bg-zinc-900 px-3 py-3"
             onDragEnter={() => setIsDragging(true)}
             onDragLeave={(e) => {
               if (!e.currentTarget.contains(e.relatedTarget as Node)) {
@@ -627,9 +629,11 @@ function Sidebar({
                 aria-label={`Update option ${selectedVariantIndex + 1}`}
                 data-testid="update-input"
                 rows={1}
-                className="max-h-40 w-full resize-none border-0 bg-transparent px-4 pt-4 pb-6 text-[15px] leading-6 text-gray-800 placeholder:text-gray-400 focus:outline-none dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                className="max-h-40 w-full resize-none border-0 bg-transparent px-3.5 pt-3.5 pb-5 text-[15px] leading-6 text-gray-800 placeholder:text-gray-400 focus:outline-none dark:text-zinc-100 dark:placeholder:text-zinc-500"
               />
-              <div className="flex items-end justify-between gap-2 px-3 pb-3">
+              {/* The controls wrap under the composer when the panel is narrow;
+                  Send is never part of that wrap, so it stays reachable. */}
+              <div className="flex items-end justify-between gap-2 px-2.5 pb-2.5">
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                   <UpdateImageUpload
                     updateImages={updateImages}

@@ -1,0 +1,17 @@
+# SHA-256 checksums for shot2code v0.3.3
+# https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.3
+#
+# The Windows builds are not code-signed, so verify the download yourself:
+#
+#   Get-FileHash .\shot2code-0.3.3-x64.exe -Algorithm SHA256
+#
+# PowerShell prints uppercase hex; hexadecimal comparison is case-insensitive.
+# With GNU coreutils, run this in the directory holding the downloaded files:
+#
+#   sha256sum -c SHA256SUMS.txt
+#
+D0D1549948C163F9AAA16757A66DF26854E75862219DCD2A8E389929435898B4  shot2code-0.3.3-x64.exe
+3BD4CDF370BC713D99923909E2EC4A175FE3A8149704CAB41C20269D8EFAF5E0  shot2code-0.3.3-x64.exe.blockmap
+EBB92C3B36F2AEA3B525A03467C3B513F37799A9D48F14C1A03253B985C984C6  shot2code-0.3.3-x64.msi
+BEA787C50E92E845066AB81BBCC5DC0D2FAA7FAD30AFD0D03BF08BAAEDC1FC49  shot2code-0.3.3-x64.zip
+50213B2215CE2DA3CC2061938205EA694D500DF9C2EB09B2EB7B86DA9C6EFCC2  latest.yml

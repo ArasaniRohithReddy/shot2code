@@ -9,7 +9,7 @@ export type AppShortcutCommand =
   | "show-settings"
   | "export-project"
   | "retry-generation"
-  | "show-shortcuts";
+  | "show-help";
 
 export interface AppShortcutDefinition {
   command: AppShortcutCommand;
@@ -80,9 +80,9 @@ export const APP_SHORTCUTS: AppShortcutDefinition[] = [
     keys: ["Mod", "4"],
   },
   {
-    command: "show-shortcuts",
+    command: "show-help",
     group: "Help",
-    label: "Keyboard shortcuts",
+    label: "Open Help",
     keys: ["Mod", "/"],
   },
 ];
@@ -126,7 +126,7 @@ export function getAppShortcutCommand(
     case "Digit4":
       return "show-history";
     case "Slash":
-      return "show-shortcuts";
+      return "show-help";
     default:
       return null;
   }

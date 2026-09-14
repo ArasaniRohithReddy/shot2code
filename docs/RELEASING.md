@@ -18,7 +18,7 @@ deliberately not kept in sync**:
 
 | File | Field | Meaning |
 |---|---|---|
-| `desktop/package.json` | `0.3.2` | **The release version.** Bump this. |
+| `desktop/package.json` | `0.3.3` | **The release version.** Bump this. |
 | `package.json` (root) | `0.1.0` | Private workspace root; never shipped |
 | `frontend/package.json` | `0.0.0` | Private Vite app; never published to npm |
 | `backend/pyproject.toml` | `0.1.0` | Private package; frozen by PyInstaller |
@@ -27,7 +27,7 @@ Do not "fix" the others to match. Changing them implies a versioning contract
 that does not exist, and `frontend`/`backend` are `private` packages that are
 never published.
 
-The git tag (`v0.3.2`) and the GitHub release name mirror
+The git tag (`v0.3.3`) and the GitHub release name mirror
 `desktop/package.json`. Never reuse or move a tag that has been published.
 
 ## 1. Pre-flight
@@ -69,7 +69,7 @@ uv run python scripts/validate_export_projects.py
 2. Move the `## [Unreleased]` entries in [`CHANGELOG.md`](../CHANGELOG.md) into a
    new `## [x.y.z] - YYYY-MM-DD` section, and update the link definitions at the
    bottom.
-3. Commit (for example `chore(release): 0.3.2`) and push `main`.
+3. Commit (for example `chore(release): 0.3.3`) and push `main`.
 
 ## 3. Build the artifacts
 
@@ -208,7 +208,7 @@ releases.
    ```
 
 3. Commit the checksums to `docs/releases/v<version>/SHA256SUMS.txt` (see
-   [v0.3.2](releases/v0.3.2/SHA256SUMS.txt) for the format) and link them from
+   [v0.3.3](releases/v0.3.3/SHA256SUMS.txt) for the format) and link them from
    the README download table.
 4. Verify the update path from the previous version: install the previous NSIS
    build, let it check for updates, and confirm it downloads, installs silently

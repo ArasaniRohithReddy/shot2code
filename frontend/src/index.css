@@ -133,6 +133,25 @@
   scrollbar-gutter: stable;
 }
 
+/*
+ * Set on <body> for the duration of a pane drag.
+ *
+ * Pointer capture keeps the events flowing to the separator, but the browser
+ * still paints a text selection across whatever the cursor sweeps, and an
+ * iframe under the cursor still takes hover/hit testing. Both are suppressed
+ * globally until the drag ends.
+ */
+.workspace-resizing,
+.workspace-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.workspace-resizing iframe {
+  pointer-events: none !important;
+}
+
 .active-step-shimmer {
   background: linear-gradient(
     90deg,

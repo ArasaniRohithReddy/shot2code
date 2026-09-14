@@ -6,10 +6,12 @@ directories:
   output: dist
   buildResources: build
 
-# main.js, preload.js and the Vite build staged into renderer/
+# Main-process/preload files and the Vite build staged into renderer/
 files:
   - main.js
+  - backend-readiness.js
   - update-lifecycle.js
+  - zoom-controls.js
   - preload.js
   - untrusted-preload.js
   - renderer/**/*

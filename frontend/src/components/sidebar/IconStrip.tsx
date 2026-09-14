@@ -1,6 +1,6 @@
 import {
+  LuHelpCircle,
   LuHistory,
-  LuKeyboard,
   LuMessageSquare,
   LuPanelLeftClose,
   LuPanelLeftOpen,
@@ -20,7 +20,7 @@ interface IconStripProps {
   onToggleConversation: () => void;
   onLogoClick: () => void;
   onNewProject: () => void;
-  onOpenShortcuts: () => void;
+  onOpenHelp: () => void;
   onOpenSettings: () => void;
 }
 
@@ -41,7 +41,7 @@ function IconStrip({
   onToggleConversation,
   onLogoClick,
   onNewProject,
-  onOpenShortcuts,
+  onOpenHelp,
   onOpenSettings,
 }: IconStripProps) {
   const ConversationIcon = !canCollapseConversation
@@ -130,14 +130,15 @@ function IconStrip({
       <div className="flex items-center gap-1 xl:contents">
         <button
           type="button"
-          onClick={onOpenShortcuts}
+          onClick={onOpenHelp}
           className={`${RAIL_BUTTON} ${RAIL_IDLE}`}
-          title="Keyboard shortcuts (Ctrl+/)"
-          aria-label="Keyboard shortcuts (Ctrl+/)"
+          title="Help (Ctrl+/)"
+          aria-label="Help (Ctrl+/)"
+          data-testid="open-help"
         >
-          <LuKeyboard className="h-[18px] w-[18px]" aria-hidden="true" />
+          <LuHelpCircle className="h-[18px] w-[18px]" aria-hidden="true" />
           <span className="hidden text-[10px] leading-none xl:block">
-            Shortcuts
+            Help
           </span>
         </button>
 

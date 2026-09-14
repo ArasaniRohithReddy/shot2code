@@ -67,11 +67,8 @@ async def test_explicit_token_uses_its_own_model_catalog(
 
     class FakeClient:
         def __init__(self, **kwargs: object) -> None:
-            received_tokens.append(
-                kwargs.get("github_token")
-                if isinstance(kwargs.get("github_token"), str)
-                else None
-            )
+            token = kwargs.get("github_token")
+            received_tokens.append(token if isinstance(token, str) else None)
 
         async def start(self) -> None:
             pass
@@ -100,3 +97,30 @@ async def test_explicit_token_uses_its_own_model_catalog(
     assert received_tokens == ["secret-token"]
     assert snapshot.login == "token-user"
     assert snapshot.models == [{"id": "token-only-model", "vision": True}]
+
+
+@pytest.mark.asyncio
+async def test_probe_times_out_and_stops_hanging_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stopped = asyncio.Event()
+
+    class HangingClient:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        async def start(self) -> None:
+            await asyncio.Event().wait()
+
+        async def stop(self) -> None:
+            stopped.set()
+
+    monkeypatch.setattr(copilot_auth.copilot, "CopilotClient", HangingClient)
+    monkeypatch.setattr(copilot_auth, "COPILOT_PROBE_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(copilot_auth, "_cached_available", None)
+    monkeypatch.setattr(copilot_auth, "_cached_login", None)
+    monkeypatch.setattr(copilot_auth, "_cached_models", [])
+
+    assert await copilot_auth.probe_copilot_auth(force=True) is False
+    assert stopped.is_set()
+    assert copilot_auth.copilot_models() == []

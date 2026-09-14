@@ -13,6 +13,79 @@ in this file; see the git history for those changes.
 
 Nothing yet.
 
+## [0.3.3] - 2026-09-14
+
+Released as [shot2code v0.3.3](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.3).
+Checksums for the published Windows artifacts:
+[docs/releases/v0.3.3/SHA256SUMS.txt](docs/releases/v0.3.3/SHA256SUMS.txt).
+
+This release makes the desktop workspace adjustable instead of forcing one
+fixed split, adds an in-app Help centre backed by the public app-releases
+guides, and makes desktop zoom reliable on Windows keyboards.
+
+### Fixed
+
+- **Packaged startup no longer waits for optional features.** Frozen startup
+  previously imported generation, evaluation and project-tool dependencies
+  before health could answer, then synchronously launched Playwright. On slow
+  runs this delayed readiness for 299–347 seconds and exceeded the shell
+  timeout. Core routes now start first, heavy routers load on first use, and
+  Chromium/Copilot discovery runs as bounded background work.
+- **Backend readiness is verified precisely.** Electron requires HTTP 200 with
+  a real `{"ok": true}` response, fails immediately if the backend exits or
+  cannot spawn, logs the readiness duration, and uses a 90-second cold-start
+  deadline instead of waiting on optional capabilities.
+- **Optional failures remain explicit.** Deferred route import failures return
+  an error and subsequently make health fail rather than pretending the
+  backend is healthy. Chromium is only advertised after it launches
+  successfully and is closed during backend shutdown.
+
+### Added
+
+- **Resizable Chat and History panel.** At desktop widths, drag the separator
+  between the conversation/History panel and Preview or Code. The separator is
+  keyboard-operable with arrow keys, larger Shift+arrow steps, Home/End bounds,
+  Enter or double-click reset, and Escape to cancel an active drag.
+- **Resizable project file explorer.** Multi-file Code workspaces have an
+  independent drag/keyboard separator with sensible editor and explorer
+  minimums. Single-file projects still avoid wasting space on an empty tree.
+- **Persisted UI-only pane preferences.** Chat and explorer widths survive
+  restarts and collapse/reopen cycles, but remain separate from project
+  commits, variants, retries and History. Changing a pane cannot change or
+  create a project version.
+- **In-app Help centre.** The rail's Help action and **Ctrl+/** open Get started,
+  Guides, Support and Keyboard shortcuts. Links open the authoritative
+  app-releases product page, complete release history, install/user/FAQ/
+  troubleshooting/architecture/data/security/changelog/contributing/
+  third-party/releasing guides, issues and source repository.
+- **Open diagnostic logs.** Packaged desktop users can open the backend log
+  folder directly from Help, with explicit success and failure feedback. The
+  browser development build explains why that action is unavailable.
+- **Explicit desktop zoom controls.** `Ctrl+=` and `Ctrl++` zoom in,
+  `Ctrl+-` zooms out, numpad Add/Subtract work, and `Ctrl+0` resets. Zoom moves
+  in deterministic 10-point steps and is bounded from 50% to 300%.
+
+### Changed
+
+- Pane widths clamp to the current viewport so neither Chat nor the main
+  workspace becomes unusable. Below the desktop split breakpoint, the existing
+  Preview/Chat/History destinations remain unchanged and no drag handle is
+  shown.
+- Chat spacing and composer controls reflow at the minimum supported panel
+  width without hiding Send, model selection or design-system controls.
+- The former Shortcuts-only dialog is now the broader Help centre; the full
+  shortcut reference remains available inside it.
+
+### Accessibility
+
+- Pane handles use `role="separator"`, vertical orientation, current/min/max
+  values, value text, controlled-pane relationships, keyboard instructions,
+  visible focus and a 44-pixel interaction gutter.
+- Help retains focus trapping, descriptive external-link labels, 44-pixel
+  tabs/rows, mobile horizontal tab scrolling and honest disabled states.
+- Recognized zoom keys suppress Chromium's duplicate handling without
+  consuming unrelated editor input, AltGr or composition events.
+
 ## [0.3.2] - 2026-09-14
 
 Released as [shot2code v0.3.2](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.2).
@@ -317,7 +390,8 @@ real multi-file project you can edit, and previews run in a locked-down sandbox.
 - CodePen sharing requires explicit confirmation before any code leaves the
   device.
 
-[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.0

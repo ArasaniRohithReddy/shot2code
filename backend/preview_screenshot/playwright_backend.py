@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 from typing import Optional
 
 from playwright.async_api import (
@@ -12,6 +13,8 @@ from preview_screenshot.base import VIEWPORT_SIZES
 
 PAGE_LOAD_TIMEOUT_MS = 15000
 RENDER_SETTLE_MS = 250
+BROWSER_LAUNCH_TIMEOUT_SECONDS = 60
+BROWSER_CLOSE_TIMEOUT_SECONDS = 5
 
 
 class PlaywrightBackend:
@@ -27,18 +30,49 @@ class PlaywrightBackend:
         self._browser: Optional[Browser] = None
         self._lock = asyncio.Lock()
 
+    async def _close_unlocked(self) -> None:
+        browser = self._browser
+        playwright = self._playwright
+        self._browser = None
+        self._playwright = None
+
+        if browser is not None:
+            with suppress(Exception):
+                await asyncio.wait_for(
+                    browser.close(),
+                    timeout=BROWSER_CLOSE_TIMEOUT_SECONDS,
+                )
+        if playwright is not None:
+            with suppress(Exception):
+                await asyncio.wait_for(
+                    playwright.stop(),
+                    timeout=BROWSER_CLOSE_TIMEOUT_SECONDS,
+                )
+
     async def _get_browser(self) -> Browser:
         async with self._lock:
             if self._browser is None or not self._browser.is_connected():
-                if self._playwright is None:
-                    self._playwright = await async_playwright().start()
-                # --no-sandbox: Chromium refuses to launch as root (the user in
-                # most containers/hosted Linux) unless the sandbox is disabled.
-                self._browser = await self._playwright.chromium.launch(
-                    headless=True,
-                    args=["--no-sandbox"],
-                )
+                try:
+                    async with asyncio.timeout(BROWSER_LAUNCH_TIMEOUT_SECONDS):
+                        if self._playwright is None:
+                            self._playwright = await async_playwright().start()
+                        # --no-sandbox: Chromium refuses to launch as root (the
+                        # user in most hosted Linux environments) unless the
+                        # sandbox is disabled.
+                        self._browser = await self._playwright.chromium.launch(
+                            headless=True,
+                            args=["--no-sandbox"],
+                        )
+                except BaseException:
+                    await self._close_unlocked()
+                    raise
+            if self._browser is None:
+                raise RuntimeError("Chromium launch completed without a browser")
             return self._browser
+
+    async def close(self) -> None:
+        async with self._lock:
+            await self._close_unlocked()
 
     async def available(self) -> bool:
         """Launch (and warm up) Chromium; report whether it works.
@@ -50,6 +84,11 @@ class PlaywrightBackend:
             await self._get_browser()
             print("[screenshot_preview] Chromium available - tool enabled.")
             return True
+        except TimeoutError:
+            print(
+                "[screenshot_preview] Chromium probe timed out - tool disabled."
+            )
+            return False
         except Exception as exc:
             # Keep this message ASCII-only: it embeds the upstream error, and a
             # non-encodable character here would raise inside the except block.

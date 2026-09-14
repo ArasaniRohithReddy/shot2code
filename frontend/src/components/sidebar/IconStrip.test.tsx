@@ -10,7 +10,7 @@ const BASE_PROPS = {
   onToggleConversation: jest.fn(),
   onLogoClick: jest.fn(),
   onNewProject: jest.fn(),
-  onOpenShortcuts: jest.fn(),
+  onOpenHelp: jest.fn(),
   onOpenSettings: jest.fn(),
 };
 
@@ -83,5 +83,20 @@ describe("IconStrip conversation control", () => {
     expect(html).not.toContain('data-testid="toggle-conversation"');
     expect(html).not.toContain("History (Ctrl+4)");
     expect(html).toContain("Start a new project (Ctrl+Alt+N)");
+  });
+
+  it("offers Help rather than a shortcuts-only entry", () => {
+    const html = renderToStaticMarkup(
+      <IconStrip
+        {...BASE_PROPS}
+        canCollapseConversation
+        isConversationOpen
+      />
+    );
+
+    expect(html).toContain('data-testid="open-help"');
+    expect(html).toContain('aria-label="Help (Ctrl+/)"');
+    expect(html).toContain(">Help<");
+    expect(html).not.toContain("Shortcuts");
   });
 });

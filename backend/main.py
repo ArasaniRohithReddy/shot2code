@@ -7,25 +7,74 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import IS_DEBUG_ENABLED
-from routes import (
-    capabilities,
-    screenshot,
-    generate_code,
-    home,
-    evals,
-    export,
-    design_systems,
-    models,
-    prompt_reports,
-    agent_runs,
-    eval_sets,
-    project_context,
-    history,
+from deferred_routes import (
+    DeferredRouteLoader,
+    DeferredRoutesMiddleware,
 )
+from optional_startup import OptionalStartupTasks
+from preview_screenshot import close_screenshot_preview, probe_screenshot_preview
+from routes import capabilities, design_systems, history, home, models
 from uploaded_assets import configure_uploaded_asset_routes
 
 app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
 configure_uploaded_asset_routes(app)
+
+DEFERRED_ROUTE_GROUPS = (
+    (
+        "generation",
+        ("routes.generate_code",),
+        ("/generate-code",),
+    ),
+    (
+        "project tools",
+        (
+            "routes.screenshot",
+            "routes.export",
+            "routes.project_context",
+        ),
+        (
+            "/api/screenshot",
+            "/api/export",
+            "/api/project-context",
+        ),
+    ),
+    (
+        "evaluation",
+        (
+            "routes.evals",
+            "routes.prompt_reports",
+            "routes.agent_runs",
+            "routes.eval_sets",
+        ),
+        (
+            "/eval_input_files",
+            "/evals",
+            "/openai-input-compare",
+            "/run_evals",
+            "/run_evals_stream",
+            "/models",
+            "/best-of-n-evals",
+            "/output_folders",
+            "/prompt-reports",
+            "/agent-runs",
+            "/eval-sets",
+            "/eval-sessions",
+        ),
+    ),
+)
+
+optional_startup_tasks = OptionalStartupTasks()
+deferred_route_loaders: list[DeferredRouteLoader] = []
+for group_name, module_names, path_prefixes in DEFERRED_ROUTE_GROUPS:
+    loader = DeferredRouteLoader(module_names, name=group_name)
+    deferred_route_loaders.append(loader)
+    app.add_middleware(
+        DeferredRoutesMiddleware,
+        router_app=app,
+        loader=loader,
+        path_prefixes=path_prefixes,
+    )
+app.state.deferred_route_loaders = tuple(deferred_route_loaders)
 
 
 @app.on_event("startup")
@@ -35,30 +84,25 @@ async def log_debug_mode() -> None:
 
 
 @app.on_event("startup")
-async def probe_screenshot_preview_on_startup() -> None:
-    # Detect (and warm up) headless Chromium so the screenshot_preview tool is
-    # only offered when it can actually run. Logs the outcome.
-    # Screenshot preview is optional, so no failure here may take the backend
-    # down with it - including an encoding error raised while logging.
-    try:
-        from preview_screenshot import probe_screenshot_preview
-
-        await probe_screenshot_preview()
-    except Exception as exc:
-        print(f"[startup] screenshot preview probe failed, tool disabled: {exc!r}")
-
-
-@app.on_event("startup")
-async def probe_copilot_on_startup() -> None:
-    # Warm the Copilot credential cache in the background. The first probe
-    # spawns the bundled Copilot CLI and can take ~15s, which would otherwise
-    # stall the first /api/capabilities call the Settings dialog makes.
-    # Deliberately not awaited so it never delays startup.
-    import asyncio
-
+async def start_optional_discovery() -> None:
     from copilot_auth import probe_copilot_auth
 
-    asyncio.create_task(probe_copilot_auth())
+    optional_startup_tasks.start(
+        "screenshot preview probe",
+        probe_screenshot_preview,
+        timeout_seconds=60,
+    )
+    optional_startup_tasks.start(
+        "Copilot authentication probe",
+        probe_copilot_auth,
+        timeout_seconds=35,
+    )
+
+
+@app.on_event("shutdown")
+async def stop_optional_discovery() -> None:
+    await optional_startup_tasks.close()
+    await close_screenshot_preview()
 
 # Configure CORS settings
 app.add_middleware(
@@ -70,16 +114,8 @@ app.add_middleware(
 )
 
 # Add routes
-app.include_router(generate_code.router)
-app.include_router(screenshot.router)
 app.include_router(home.router)
 app.include_router(capabilities.router)
 app.include_router(models.router)
-app.include_router(evals.router)
-app.include_router(export.router)
 app.include_router(design_systems.router)
-app.include_router(prompt_reports.router)
-app.include_router(agent_runs.router)
-app.include_router(eval_sets.router)
-app.include_router(project_context.router)
 app.include_router(history.router)

@@ -52,6 +52,19 @@ for package in (
 ):
     hiddenimports += collect_submodules(package)
 
+# ``routes`` is a namespace package, so collect_submodules() does not discover
+# modules that are now imported on first use rather than from main.py.
+hiddenimports += [
+    "routes.generate_code",
+    "routes.screenshot",
+    "routes.evals",
+    "routes.export",
+    "routes.prompt_reports",
+    "routes.agent_runs",
+    "routes.eval_sets",
+    "routes.project_context",
+]
+
 # Prompt templates and other non-Python assets live next to the source.
 datas += [("prompts", "prompts")]
 

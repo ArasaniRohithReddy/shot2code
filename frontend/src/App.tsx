@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { generateCode } from "./generateCode";
 import {
   AppState,
@@ -11,6 +11,17 @@ import { NEW_DESIGN_SYSTEM_CONTENT } from "./lib/design-systems";
 import ProviderStatusCallout from "./components/messages/ProviderStatusCallout";
 import { usePersistedState } from "./hooks/usePersistedState";
 import { useMediaQuery, XL_MEDIA_QUERY } from "./hooks/useMediaQuery";
+import { useViewportWidth } from "./hooks/useViewportWidth";
+import PaneResizer from "./components/workspace/PaneResizer";
+import {
+  CHAT_PANE_WIDTH,
+  CHAT_PANE_WIDTH_STORAGE_KEY,
+  clampChatPaneWidth,
+  getChatPaneBounds,
+  PANE_RESIZER_HIT_WIDTH,
+  resolvePaneWidth,
+  WORKSPACE_RAIL_WIDTH,
+} from "./lib/pane-sizing";
 import { USER_CLOSE_WEB_SOCKET_CODE } from "./constants";
 import toast from "react-hot-toast";
 import { nanoid } from "nanoid";
@@ -44,7 +55,7 @@ import PreviewPane, {
 import StartPane from "./components/start-pane/StartPane";
 import SettingsTab from "./components/settings/SettingsTab";
 import DesignSystemsModal from "./components/settings/DesignSystemsModal";
-import ShortcutHelpDialog from "./components/shortcuts/ShortcutHelpDialog";
+import HelpCenterDialog from "./components/help/HelpCenterDialog";
 import type { InputTab } from "./components/unified-input/UnifiedInputPane";
 import {
   Commit,
@@ -176,14 +187,33 @@ function App() {
   // Mobile keeps the Preview/Chat switcher and ignores this flag entirely.
   const [isConversationCollapsed, setIsConversationCollapsed] =
     usePersistedState<boolean>(false, "workspace-conversation-collapsed");
+  // The width is stored on its own, never inside the project, so dragging the
+  // divider cannot touch commits, variants, or history, and re-opening a
+  // collapsed panel brings back the last width the user chose.
+  const [storedChatPaneWidth, setStoredChatPaneWidth] =
+    usePersistedState<number>(
+      CHAT_PANE_WIDTH.default,
+      CHAT_PANE_WIDTH_STORAGE_KEY
+    );
   const isDesktopLayout = useMediaQuery(XL_MEDIA_QUERY);
+  const viewportWidth = useViewportWidth();
+  const chatPaneBounds = useMemo(
+    () => getChatPaneBounds(viewportWidth),
+    [viewportWidth]
+  );
+  // A window too narrow for the stored width shows a clamped one without
+  // overwriting the preference, so the chosen width returns when it fits again.
+  const chatPaneWidth = clampChatPaneWidth(
+    resolvePaneWidth(storedChatPaneWidth, CHAT_PANE_WIDTH.default),
+    viewportWidth
+  );
   const isConversationCollapsedOnDesktop =
     isDesktopLayout && isConversationCollapsed;
   const [activeInputTab, setActiveInputTab] = useState<InputTab>("upload");
   const [activePreviewTab, setActivePreviewTab] =
     useState<PreviewTab>("desktop");
   const [isExportRequested, setIsExportRequested] = useState(false);
-  const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const handleExportRequestHandled = useCallback(
     () => setIsExportRequested(false),
     []
@@ -1117,8 +1147,8 @@ function App() {
           regenerateRef.current();
           break;
         }
-        case "show-shortcuts":
-          setIsShortcutHelpOpen(true);
+        case "show-help":
+          setIsHelpOpen(true);
           break;
       }
     };
@@ -1138,6 +1168,13 @@ function App() {
     appState === AppState.CODE_READY ||
     isHistoryOpen;
   const showMobileChatPane = showContentPanel && mobilePane === "chat";
+  // The divider exists only where the panel is a real column: at xl, visible,
+  // and not replaced by Settings.
+  const isChatPaneResizable =
+    isDesktopLayout &&
+    showContentPanel &&
+    !isSettingsOpen &&
+    !isConversationCollapsed;
   const openConversation = useCallback(() => {
     setIsHistoryOpen(false);
     setIsSettingsOpen(false);
@@ -1196,7 +1233,7 @@ function App() {
           onNewProject={() => {
             openStartPane("upload");
           }}
-          onOpenShortcuts={() => setIsShortcutHelpOpen(true)}
+          onOpenHelp={() => setIsHelpOpen(true)}
           onOpenSettings={() => {
             setIsSettingsOpen(true);
             setIsHistoryOpen(false);
@@ -1269,6 +1306,7 @@ function App() {
       {showContentPanel && !isSettingsOpen && (
         <div
           id="conversation-panel"
+          style={isDesktopLayout ? { width: `${chatPaneWidth}px` } : undefined}
           className={`min-h-0 border-b border-gray-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 dark:text-white xl:fixed xl:inset-y-0 xl:left-16 xl:z-40 xl:w-80 xl:flex-col xl:border-b-0 xl:border-r ${
             showMobileChatPane
               ? "flex flex-1 flex-col overflow-hidden"
@@ -1379,7 +1417,33 @@ function App() {
         </div>
       )}
 
+      {/* Desktop-only divider. Below xl the workspace is pane-based, so there
+          is nothing to drag and no handle is rendered. */}
+      {isChatPaneResizable && (
+        <PaneResizer
+          label="Chat panel width"
+          controls="conversation-panel"
+          testId="chat-pane-resizer"
+          width={chatPaneWidth}
+          min={chatPaneBounds.min}
+          max={chatPaneBounds.max}
+          defaultWidth={CHAT_PANE_WIDTH.default}
+          onWidthChange={setStoredChatPaneWidth}
+          className="fixed inset-y-0 z-40 hidden xl:flex"
+          style={{ left: `${WORKSPACE_RAIL_WIDTH + chatPaneWidth}px` }}
+        />
+      )}
+
       <main
+        style={
+          isChatPaneResizable
+            ? {
+                paddingLeft: `${
+                  WORKSPACE_RAIL_WIDTH + chatPaneWidth + PANE_RESIZER_HIT_WIDTH
+                }px`,
+              }
+            : undefined
+        }
         className={`${
           isSettingsOpen
             ? "flex flex-1 min-h-0 flex-col xl:h-full xl:pl-16"
@@ -1452,10 +1516,7 @@ function App() {
         updateDesignSystem={updateDesignSystem}
         deleteDesignSystem={deleteDesignSystem}
       />
-      <ShortcutHelpDialog
-        open={isShortcutHelpOpen}
-        onOpenChange={setIsShortcutHelpOpen}
-      />
+      <HelpCenterDialog open={isHelpOpen} onOpenChange={setIsHelpOpen} />
     </div>
   );
 }

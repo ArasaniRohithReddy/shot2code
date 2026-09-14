@@ -86,12 +86,13 @@ The update install path has its own tests, run with Node's built-in runner:
 
 ```bash
 cd desktop
-node --test update-lifecycle.test.js
+npm test
 ```
 
-They cover the single-installer guard, the abort-and-stay-retryable path when
-the backend cannot be stopped, and — on Windows — that the backend process tree
-is really gone before an installer is launched.
+They cover backend readiness and timeout handling, zoom accelerators, the
+single-installer guard, the abort-and-stay-retryable path when the backend
+cannot be stopped, and — on Windows — that the backend process tree is really
+gone before an installer is launched.
 
 To run the shell against the source tree (it starts the backend through uv and
 loads `desktop/renderer` if present, otherwise the Vite dev server):

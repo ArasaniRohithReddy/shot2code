@@ -13,7 +13,17 @@ import copy from "copy-to-clipboard";
 import toast from "react-hot-toast";
 import CodeMirror from "./CodeMirror";
 import ProjectFileExplorer from "./ProjectFileExplorer";
+import PaneResizer from "../workspace/PaneResizer";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import useMediaQuery, { XL_MEDIA_QUERY } from "../../hooks/useMediaQuery";
+import { useElementWidth } from "../../hooks/useElementWidth";
+import {
+  clampFileExplorerWidth,
+  FILE_EXPLORER_WIDTH,
+  FILE_EXPLORER_WIDTH_STORAGE_KEY,
+  getFileExplorerBounds,
+  resolvePaneWidth,
+} from "../../lib/pane-sizing";
 import { Settings } from "../../types";
 import type { Stack } from "../../lib/stacks";
 import type {
@@ -105,6 +115,30 @@ function CodeTab({
       ? filePaths.length > 1
       : explorerPreference === "open";
   const hasFileTabs = filePaths.length > 1;
+
+  // Width is a separate, UI-only preference: it survives version switches and
+  // restarts, and never becomes part of the project it is displaying.
+  const [storedExplorerWidth, setStoredExplorerWidth] =
+    usePersistedState<number>(
+      FILE_EXPLORER_WIDTH.default,
+      FILE_EXPLORER_WIDTH_STORAGE_KEY
+    );
+  const workspaceRowRef = useRef<HTMLDivElement>(null);
+  // Measured rather than derived from the viewport: how much room the tree can
+  // take depends on how wide the chat column next to it currently is.
+  const workspaceRowWidth = useElementWidth(workspaceRowRef);
+  const isDesktopLayout = useMediaQuery(XL_MEDIA_QUERY);
+  const explorerBounds = useMemo(
+    () => getFileExplorerBounds(workspaceRowWidth),
+    [workspaceRowWidth]
+  );
+  const explorerWidth = clampFileExplorerWidth(
+    resolvePaneWidth(storedExplorerWidth, FILE_EXPLORER_WIDTH.default),
+    workspaceRowWidth
+  );
+  // Below xl the tree is a horizontal strip above the editor, so there is no
+  // vertical edge to drag.
+  const isExplorerResizable = isDesktopLayout && isExplorerOpen;
 
   useEffect(() => {
     tabRefs.current[activeFile?.path ?? ""]?.scrollIntoView({
@@ -207,11 +241,17 @@ function CodeTab({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white dark:bg-zinc-950">
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <div
+        ref={workspaceRowRef}
+        className="flex min-h-0 flex-1 flex-col md:flex-row"
+      >
         {isExplorerOpen && (
           <aside
             id="project-file-explorer"
             aria-label="Project files"
+            style={
+              isDesktopLayout ? { width: `${explorerWidth}px` } : undefined
+            }
             className="flex h-40 min-h-0 shrink-0 flex-col overflow-hidden border-b border-gray-200 bg-gray-50 dark:border-zinc-800 dark:bg-zinc-900 md:h-full md:w-56 md:border-b-0 md:border-r"
           >
             <div className="flex min-h-11 items-center justify-between gap-2 px-3">
@@ -241,6 +281,20 @@ function CodeTab({
               onSelectFile={onSelectFile}
             />
           </aside>
+        )}
+
+        {isExplorerResizable && (
+          <PaneResizer
+            label="Project files width"
+            controls="project-file-explorer"
+            testId="file-explorer-resizer"
+            width={explorerWidth}
+            min={explorerBounds.min}
+            max={explorerBounds.max}
+            defaultWidth={FILE_EXPLORER_WIDTH.default}
+            onWidthChange={setStoredExplorerWidth}
+            className="hidden shrink-0 self-stretch xl:flex"
+          />
         )}
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">

@@ -13,6 +13,7 @@ from preview_screenshot.base import ScreenshotBackend, VIEWPORT_SIZES
 from preview_screenshot.playwright_backend import PlaywrightBackend
 from preview_screenshot.registry import (
     capture_preview_screenshot,
+    close_screenshot_preview,
     is_screenshot_preview_available,
     probe_screenshot_preview,
     set_screenshot_backend,
@@ -23,6 +24,7 @@ __all__ = [
     "VIEWPORT_SIZES",
     "PlaywrightBackend",
     "capture_preview_screenshot",
+    "close_screenshot_preview",
     "is_screenshot_preview_available",
     "probe_screenshot_preview",
     "set_screenshot_backend",

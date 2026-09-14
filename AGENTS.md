@@ -96,6 +96,13 @@ backend default so every screenshot must be represented.
 `desktop/` is an Electron shell that starts the frozen backend on a free port,
 waits for `/api/health`, then loads the built frontend from disk.
 
+Backend startup keeps only health, settings/model, design-system and history
+routes on the critical import path. Generation, project tools and eval routes
+are loaded on first use, while Chromium and Copilot capability probes run as
+bounded background tasks. Do not move optional discovery back into an awaited
+FastAPI startup hook: frozen imports and antivirus scanning can make those
+probes take minutes even though the core API is healthy.
+
 The UI is served over `file://` in the packaged app but over `http://` in dev,
 and that difference has caused every desktop-only bug so far. When touching
 anything in this list, verify it in the packaged app, not just `pnpm dev`:

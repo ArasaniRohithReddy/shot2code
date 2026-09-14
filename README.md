@@ -62,6 +62,7 @@ Download the latest build from
 
 Because there is no signature to check, verify the download instead. Published
 SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
+[v0.3.3](docs/releases/v0.3.3/SHA256SUMS.txt),
 [v0.3.2](docs/releases/v0.3.2/SHA256SUMS.txt),
 [v0.3.1](docs/releases/v0.3.1/SHA256SUMS.txt) and
 [v0.3.0](docs/releases/v0.3.0/SHA256SUMS.txt):
@@ -133,19 +134,44 @@ Other things it can do:
 - **A workspace you can quiet down** — collapse the chat panel to give the
   preview or the editor the full window, and reformat an HTML, CSS, JavaScript
   or JSON file with the **Format** action, which only ever changes whitespace.
+- **A workspace you can resize** — on wide windows (≥ 1280px), drag the divider
+  between the chat and the preview, or between the file tree and the editor, to
+  set how the width is shared. The dividers are focusable separators: arrow keys
+  move them 16px at a time, **Shift** makes that 64px, **Home** and **End** jump
+  to the narrowest and widest allowed widths, and **Enter** or a double-click
+  restores the default. Widths are remembered per browser, are clamped so
+  neither side becomes unusable, and are a view preference only — resizing never
+  touches a project's versions, options, or history.
+
+### Help
+
+**Ctrl+/** or the **Help** button in the app rail opens the Help centre. It has
+four sections: **Get started** (connect a model, then go from a screenshot to an
+export), **Guides** (the published architecture, data-handling, security,
+changelog, release and contributing documents), **Support** (FAQ,
+troubleshooting, the issue tracker, and the source repository), and **Keyboard
+shortcuts**. Every link opens in your browser and points at the
+[shot2code product page](https://arasanirohithreddy.github.io/app-releases/shot2code/)
+or its documents in the
+[release hub](https://github.com/ArasaniRohithReddy/app-releases/blob/main/products/shot2code/).
+In the desktop app, Support also offers **Open diagnostic logs**, which opens the
+log the shell writes for backend startup, renderer crashes and console errors —
+the first thing to attach to a bug report. The browser build has no log file and
+says so rather than offering a dead button.
 
 ### Keyboard shortcuts
 
-Press **Ctrl+/** or use the keyboard button in the app rail to open the complete
-shortcut reference. Project actions use conflict-free Ctrl+Alt combinations:
-**Ctrl+Alt+N** starts a project, **Ctrl+Alt+I** opens Import,
-**Ctrl+Alt+U** opens Upload, **Ctrl+Alt+S** opens Settings, and
+Every shortcut is listed in Help (**Ctrl+/**). Project actions use conflict-free
+Ctrl+Alt combinations: **Ctrl+Alt+N** starts a project, **Ctrl+Alt+I** opens
+Import, **Ctrl+Alt+U** opens Upload, **Ctrl+Alt+S** opens Settings, and
 **Ctrl+Alt+E** exports the current project. Use **Ctrl+1–4** for Preview, Code,
 Chat, and History, and **Ctrl+Shift+Enter** to retry an AI-generated version.
 On wide windows, pressing **Ctrl+3** again collapses the chat panel, and
 **Ctrl+1** or **Ctrl+4** bring it back. Navigation shortcuts pause while typing
 or while a dialog is open. In the code editor, Tab moves focus out and
-**Ctrl+]** indents.
+**Ctrl+]** indents. In the desktop app, use **Ctrl+=** or **Ctrl++** to zoom in,
+**Ctrl+-** to zoom out, and **Ctrl+0** to reset; the numpad add and subtract
+keys work with Ctrl as well.
 
 ### Preview and CodePen
 

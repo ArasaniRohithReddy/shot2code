@@ -22,6 +22,8 @@ _cached_login: Optional[str] = None
 _cached_models: list[dict[str, object]] = []
 _token_snapshots: dict[str, "CopilotAuthSnapshot"] = {}
 _probe_lock = asyncio.Lock()
+COPILOT_PROBE_TIMEOUT_SECONDS = 30
+COPILOT_STOP_TIMEOUT_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,16 @@ async def _inspect_client(client: "copilot.CopilotClient") -> CopilotAuthSnapsho
     )
 
 
+async def _stop_client(client: "copilot.CopilotClient") -> None:
+    try:
+        await asyncio.wait_for(
+            client.stop(),
+            timeout=COPILOT_STOP_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        pass
+
+
 async def probe_copilot_auth(force: bool = False) -> bool:
     """Return whether usable Copilot credentials exist, caching the result."""
     global _cached_available, _cached_login, _cached_models
@@ -59,7 +71,10 @@ async def probe_copilot_auth(force: bool = False) -> bool:
             log_level="error",
         )
         try:
-            snapshot = await _inspect_client(client)
+            snapshot = await asyncio.wait_for(
+                _inspect_client(client),
+                timeout=COPILOT_PROBE_TIMEOUT_SECONDS,
+            )
 
             # Publish the cache atomically. The startup probe runs in the
             # background; setting `_cached_available` before list_models()
@@ -68,15 +83,18 @@ async def probe_copilot_auth(force: bool = False) -> bool:
             _cached_models = snapshot.models
             _cached_login = snapshot.login
             _cached_available = snapshot.available
+        except TimeoutError:
+            print("[copilot] auth probe timed out")
+            _cached_available = False
+            _cached_login = None
+            _cached_models = []
         except Exception as exc:
             print(f"[copilot] auth probe failed: {exc}")
             _cached_available = False
             _cached_login = None
+            _cached_models = []
         finally:
-            try:
-                await client.stop()
-            except Exception:
-                pass
+            await _stop_client(client)
 
     return _cached_available
 
@@ -108,17 +126,20 @@ async def get_copilot_snapshot(
             log_level="error",
         )
         try:
-            snapshot = await _inspect_client(client)
+            snapshot = await asyncio.wait_for(
+                _inspect_client(client),
+                timeout=COPILOT_PROBE_TIMEOUT_SECONDS,
+            )
             _token_snapshots[fingerprint] = snapshot
             return snapshot
+        except TimeoutError:
+            print("[copilot] token auth probe timed out")
+            return CopilotAuthSnapshot(available=False, login=None, models=[])
         except Exception as exc:
             print(f"[copilot] token auth probe failed: {type(exc).__name__}")
             return CopilotAuthSnapshot(available=False, login=None, models=[])
         finally:
-            try:
-                await client.stop()
-            except Exception:
-                pass
+            await _stop_client(client)
 
 
 async def _collect_models(client: "copilot.CopilotClient") -> list[dict[str, object]]:
