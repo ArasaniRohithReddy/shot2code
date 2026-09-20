@@ -31,7 +31,7 @@ Generation needs credentials: either GitHub Copilot (`gh auth login`, or a
 ```bash
 cd backend
 uv sync
-uv run playwright install chromium   # optional: screenshot-preview tool
+uv run playwright install chromium-headless-shell   # optional: screenshot-preview tool
 uv run uvicorn main:app --reload --port 7001
 ```
 

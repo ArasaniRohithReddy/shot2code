@@ -24,12 +24,18 @@ from dataclasses import dataclass, field
 from typing import Iterable, Literal, Mapping, Sequence
 
 from integrations.config import (
+    BYOK_PROVIDERS,
     MAX_MODEL_SELECTIONS,
     MODEL_RUNTIMES,
     ByokConnectionSummary,
+    ByokSelection,
     ModelRuntime,
+    byok_custom_selection,
+    byok_custom_selection_id,
     byok_selection_id,
     is_byok_selection_id,
+    is_valid_wire_model,
+    neutral_base_model,
     parse_byok_selection_id,
 )
 from llm import (
@@ -192,10 +198,17 @@ class CatalogModel:
     supports_video: bool
     runtime: ModelRuntime = "native"
     base_model_id: str | None = None
+    # The endpoint's own model name, when the entry is a custom BYOK model.
+    wire_model: str | None = None
 
     @property
     def model(self) -> Llm:
         """The model whose capabilities this entry runs with."""
+        if self.base_model_id is None and self.wire_model is not None:
+            # A custom endpoint model runs under a neutral template.
+            return neutral_base_model(
+                self.id.split("/")[1] if "/" in self.id else "openai"  # pyright: ignore[reportArgumentType]
+            )
         resolved = model_from_value(self.base_model_id or self.id)
         assert resolved is not None, self.id
         return resolved
@@ -328,15 +341,37 @@ def _copilot_models(
 def _byok_models(
     connection: ByokConnectionSummary | None,
 ) -> tuple[CatalogModel, ...]:
-    """The BYOK run identities a usable connection offers.
+    """What a usable BYOK connection offers.
 
-    One entry per base model the connection's provider family can serve. Each
-    keeps its own ``sdk-byok/<provider>/<base model>`` id, so it is a different
-    selection from the direct model it borrows capabilities from and the two
-    can be picked together.
+    When the connection names a ``wireModel``, that is the *only* model the
+    endpoint serves, so exactly one entry is published under that real name.
+    Offering a whole vendor family for an endpoint that hosts one model would
+    be a lie that many aliases all resolve to the same thing.
+
+    Without a wire model the connection is addressing a vendor API that does
+    host the family, so the catalog list is the family.
     """
     if connection is None or not connection.usable:
         return ()
+
+    if connection.custom_selection_id and connection.wire_model:
+        served = connection.wire_model
+        return (
+            CatalogModel(
+                id=connection.custom_selection_id,
+                provider="sdk-byok",
+                label=f"{served} via {connection.provider}",
+                family=served,
+                # An arbitrary endpoint model has no thinking level to report.
+                effort=None,
+                status="available",
+                recommended=False,
+                supports_video=False,
+                runtime="copilot-byok",
+                base_model_id=None,
+                wire_model=served,
+            ),
+        )
 
     curated: dict[ModelProvider, frozenset[Llm]] = {
         "openai": frozenset(OPENAI_MODELS),
@@ -347,12 +382,11 @@ def _byok_models(
     entries: list[CatalogModel] = []
     for base in _curated_models(base_models):
         model = base.model
-        served = connection.wire_model or get_model_api_name(model)
         entries.append(
             CatalogModel(
                 id=byok_selection_id(connection.provider, model),
                 provider="sdk-byok",
-                label=f"{base.label} via {connection.provider} ({served})",
+                label=f"{base.label} via {connection.provider}",
                 family=base.family,
                 effort=base.effort,
                 status=base.status,
@@ -490,14 +524,21 @@ class ModelRunSpec:
 
     ``selection_id`` is the identity the user picked, what history persists and
     what a retry replays. A native spec's id is the model id itself; a BYOK
-    spec's id is ``sdk-byok/<provider>/<base model>``. Because the two differ,
-    a direct and a BYOK variant of the *same* base model coexist happily in one
-    generation, and a native spec is never re-routed just because BYOK is on.
+    spec's id is ``sdk-byok/<provider>/<base model>`` or, for a model only the
+    user's endpoint knows, ``sdk-byok/<provider>/custom/<encoded model>``.
+    Because the two differ, a direct and a BYOK variant of the *same* base
+    model coexist happily in one generation, and a native spec is never
+    re-routed just because BYOK is on.
+
+    ``wire_model`` is the name the endpoint is actually asked for. When it is
+    set, ``model`` is only a compatibility template - it says how to prompt,
+    never what to call.
     """
 
     model: Llm
     selection_id: str
     runtime: ModelRuntime = "native"
+    wire_model: str | None = None
 
     @staticmethod
     def native(model: Llm) -> "ModelRunSpec":
@@ -511,9 +552,31 @@ class ModelRunSpec:
             runtime="copilot-byok",
         )
 
+    @staticmethod
+    def byok_custom(provider: str, wire_model: str) -> "ModelRunSpec":
+        """A model only the user's own endpoint knows, run under a neutral
+        non-reasoning template unless the name maps to a known model."""
+        return ModelRunSpec.from_byok_selection(
+            byok_custom_selection(provider, wire_model)  # pyright: ignore[reportArgumentType]
+        )
+
+    @staticmethod
+    def from_byok_selection(selection: ByokSelection) -> "ModelRunSpec":
+        return ModelRunSpec(
+            model=selection.base_model,
+            selection_id=selection.selection_id,
+            runtime="copilot-byok",
+            wire_model=selection.wire_model,
+        )
+
     @property
     def is_byok(self) -> bool:
         return self.runtime == "copilot-byok"
+
+    @property
+    def is_custom_model(self) -> bool:
+        """True when the endpoint's own model name is what goes on the wire."""
+        return self.wire_model is not None
 
 
 @dataclass(frozen=True)
@@ -580,8 +643,7 @@ def _spec_from_entry(entry: object) -> tuple[ModelRunSpec | None, str | None]:
             return ModelRunSpec.native(model), None
         parsed = parse_byok_selection_id(entry)
         if parsed is not None:
-            provider, base = parsed
-            return ModelRunSpec.byok(provider, base), None
+            return ModelRunSpec.from_byok_selection(parsed), None
         return None, entry if entry.strip() else None
 
     if not isinstance(entry, Mapping):
@@ -591,26 +653,37 @@ def _spec_from_entry(entry: object) -> tuple[ModelRunSpec | None, str | None]:
     identity = raw_id if isinstance(raw_id, str) and raw_id.strip() else None
     raw_runtime = entry.get("runtime")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     runtime = raw_runtime if raw_runtime in MODEL_RUNTIMES else None
+    raw_wire = entry.get("wireModel")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    wire_model = (
+        raw_wire.strip()
+        if isinstance(raw_wire, str) and is_valid_wire_model(raw_wire)
+        else None
+    )
     base = model_from_value(entry.get("baseModel"))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+
+    # The identity is authoritative: it already encodes provider, runtime and,
+    # for a custom endpoint model, the exact name to send.
+    parsed = parse_byok_selection_id(identity) if identity else None
+    if parsed is not None:
+        if parsed.is_custom:
+            return ModelRunSpec.from_byok_selection(parsed), None
+        return ModelRunSpec.from_byok_selection(parsed), None
 
     if base is None and identity is not None:
         # An entry may omit baseModel when the id already carries it.
         base = model_from_value(identity)
-        if base is None:
-            parsed = parse_byok_selection_id(identity)
-            if parsed is not None:
-                base = parsed[1]
-    if base is None:
+
+    if runtime == "copilot-byok":
+        # A BYOK entry whose identity did not parse can still be honoured when
+        # it names its endpoint model and provider explicitly.
+        raw_provider = entry.get("provider")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        if wire_model and raw_provider in BYOK_PROVIDERS:
+            return ModelRunSpec.byok_custom(raw_provider, wire_model), None  # pyright: ignore[reportArgumentType]
+        # Otherwise the provider is unknown, so it cannot be run on the right
+        # runtime and is reported instead of guessed.
         return None, identity
 
-    if runtime is None:
-        runtime = "copilot-byok" if is_byok_selection_id(identity) else "native"
-    if runtime == "copilot-byok":
-        parsed = parse_byok_selection_id(identity) if identity else None
-        if parsed is not None:
-            return ModelRunSpec.byok(parsed[0], base), None
-        # A BYOK entry without a parsable identity cannot name its provider,
-        # so it is reported instead of being run on the wrong runtime.
+    if base is None:
         return None, identity
     return ModelRunSpec.native(base), None
 

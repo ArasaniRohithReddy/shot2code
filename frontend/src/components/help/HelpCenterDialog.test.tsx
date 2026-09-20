@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { HelpCenterPanels } from "./HelpCenterDialog";
 import {
   getHelpLinks,
-  HELP_DOCS_BASE_URL,
+  helpDocUrl,
   HELP_NEW_ISSUE_URL,
   HELP_PRODUCT_PAGE_URL,
   HELP_RELEASES_PAGE_URL,
@@ -46,8 +46,8 @@ describe("Help centre panels", () => {
     expect(html).toContain("Connect a model");
     expect(html).toContain("Review, then iterate in Chat");
     expect(html).toContain(`href="${HELP_PRODUCT_PAGE_URL}"`);
-    expect(html).toContain(`href="${HELP_DOCS_BASE_URL}INSTALL.md"`);
-    expect(html).toContain(`href="${HELP_DOCS_BASE_URL}USER-GUIDE.md"`);
+    expect(html).toContain(`href="${helpDocUrl("INSTALL.md")}"`);
+    expect(html).toContain(`href="${helpDocUrl("USER-GUIDE.md")}"`);
     expect(html).toContain(`href="${HELP_RELEASES_PAGE_URL}"`);
   });
 
@@ -61,16 +61,19 @@ describe("Help centre panels", () => {
       "CHANGELOG.md",
       "RELEASING.md",
       "CONTRIBUTING.md",
-    ]) {
-      expect(html).toContain(`href="${HELP_DOCS_BASE_URL}${file}"`);
+    ] as const) {
+      expect(html).toContain(`href="${helpDocUrl(file)}"`);
     }
+    // Rendered pages, not repository file views.
+    expect(html).not.toContain("/blob/");
+    expect(html).not.toContain(".md\"");
   });
 
   it("routes support to the FAQ, troubleshooting, issues and the source", () => {
     const html = render({ initialTab: "support" });
 
-    expect(html).toContain(`href="${HELP_DOCS_BASE_URL}FAQ.md"`);
-    expect(html).toContain(`href="${HELP_DOCS_BASE_URL}TROUBLESHOOTING.md"`);
+    expect(html).toContain(`href="${helpDocUrl("FAQ.md")}"`);
+    expect(html).toContain(`href="${helpDocUrl("TROUBLESHOOTING.md")}"`);
     expect(html).toContain(`href="${HELP_NEW_ISSUE_URL}"`);
     expect(html).toContain(`href="${HELP_SOURCE_REPOSITORY_URL}"`);
   });

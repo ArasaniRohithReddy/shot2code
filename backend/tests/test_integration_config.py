@@ -72,7 +72,11 @@ class TestRunIdentity:
     def test_an_identity_round_trips(self) -> None:
         parsed = parse_byok_selection_id(byok_selection_id("anthropic", ANTHROPIC_BASE))
 
-        assert parsed == ("anthropic", ANTHROPIC_BASE)
+        assert parsed is not None
+        assert parsed.provider == "anthropic"
+        assert parsed.base_model is ANTHROPIC_BASE
+        assert parsed.wire_model is None
+        assert parsed.is_custom is False
 
     def test_an_identity_can_never_be_a_direct_model_id(self) -> None:
         """The prefix is what keeps the two runtimes from colliding."""

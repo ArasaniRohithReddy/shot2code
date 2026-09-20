@@ -94,7 +94,8 @@ class PlaywrightBackend:
             # non-encodable character here would raise inside the except block.
             print(
                 "[screenshot_preview] Chromium unavailable - tool disabled. "
-                "Install it with `playwright install chromium`. "
+                "Install it with `cd backend && uv run playwright install "
+                "chromium-headless-shell`. "
                 f"Cause: {type(exc).__name__}"
             )
             return False

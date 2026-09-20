@@ -70,13 +70,16 @@ def base_model_api_name(model: Llm) -> str:
 def build_provider_config(
     connection: ByokConnection,
     model: Llm,
+    wire_model: str | None = None,
 ) -> "copilot.ProviderConfig":
     """The SDK provider configuration for one BYOK selection.
 
-    ``model_id`` stays shot2code's known provider model name so the runtime can
-    look up that model's capabilities, while ``wire_model`` (when configured)
-    is what the endpoint itself is asked for - an Azure deployment name or a
-    fine-tune, which rarely match the catalog id.
+    ``model_id`` stays a model the runtime knows, because that is what it looks
+    prompt shape and token limits up by. ``wire_model`` is what the endpoint is
+    actually asked for - an Azure deployment name, or whatever model the
+    operator deployed on a standards-compatible endpoint, which the catalog has
+    never heard of. The selection's wire model wins over the connection's, so a
+    custom identity always sends the name it was built from.
     """
     reason = connection.unusable_reason
     if reason is not None:
@@ -86,6 +89,8 @@ def build_provider_config(
             f"Copilot SDK BYOK is a {connection.provider} connection, so it "
             f"cannot run {model.value}."
         )
+
+    served = wire_model or connection.wire_model
 
     config: "copilot.ProviderConfig" = {
         "type": connection.provider,
@@ -100,8 +105,8 @@ def build_provider_config(
         config["bearer_token"] = connection.bearer_token
     elif connection.api_key:
         config["api_key"] = connection.api_key
-    if connection.wire_model:
-        config["wire_model"] = connection.wire_model
+    if served:
+        config["wire_model"] = served
     if connection.provider == "azure" and connection.azure_api_version:
         config["azure"] = {"api_version": connection.azure_api_version}
     return config

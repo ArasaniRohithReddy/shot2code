@@ -382,6 +382,7 @@ class AgentEngine:
         model: Llm,
         prompt_messages: List[ChatCompletionMessageParam],
         byok_connection: Optional[ByokConnection] = None,
+        byok_wire_model: Optional[str] = None,
     ) -> str:
         self.tool_runtime.input_images = self._extract_input_images(prompt_messages)
         seed_file_state_from_messages(self.file_state, prompt_messages)
@@ -410,6 +411,8 @@ class AgentEngine:
             integrations=self.integrations,
             # Only ever set when the selection itself asked for the BYOK runtime.
             byok_connection=byok_connection,
+            # The endpoint's own model name, when the selection named one.
+            byok_wire_model=byok_wire_model,
         )
         try:
             result = await self._run_with_session(session)

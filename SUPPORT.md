@@ -5,8 +5,9 @@ but the more precise your report is, the faster it gets fixed.
 
 **Start here:** most problems already have an answer in
 **[Troubleshooting.md](Troubleshooting.md)** — install warnings, blank windows,
-"backend did not become ready", Copilot sign-in, missing models, imports that
-find nothing, and the extra keys some features need.
+"backend did not become ready", Copilot sign-in, provider connection checks,
+missing models, BYOK endpoints and model lists, imports that find nothing, and
+the extra keys some features need.
 
 ## Where to go
 
@@ -45,6 +46,10 @@ Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md) and include:
 - How you run it: NSIS installer, MSI, portable ZIP, or from source
 - Which model provider and model you used, including whether the option was a
   native model or an `sdk-byok/...` identity
+- For a provider or sign-in problem, the **category** the Settings connection
+  check reported (`credentials`, `billing`, `quota`, `permissions`, `model`,
+  `network`, `configuration`) and its message — it is written to be safe to
+  paste, but check it for anything private first
 - Whether an MCP server or the Review workspace was involved
 - For the desktop app, the **tail of the log** — this is usually enough on its own:
 

@@ -120,7 +120,9 @@ Other things it can do:
   versions and prompts, so **Recent projects** can pick up where you left off.
   Deleting a project removes it and its versions from the device.
 - **Screenshot preview** — the agent renders its own output in a headless
-  browser and visually checks its work
+  browser and visually checks its work. Settings shows whether it is available
+  and offers **Check again** after you install the browser, so you do not have
+  to restart the app.
 - **Responsive Review** — compare two to four real viewport widths at once,
   measure horizontal overflow, and run a deterministic local semantic and
   accessibility source audit. Selected findings can be inserted into Chat
@@ -301,15 +303,36 @@ You need **one** provider. GitHub Copilot is easiest because it needs no API key
 
 | Provider | Setup | Notes |
 |---|---|---|
-| **GitHub Copilot** ⭐ | `gh auth login` (or `copilot`) — needs an active Copilot subscription | Claude, GPT, Gemini and Grok through one sign-in |
-| **Copilot SDK BYOK** | A separate OpenAI-compatible, Azure OpenAI or Anthropic endpoint and its own credential | No Copilot subscription required; appears as a separate model group and never re-routes a native provider |
+| **GitHub Copilot** ⭐ | **Sign in with GitHub** in Settings, or `gh auth login` / `copilot` — needs an active Copilot subscription | Claude, GPT, Gemini and Grok through one sign-in |
+| **Copilot SDK BYOK** | One OpenAI-compatible, Azure OpenAI or Anthropic endpoint and its own credential | No Copilot subscription required; appears as a separate model group and never re-routes a native provider |
 | Gemini | API key | Also powers asset extraction and **video input** |
 | Anthropic | API key | |
 | OpenAI | API key | |
 | Replicate | API key | Image generation, editing, background removal |
 
 Keys go in **Settings** (gear icon) and are stored on your device only.
-Replicate is the exception — it must be set in `backend/.env`.
+Replicate is the exception — it must be set in `backend/.env`. Every key is
+masked in the UI and is never echoed back by a diagnostic, a validation
+response, a log line, project history or an exported report.
+
+### Checking a provider before you generate
+
+Settings can test each provider individually instead of making you find out
+mid-generation. A check makes **one minimal but real request** — deliberately
+tiny, though the account may still be billed a negligible amount for it — and
+reports what came back in plain terms: ready, credentials, billing, quota,
+permissions, model, network or configuration. An OpenAI account with no credit
+left, for example, is reported as a billing problem with "add credits", not as
+an unexplained failure. Replicate is checked against its account endpoint
+rather than by running a prediction.
+
+A check uses the key in that request when you supply one, otherwise the key the
+backend was started with. **A custom OpenAI base URL must carry its own key in
+the same request**: the key configured on the server belongs to the server's own
+endpoint and is never sent to an address a request names. Caller-supplied URLs
+are held to the same rules as a BYOK endpoint — `http`/`https` only, no
+credentials embedded in the URL, and HTTPS unless the host is loopback.
+
 
 ### Picking which models generate
 
@@ -343,20 +366,69 @@ So if you already use the GitHub CLI, it just works — Settings shows which
 account was picked up. Otherwise create a fine-grained token with the
 **Copilot Requests** permission.
 
+**Sign in with GitHub** in Settings does the same thing without a terminal. It
+runs the *official* Copilot CLI's own browser sign-in (`copilot login`), falling
+back to `gh auth login` when only the GitHub CLI is installed. shot2code never
+implements its own OAuth flow and never registers a client id of its own: the
+CLI owns the browser handshake and stores the credential itself, so **no token
+passes through shot2code**. The command line is fixed — nothing you type
+influences it — the process is launched directly rather than through a shell,
+its output is never shown or logged, and it is bounded by a timeout, cancellable
+and killed if the app exits. When the CLI finishes, shot2code simply re-runs the
+credential check above.
+
+If neither CLI is installed, Settings says so and links to GitHub's install
+instructions rather than pretending to sign you in. Starting or cancelling a
+sign-in is accepted only from shot2code's own window on this machine, so a web
+page you happen to have open cannot trigger it.
+
 ### GitHub Copilot SDK BYOK
 
-**Settings → GitHub Copilot SDK BYOK** adds a separate endpoint through the
-Copilot SDK. It supports OpenAI-compatible servers, Azure OpenAI and Anthropic;
-the connection has its own API key or bearer token, wire API and optional model
-name override. An OpenAI-compatible endpoint on `localhost` may be
-credentialless. The SDK has no native Gemini BYOK provider.
+**Settings → GitHub Copilot SDK BYOK** adds one endpoint of your own through the
+Copilot SDK. It supports any standards-compatible OpenAI-style server, Azure
+OpenAI and Anthropic. The connection has its own API key or bearer token, and
+direct OpenAI/Anthropic credentials are never borrowed for it. An
+OpenAI-compatible endpoint on `localhost` may be credentialless; every other
+endpoint needs its own. Base URLs must be `https` unless they point at loopback,
+and may not embed credentials. The SDK has no native Gemini BYOK provider.
 
-BYOK is additive. Its models appear under **Copilot SDK (BYOK)** with identities
-such as `sdk-byok/azure/gpt-5.6-sol (high thinking)`. A native model and its
-BYOK twin can be selected in the same generation, keep their requested
-reasoning effort, and remain distinct in History and retries. Direct OpenAI,
-Anthropic, Gemini, Replicate and Copilot-subscription credentials and routing
-are unchanged; they are never borrowed as BYOK credentials.
+**Finding the model.** For an OpenAI-compatible connection, **Validate** asks
+the endpoint what it serves at `/models` and lists what comes back (bounded, and
+only ids it could actually select). That route is optional in practice: if the
+endpoint does not implement it, shot2code says so and you name the model
+yourself. Azure OpenAI and Anthropic do not expose an equivalent list, so their
+model name is always set by hand. A listing that fails for a real reason — a
+rejected key, an unreachable host — is reported as such; shot2code never invents
+a model list.
+
+**Wire API.** Chat Completions is what every compatible endpoint implements, so
+a connection with its own base URL defaults to it; a vendor connection with no
+base URL of its own defaults to Responses. Either can be chosen explicitly.
+
+**Your own model.** Name a model in **Model / deployment** and that single model
+is what the picker offers, under its real name — shot2code does not list a whole
+vendor family for an endpoint that serves one model. Its identity is
+`sdk-byok/<provider>/custom/<model>`, URL-encoded so a slash, colon or `@` in the
+name stays intact and can never collide with a catalog id. Model names are
+bounded to 128 characters. Internally the run borrows a neutral, non-reasoning
+template so the SDK knows how to shape the conversation, and **no GPT or Claude
+thinking level is sent** to a model that has no such concept — only the real
+model name goes on the wire.
+
+**What the model must support.** shot2code drives a model with screenshots and
+tool calls, so a BYOK model needs **image input (vision) and tool calling**. A
+successful check says the endpoint answered; it cannot prove those two
+capabilities, so the requirement is repeated with the result, and an endpoint
+that rejects a tool or an image is reported as a model problem rather than a
+mystery.
+
+BYOK is additive. Models appear under **Copilot SDK (BYOK)** with identities
+such as `sdk-byok/azure/gpt-5.6-sol (high thinking)` for a catalog model, or
+`sdk-byok/openai/custom/your-model` for your own. A native model and its BYOK
+twin can be selected in the same generation and remain distinct in History and
+retries; a retry replays the identity while using whatever the connection is
+configured with today. Direct OpenAI, Anthropic, Gemini, Replicate and
+Copilot-subscription credentials and routing are unchanged.
 
 ### MCP servers
 
@@ -395,7 +467,7 @@ Requires [uv](https://docs.astral.sh/uv/), [pnpm](https://pnpm.io/) and Node 18+
 # Backend
 cd backend
 uv sync
-uv run playwright install chromium      # optional: screenshot preview
+uv run playwright install chromium-headless-shell   # optional: screenshot preview
 uv run uvicorn main:app --reload --port 7001
 
 # Frontend (in another terminal)

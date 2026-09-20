@@ -79,13 +79,21 @@ class TestProviderConfigConversion:
         config = provider_config(connection(), OPENAI_BASE)
 
         assert config["type"] == "openai"
-        assert config["wire_api"] == "responses"
+        # A connection pointed at someone else's base URL defaults to the
+        # interface every compatible endpoint implements.
+        assert config["wire_api"] == "completions"
         assert config["base_url"] == "https://api.example.com/v1"
         assert config["api_key"] == "sk-byok"
         # The selection is sdk-byok/openai/<model>; the endpoint is still asked
         # for the provider's own model name.
         assert config["model_id"] == "gpt-5.6-sol"
         assert "wire_model" not in config
+
+    def test_a_vendor_connection_keeps_the_responses_default(self) -> None:
+        config = provider_config(connection(baseUrl=None), OPENAI_BASE)
+
+        assert config["wire_api"] == "responses"
+        assert "base_url" not in config
 
     def test_wire_model_overrides_only_the_endpoint_model(self) -> None:
         config = provider_config(
@@ -166,7 +174,7 @@ class TestDirectCredentialsAreNeverBorrowed:
 
         signature = inspect.signature(build_provider_config)
 
-        assert list(signature.parameters) == ["connection", "model"]
+        assert list(signature.parameters) == ["connection", "model", "wire_model"]
 
     def test_no_key_fallback_helper_exists(self) -> None:
         import integrations.copilot_sdk as sdk_module

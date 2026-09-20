@@ -41,7 +41,7 @@ describe("defaults and normalisation", () => {
       baseUrl: null,
       apiKey: null,
       bearerToken: null,
-      wireApi: "responses",
+      wireApi: null,
       wireModel: null,
       azureApiVersion: null,
     });
@@ -86,7 +86,7 @@ describe("defaults and normalisation", () => {
       wireApi: "grpc",
     });
     expect(normalized.provider).toBe("openai");
-    expect(normalized.wireApi).toBe("responses");
+    expect(normalized.wireApi).toBeNull();
   });
 
   test("drops an Azure api-version once the provider is not Azure", () => {
@@ -121,6 +121,8 @@ describe("run identities", () => {
     expect(parseByokSelectionId(id)).toEqual({
       provider: "azure",
       baseModelId: OPENAI_BASE,
+      wireModel: null,
+      isCustom: false,
     });
   });
 
@@ -282,7 +284,6 @@ describe("wire payload", () => {
     expect(toByokWirePayload(settings())).toEqual({
       enabled: true,
       provider: "openai",
-      wireApi: "responses",
       baseUrl: "https://gateway.example.com/v1",
       apiKey: "byok-dedicated-key",
     });
@@ -334,8 +335,8 @@ describe("descriptions", () => {
 
   test("names the wire model when the endpoint renames it", () => {
     expect(
-      describeByokEndpoint(settings({ wireModel: "llama-3.3-70b" }))
-    ).toContain("as llama-3.3-70b");
+      describeByokEndpoint(settings({ wireModel: "my-model-large" }))
+    ).toContain("as my-model-large");
   });
 
   test("falls back to a readable placeholder with no base url", () => {
@@ -358,5 +359,272 @@ describe("descriptions", () => {
     expect(byokSelectionId("anthropic", ANTHROPIC_BASE)).toBe(
       `sdk-byok/anthropic/${ANTHROPIC_BASE}`
     );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Custom endpoint models                                                      */
+/* -------------------------------------------------------------------------- */
+
+import {
+  MAX_WIRE_MODEL_LENGTH,
+  byokCustomSelectionId,
+  isCustomByokSelectionId,
+  isValidWireModel,
+  parseByokSelectionId as parseId,
+  wireModelOfSelectionId,
+} from "./copilot-sdk-byok";
+
+describe("isValidWireModel", () => {
+  it("accepts the shapes organisation endpoints really use", () => {
+    for (const name of [
+      "my-model-v1",
+      "my-org/my-model:latest",
+      "my-model@2026-01",
+      "my_model+preview",
+      "gpt-4o-mini",
+    ]) {
+      expect(isValidWireModel(name)).toBe(true);
+    }
+  });
+
+  it("rejects whitespace, control characters and empty names", () => {
+    for (const name of ["", "   ", "my model", "model\tname", "a\u0000b"]) {
+      expect(isValidWireModel(name)).toBe(false);
+    }
+    expect(isValidWireModel(undefined)).toBe(false);
+    expect(isValidWireModel(42)).toBe(false);
+  });
+
+  it("rejects a name that cannot start a path segment", () => {
+    expect(isValidWireModel("/leading-slash")).toBe(false);
+    expect(isValidWireModel("-leading-dash")).toBe(false);
+  });
+
+  it("bounds the length the same way the backend does", () => {
+    expect(isValidWireModel("a".repeat(MAX_WIRE_MODEL_LENGTH))).toBe(true);
+    expect(isValidWireModel("a".repeat(MAX_WIRE_MODEL_LENGTH + 1))).toBe(false);
+  });
+});
+
+describe("custom selection ids", () => {
+  it("builds the backend's documented pattern", () => {
+    expect(byokCustomSelectionId("openai", "my-model-v1")).toBe(
+      "sdk-byok/openai/custom/my-model-v1"
+    );
+  });
+
+  it("URL-encodes a name so a slash can never read as structure", () => {
+    const id = byokCustomSelectionId("openai", "my-org/my-model:latest");
+
+    expect(id).toBe("sdk-byok/openai/custom/my-org%2Fmy-model%3Alatest");
+    // The encoded segment must not introduce a new path level.
+    expect(id.split("/")).toHaveLength(4);
+  });
+
+  it("round-trips every realistic name", () => {
+    for (const name of [
+      "my-model-v1",
+      "my-org/my-model:latest",
+      "my-model@2026-01",
+      "a.b_c+d",
+    ]) {
+      const parsed = parseId(byokCustomSelectionId("openai", name));
+      expect(parsed?.wireModel).toBe(name);
+      expect(parsed?.isCustom).toBe(true);
+      expect(parsed?.baseModelId).toBeNull();
+      expect(parsed?.provider).toBe("openai");
+    }
+  });
+
+  it("keeps a known-model identity separate from a custom one", () => {
+    const known = parseId(byokSelectionId("azure", OPENAI_BASE));
+    expect(known?.isCustom).toBe(false);
+    expect(known?.baseModelId).toBe(OPENAI_BASE);
+    expect(known?.wireModel).toBeNull();
+
+    expect(isCustomByokSelectionId(byokSelectionId("azure", OPENAI_BASE))).toBe(
+      false
+    );
+    expect(
+      isCustomByokSelectionId(byokCustomSelectionId("azure", "my-deployment"))
+    ).toBe(true);
+  });
+
+  it("never claims the endpoint model is a catalog base model", () => {
+    // A custom id has no catalog base; the endpoint name stands in so the
+    // selection still carries something truthful on the wire.
+    const id = byokCustomSelectionId("openai", "my-model-v1");
+    expect(baseModelOfSelectionId(id)).toBe("my-model-v1");
+    expect(wireModelOfSelectionId(id)).toBe("my-model-v1");
+    expect(wireModelOfSelectionId(byokSelectionId("openai", OPENAI_BASE))).toBeNull();
+  });
+
+  it("refuses a custom id whose decoded name is not usable", () => {
+    expect(parseId("sdk-byok/openai/custom/")).toBeNull();
+    expect(parseId("sdk-byok/openai/custom/my%20model")).toBeNull();
+    expect(parseId("sdk-byok/openai/custom/%E0%A4%A")).toBeNull();
+    expect(parseId("sdk-byok/nowhere/custom/my-model")).toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Wire API: Automatic must stay reachable                                     */
+/* -------------------------------------------------------------------------- */
+
+import {
+  BYOK_WIRE_API_AUTOMATIC_LABEL,
+  describeWireApiChoice,
+  effectiveWireApi,
+  MAX_WIRE_MODEL_LENGTH as WIRE_MODEL_LIMIT,
+} from "./copilot-sdk-byok";
+
+describe("the Automatic wire API", () => {
+  it("is the default, so a fresh connection lets the backend decide", () => {
+    expect(DEFAULT_COPILOT_SDK_BYOK_SETTINGS.wireApi).toBeNull();
+    expect(BYOK_WIRE_API_AUTOMATIC_LABEL).toContain("Automatic");
+  });
+
+  it("omits wireApi from the payload so the backend's derivation can run", () => {
+    const payload = toByokWirePayload(settings({ wireApi: null }));
+
+    // The absence is the signal. Sending any value would pin the protocol and
+    // make the backend's provider-neutral default unreachable.
+    expect("wireApi" in payload).toBe(false);
+    expect(JSON.stringify(payload)).not.toContain("wireApi");
+  });
+
+  it("still sends an explicitly pinned protocol", () => {
+    expect(toByokWirePayload(settings({ wireApi: "completions" })).wireApi).toBe(
+      "completions"
+    );
+    expect(toByokWirePayload(settings({ wireApi: "responses" })).wireApi).toBe(
+      "responses"
+    );
+  });
+
+  it("mirrors the backend's derivation for display", () => {
+    // A custom endpoint speaks Chat Completions; a vendor endpoint Responses.
+    expect(
+      effectiveWireApi({ wireApi: null, baseUrl: "https://api.example.com/v1" })
+    ).toBe("completions");
+    expect(effectiveWireApi({ wireApi: null, baseUrl: null })).toBe("responses");
+    // A pinned value wins over the derivation, either way.
+    expect(
+      effectiveWireApi({
+        wireApi: "responses",
+        baseUrl: "https://api.example.com/v1",
+      })
+    ).toBe("responses");
+    expect(
+      effectiveWireApi({ wireApi: "completions", baseUrl: null })
+    ).toBe("completions");
+  });
+
+  it("says when a protocol was chosen rather than picked", () => {
+    expect(
+      describeWireApiChoice({
+        wireApi: null,
+        baseUrl: "https://api.example.com/v1",
+      })
+    ).toBe("Chat Completions API, chosen automatically");
+    expect(
+      describeWireApiChoice({ wireApi: "responses", baseUrl: null })
+    ).toBe("Responses API");
+  });
+
+  it("keeps a protocol somebody saved on purpose", () => {
+    // Upgrading must not change what a working connection speaks.
+    for (const pinned of ["responses", "completions"] as const) {
+      expect(
+        normalizeCopilotSdkByokSettings({ wireApi: pinned }).wireApi
+      ).toBe(pinned);
+    }
+  });
+
+  it("treats an absent or unusable protocol as Automatic", () => {
+    for (const stored of [undefined, null, "", "grpc", 7, {}]) {
+      expect(
+        normalizeCopilotSdkByokSettings({ wireApi: stored }).wireApi
+      ).toBeNull();
+    }
+  });
+
+  it("describes the endpoint with the protocol that will really be used", () => {
+    expect(
+      describeByokEndpoint(
+        settings({ wireApi: null, baseUrl: "https://api.example.com/v1" })
+      )
+    ).toContain("Chat Completions API");
+    expect(
+      describeByokEndpoint(settings({ wireApi: null, baseUrl: null }))
+    ).toContain("Responses API");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Endpoint model names survive a restart                                      */
+/* -------------------------------------------------------------------------- */
+
+describe("persisting an endpoint model id", () => {
+  const LONG_MODEL = `a${"b".repeat(WIRE_MODEL_LIMIT - 1)}`;
+
+  it("keeps a valid id longer than the old 64-character bound", () => {
+    expect(LONG_MODEL).toHaveLength(WIRE_MODEL_LIMIT);
+    expect(LONG_MODEL.length).toBeGreaterThan(100);
+    expect(isValidWireModel(LONG_MODEL)).toBe(true);
+
+    const restored = normalizeCopilotSdkByokSettings({
+      wireModel: LONG_MODEL,
+    });
+
+    // Truncating here would silently run a *different* model after a restart.
+    expect(restored.wireModel).toBe(LONG_MODEL);
+    expect(restored.wireModel).toHaveLength(WIRE_MODEL_LIMIT);
+  });
+
+  it("round-trips such an id through the payload and its selection identity", () => {
+    const stored = normalizeCopilotSdkByokSettings({
+      enabled: true,
+      provider: "openai",
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "dedicated",
+      wireModel: LONG_MODEL,
+    });
+
+    expect(toByokWirePayload(stored).wireModel).toBe(LONG_MODEL);
+    const id = byokCustomSelectionId("openai", LONG_MODEL);
+    expect(parseByokSelectionId(id)?.wireModel).toBe(LONG_MODEL);
+  });
+
+  it("reports an over-long id instead of trimming it into a valid one", () => {
+    const tooLong = "c".repeat(WIRE_MODEL_LIMIT + 40);
+    const stored = normalizeCopilotSdkByokSettings({
+      enabled: true,
+      provider: "openai",
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "dedicated",
+      wireModel: tooLong,
+    });
+
+    // Kept verbatim, so the error names what was actually typed...
+    expect(stored.wireModel).toBe(tooLong);
+    // ...and it is refused rather than quietly becoming a different model.
+    expect(isValidWireModel(stored.wireModel)).toBe(false);
+    expect(validateByokSettings(stored).wireModel).toContain(
+      String(WIRE_MODEL_LIMIT)
+    );
+  });
+
+  it("still reports a badly shaped id of any length", () => {
+    const stored = normalizeCopilotSdkByokSettings({
+      enabled: true,
+      provider: "openai",
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "dedicated",
+      wireModel: "has a space",
+    });
+    expect(stored.wireModel).toBe("has a space");
+    expect(validateByokSettings(stored).wireModel).toContain("no spaces");
   });
 });

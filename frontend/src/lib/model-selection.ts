@@ -3,6 +3,7 @@ import type { IntegrationDiagnostic } from "./integrations";
 import { parseIntegrationDiagnostics } from "./integrations";
 import {
   MODEL_RUNTIMES,
+  parseByokSelectionId,
   runtimeOfSelectionId,
   type ModelRuntime,
 } from "./copilot-sdk-byok";
@@ -291,9 +292,17 @@ export function describeSelection(
         ? `BYOK · ${model.family || model.label}`
         : model.label;
     }
-    return runtimeOfSelectionId(id) === "copilot-byok"
-      ? `BYOK · ${id.slice(id.lastIndexOf("/") + 1)}`
-      : id.replace("copilot/", "");
+    if (runtimeOfSelectionId(id) === "copilot-byok") {
+      // A custom identity URL-encodes the endpoint model, so the raw tail can
+      // read as an escaped string. Parsing gives back the real name.
+      const parsed = parseByokSelectionId(id);
+      const name =
+        parsed?.wireModel ??
+        parsed?.baseModelId ??
+        id.slice(id.lastIndexOf("/") + 1);
+      return `BYOK · ${name}`;
+    }
+    return id.replace("copilot/", "");
   }
   return `${selection.length} models`;
 }

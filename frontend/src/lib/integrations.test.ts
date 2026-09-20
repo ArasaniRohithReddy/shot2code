@@ -466,3 +466,160 @@ describe("MCP tool names", () => {
     expect(parseMcpToolName("MCP ·  · search")).toBeNull();
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* Custom endpoint model selections                                            */
+/* -------------------------------------------------------------------------- */
+
+import {
+  byokCustomSelectionId as customId,
+  type CopilotSdkByokSettings as ByokSettings,
+} from "./copilot-sdk-byok";
+
+const CUSTOM_MODEL = "my-model-v1";
+
+function byokConnection(
+  overrides: Partial<ByokSettings> = {}
+): ByokSettings {
+  return {
+    enabled: true,
+    provider: "openai",
+    baseUrl: "https://api.example.com/v1",
+    apiKey: "dedicated-byok-key",
+    bearerToken: null,
+    wireApi: "completions",
+    wireModel: CUSTOM_MODEL,
+    azureApiVersion: null,
+    ...overrides,
+  };
+}
+
+describe("buildModelSelections with a custom endpoint model", () => {
+  it("carries the endpoint model and provider alongside the identity", () => {
+    const id = customId("openai", CUSTOM_MODEL);
+    const [entry] = buildModelSelections([id]);
+
+    expect(entry).toEqual({
+      id,
+      baseModel: CUSTOM_MODEL,
+      runtime: "copilot-byok",
+      wireModel: CUSTOM_MODEL,
+      provider: "openai",
+    });
+  });
+
+  it("decodes a name containing a slash before sending it", () => {
+    const name = "my-org/my-model:latest";
+    const [entry] = buildModelSelections([customId("openai", name)]);
+
+    expect(entry.wireModel).toBe(name);
+    expect(entry.id).toBe("sdk-byok/openai/custom/my-org%2Fmy-model%3Alatest");
+  });
+
+  it("leaves known-model and native selections without a wire model", () => {
+    const entries = buildModelSelections([
+      "gpt-5.5 (high thinking)",
+      "sdk-byok/azure/gpt-5.5 (high thinking)",
+    ]);
+
+    expect(entries.map((e) => e.wireModel)).toEqual([undefined, undefined]);
+    expect(entries.map((e) => e.provider)).toEqual([undefined, undefined]);
+    expect(entries.map((e) => e.runtime)).toEqual(["native", "copilot-byok"]);
+  });
+
+  it("keeps a custom entry beside a native pick as two variants", () => {
+    const entries = buildModelSelections([
+      "gpt-5.5 (high thinking)",
+      customId("openai", CUSTOM_MODEL),
+    ]);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0].runtime).toBe("native");
+    expect(entries[1].runtime).toBe("copilot-byok");
+    expect(entries[1].wireModel).toBe(CUSTOM_MODEL);
+  });
+
+  it("drops a custom identity nothing can parse rather than guessing", () => {
+    expect(buildModelSelections(["sdk-byok/openai/custom/bad%20name"])).toEqual(
+      []
+    );
+  });
+});
+
+describe("a custom pick against the current connection", () => {
+  it("is serviceable while the connection serves that model", () => {
+    expect(
+      unavailableByokSelections([customId("openai", CUSTOM_MODEL)], {
+        copilotSdkByok: byokConnection(),
+        mcpServers: [],
+      })
+    ).toEqual([]);
+  });
+
+  it("is reported once the endpoint model changes", () => {
+    const stale = customId("openai", CUSTOM_MODEL);
+    expect(
+      unavailableByokSelections([stale], {
+        copilotSdkByok: byokConnection({ wireModel: "my-model-large" }),
+        mcpServers: [],
+      })
+    ).toEqual([stale]);
+  });
+
+  it("is reported when the provider changes underneath it", () => {
+    const stale = customId("openai", CUSTOM_MODEL);
+    expect(
+      unavailableByokSelections([stale], {
+        copilotSdkByok: byokConnection({ provider: "anthropic" }),
+        mcpServers: [],
+      })
+    ).toEqual([stale]);
+  });
+});
+
+describe("describeSelectionEntry", () => {
+  it("names a custom entry after the endpoint model, not a GPT alias", () => {
+    expect(describeSelectionEntry(customId("openai", CUSTOM_MODEL))).toBe(
+      `${CUSTOM_MODEL} via openai`
+    );
+    expect(describeSelectionEntry(customId("openai", CUSTOM_MODEL))).not.toMatch(/gpt/i);
+  });
+
+  it("still names a known BYOK entry after its base model", () => {
+    expect(
+      describeSelectionEntry("sdk-byok/azure/gpt-5.5 (high thinking)")
+    ).toBe("gpt-5.5 (high thinking) via azure");
+  });
+});
+
+describe("the BYOK summary", () => {
+  it("reads the custom selection id the backend reports", () => {
+    const parsed = parseIntegrationValidation({
+      valid: true,
+      byok_enabled: true,
+      byok: {
+        enabled: true,
+        provider: "openai",
+        wireApi: "completions",
+        wireModel: CUSTOM_MODEL,
+        baseUrlHost: "api.example.com",
+        hasApiKey: true,
+        usable: true,
+        customSelectionId: customId("openai", CUSTOM_MODEL),
+      },
+      byok_selection_ids: [customId("openai", CUSTOM_MODEL)],
+    });
+
+    expect(parsed.byok?.customSelectionId).toBe(customId("openai", CUSTOM_MODEL));
+    expect(parsed.byok?.wireModel).toBe(CUSTOM_MODEL);
+    expect(parsed.byokSelectionIds).toEqual([customId("openai", CUSTOM_MODEL)]);
+  });
+
+  it("leaves the custom id null for a catalog-model connection", () => {
+    const parsed = parseIntegrationValidation({
+      valid: true,
+      byok: { enabled: true, provider: "azure", usable: true },
+    });
+    expect(parsed.byok?.customSelectionId).toBeNull();
+  });
+});

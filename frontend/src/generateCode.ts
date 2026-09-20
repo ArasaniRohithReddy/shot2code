@@ -11,6 +11,35 @@ const ERROR_MESSAGE =
 
 const CANCEL_MESSAGE = "Code generation cancelled";
 
+export const GENERIC_GENERATION_ERROR = ERROR_MESSAGE;
+
+/**
+ * Pick the most useful wording for a generation that ended badly.
+ *
+ * The backend sends an `error` message and *then* closes the socket. Browsers
+ * cap a close reason at 123 UTF-8 bytes and some proxies drop it entirely, so
+ * the close frame on its own is not a reliable carrier for the actionable text:
+ * falling back to the generic "check the console" line throws away a diagnosis
+ * the user was already given, such as a missing key or an exhausted quota.
+ *
+ * When the close reason is merely a truncated prefix of the streamed error, the
+ * full sentence wins - a cut-off message is worse than the whole one.
+ */
+export function resolveGenerationError(
+  closeReason: string | undefined | null,
+  lastServerError: string | null,
+  fallback: string = ERROR_MESSAGE
+): string {
+  const reason = (closeReason ?? "").trim();
+  const server = (lastServerError ?? "").trim();
+  if (server && (reason.length === 0 || server.startsWith(reason))) {
+    return server;
+  }
+  if (reason.length > 0) return reason;
+  if (server.length > 0) return server;
+  return fallback;
+}
+
 type WebSocketResponse = {
   type:
     | "chunk"
@@ -61,6 +90,10 @@ export function generateCode(
   const ws = new WebSocket(wsUrl);
   wsRef.current = ws;
 
+  // The last diagnosis the backend actually sent, kept so a close frame that
+  // arrives empty or truncated cannot downgrade it to the generic message.
+  let lastServerError: string | null = null;
+
   ws.addEventListener("open", () => {
     ws.send(JSON.stringify(params));
   });
@@ -98,6 +131,7 @@ export function generateCode(
       callbacks.onToolResult(response.data, response.variantIndex, response.eventId);
     } else if (response.type === "error") {
       console.error("Error generating code", response.value);
+      if (response.value) lastServerError = response.value;
       toast.error(response.value || ERROR_MESSAGE);
     }
   });
@@ -109,11 +143,19 @@ export function generateCode(
       callbacks.onCancel("user_cancelled");
     } else if (event.code === APP_ERROR_WEB_SOCKET_CODE) {
       console.error("Known server error", event);
-      callbacks.onCancel("request_failed", event.reason || ERROR_MESSAGE);
+      callbacks.onCancel(
+        "request_failed",
+        resolveGenerationError(event.reason, lastServerError)
+      );
     } else if (event.code !== 1000) {
       console.error("Unknown server or connection error", event);
-      toast.error(ERROR_MESSAGE);
-      callbacks.onCancel("connection_error", event.reason || ERROR_MESSAGE);
+      // A specific diagnosis was already toasted; repeating the generic line
+      // would bury it under advice the user cannot act on.
+      if (!lastServerError) toast.error(ERROR_MESSAGE);
+      callbacks.onCancel(
+        "connection_error",
+        resolveGenerationError(event.reason, lastServerError)
+      );
     } else {
       callbacks.onComplete();
     }
@@ -121,6 +163,6 @@ export function generateCode(
 
   ws.addEventListener("error", (error) => {
     console.error("WebSocket error", error);
-    toast.error(ERROR_MESSAGE);
+    if (!lastServerError) toast.error(ERROR_MESSAGE);
   });
 }

@@ -34,6 +34,7 @@ from llm import (
     Llm,
     ModelProvider,
     get_copilot_sdk_reasoning_effort,
+    model_from_value,
     provider_for_model,
 )
 from model_catalog import PROVIDER_CREDENTIAL_LABELS, PROVIDER_LABELS
@@ -86,6 +87,7 @@ def create_provider_session(
     copilot_github_token: Optional[str] = None,
     integrations: Optional[IntegrationSettings] = None,
     byok_connection: Optional[ByokConnection] = None,
+    byok_wire_model: Optional[str] = None,
 ) -> ProviderSession:
     settings = integrations or EMPTY_INTEGRATIONS
     canonical_tools = canonical_tool_definitions(
@@ -110,6 +112,7 @@ def create_provider_session(
             prompt_messages=prompt_messages,
             canonical_tools=canonical_tools,
             recorder=recorder,
+            wire_model=byok_wire_model,
         )
 
     provider = provider_for_model(model)
@@ -199,6 +202,7 @@ def _create_byok_session(
     prompt_messages: list[ChatCompletionMessageParam],
     canonical_tools: list[CanonicalToolDefinition],
     recorder: Optional[AgentRunRecorder],
+    wire_model: Optional[str] = None,
 ) -> ProviderSession:
     """Run one explicitly selected BYOK identity through the Copilot SDK.
 
@@ -206,8 +210,16 @@ def _create_byok_session(
     GitHub sign-in, no ``~/.copilot`` fallback, no built-in tools, and an
     explicit per-install base directory that empty mode requires. The
     connection's own credential is the only one used.
+
+    When ``wire_model`` names a model only the endpoint knows, ``model`` is a
+    neutral compatibility template and *no* reasoning effort is sent: a GPT or
+    Claude thinking level means nothing to an arbitrary custom model.
     """
-    provider_config = build_provider_config(connection, model)
+    # A deployment named after a catalog model keeps that model's thinking
+    # level; anything else is an arbitrary endpoint model with none.
+    is_mapped = wire_model is not None and model_from_value(wire_model) is model
+    is_custom = wire_model is not None and not is_mapped
+    provider_config = build_provider_config(connection, model, wire_model=wire_model)
 
     base_directory = copilot_base_directory()
     os.makedirs(base_directory, exist_ok=True)
@@ -233,5 +245,8 @@ def _create_byok_session(
         ),
         provider_config=provider_config,
         model_api_name=base_model_api_name(model),
-        reasoning_effort=get_copilot_sdk_reasoning_effort(model),
+        reasoning_effort=(
+            None if is_custom else get_copilot_sdk_reasoning_effort(model)
+        ),
+        allow_reasoning_effort=not is_custom,
     )

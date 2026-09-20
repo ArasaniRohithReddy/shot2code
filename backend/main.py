@@ -20,6 +20,7 @@ from routes import (
     home,
     integrations,
     models,
+    providers,
 )
 from uploaded_assets import configure_uploaded_asset_routes
 
@@ -108,7 +109,11 @@ async def start_optional_discovery() -> None:
 
 @app.on_event("shutdown")
 async def stop_optional_discovery() -> None:
+    from copilot_login import login_manager
+
     await optional_startup_tasks.close()
+    # A delegated CLI sign-in must never outlive the backend that started it.
+    await login_manager.close()
     await close_screenshot_preview()
 
 # Configure CORS settings
@@ -125,5 +130,6 @@ app.include_router(home.router)
 app.include_router(capabilities.router)
 app.include_router(models.router)
 app.include_router(integrations.router)
+app.include_router(providers.router)
 app.include_router(design_systems.router)
 app.include_router(history.router)

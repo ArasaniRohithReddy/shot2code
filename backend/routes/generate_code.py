@@ -30,6 +30,7 @@ from integrations.config import (
 from llm import (
     COPILOT_MODELS,
     Llm,
+    provider_for_model,
 )
 from model_catalog import (
     ModelCatalog,
@@ -72,6 +73,7 @@ MessageType = Literal[
 from prompts.pipeline import build_prompt_messages
 from prompts.request_parsing import parse_prompt_content, parse_prompt_history
 from prompts.prompt_types import PromptHistoryMessage, Stack, UserTurnInput
+from provider_errors import classify_provider_error, redact_secrets
 from uploaded_assets import (
     append_uploaded_asset_ids_to_history,
     append_uploaded_asset_ids_to_prompt,
@@ -134,6 +136,13 @@ def _empty_specs() -> List[ModelRunSpec]:
 
 def _empty_strings() -> List[str]:
     return []
+
+
+def _error_provider(spec: "ModelRunSpec") -> str:
+    """Which provider a failing variant should be blamed on."""
+    if spec.is_byok:
+        return "copilot-byok"
+    return provider_for_model(spec.model)
 
 
 @dataclass
@@ -836,6 +845,47 @@ class AgenticGenerationStage:
         self.stack = stack
         self.input_mode = input_mode
         self.generation_type = generation_type
+        # Why each variant failed, kept so an all-failed run can report the
+        # real provider problem instead of a generic apology. First writer
+        # wins: a later generic handler must not overwrite a precise message.
+        self.variant_errors: Dict[int, str] = {}
+        self.variant_error_categories: Dict[int, str] = {}
+
+    def _record_variant_error(
+        self,
+        index: int,
+        message: str,
+        category: str = "unknown",
+    ) -> None:
+        if index in self.variant_errors:
+            return
+        self.variant_errors[index] = message
+        self.variant_error_categories[index] = category
+
+    def failure_summary(self, labels: Sequence[str] = ()) -> str | None:
+        """One message describing why every variant failed.
+
+        A single failure, or several identical ones, is reported verbatim -
+        that is the provider's actual complaint. Genuinely different failures
+        are listed per option so the user can see which pick to change.
+        """
+        if not self.variant_errors:
+            return None
+
+        ordered = [self.variant_errors[index] for index in sorted(self.variant_errors)]
+        unique = list(dict.fromkeys(ordered))
+        if len(unique) == 1:
+            return unique[0]
+
+        parts: list[str] = []
+        for index in sorted(self.variant_errors):
+            label = (
+                labels[index]
+                if index < len(labels) and labels[index]
+                else f"Option {index + 1}"
+            )
+            parts.append(f"{label}: {self.variant_errors[index]}")
+        return " | ".join(parts)
 
     async def process_variants(
         self,
@@ -865,7 +915,8 @@ class AgenticGenerationStage:
         """The BYOK connection a variant runs on, or None for a native run.
 
         A native spec always returns ``None``, so it reaches its own provider
-        even when BYOK is configured and usable.
+        even when BYOK is configured and usable. A custom identity resolves
+        only while the connection still points at that endpoint model.
         """
         if not spec.is_byok:
             return None
@@ -929,6 +980,7 @@ class AgenticGenerationStage:
                 model,
                 prompt_messages,
                 byok_connection=self._byok_connection_for(spec),
+                byok_wire_model=spec.wire_model,
             )
             if completion:
                 await self.send_message("setCode", completion, index, None, None)
@@ -941,34 +993,37 @@ class AgenticGenerationStage:
             )
             return completion
         except openai.AuthenticationError as e:
-            print(f"[VARIANT {index + 1}] OpenAI Authentication failed", e)
+            print(f"[VARIANT {index + 1}] OpenAI Authentication failed", type(e).__name__)
             error_message = (
                 "Incorrect OpenAI key. Please make sure your OpenAI API key is correct, "
                 "or create a new OpenAI API key on your OpenAI dashboard."
             )
+            self._record_variant_error(index, error_message, "credentials")
             await self.send_message("variantError", error_message, index, None, None)
             return ""
         except openai.NotFoundError as e:
-            print(f"[VARIANT {index + 1}] OpenAI Model not found", e)
+            print(f"[VARIANT {index + 1}] OpenAI Model not found", type(e).__name__)
             error_message = (
-                e.message
+                redact_secrets(e.message)
                 + ". Please make sure you have followed the instructions correctly to obtain "
                 "an OpenAI key with GPT vision access: "
                 "https://github.com/ArasaniRohithReddy/shot2code/blob/main/Troubleshooting.md"
             )
-            await self.send_message("variantError", error_message, index, None, None)
-            return ""
-        except openai.RateLimitError as e:
-            print(f"[VARIANT {index + 1}] OpenAI Rate limit exceeded", e)
-            error_message = (
-                "OpenAI error - 'You exceeded your current quota, please check your plan and billing details.'"
-            )
+            self._record_variant_error(index, error_message, "model")
             await self.send_message("variantError", error_message, index, None, None)
             return ""
         except Exception as e:
-            print(f"Error in variant {index + 1}: {e}")
-            traceback.print_exception(type(e), e, e.__traceback__)
-            await self.send_message("variantError", str(e), index, None, None)
+            # Everything else - including OpenAI rate limits and the "no
+            # credits remaining" APIError - is classified once, so the user is
+            # told which kind of problem it is and what to change.
+            info = classify_provider_error(e, _error_provider(spec))
+            print(
+                f"[VARIANT {index + 1}] {info.category} failure: {type(e).__name__}"
+            )
+            if info.category == "unknown":
+                traceback.print_exception(type(e), e, e.__traceback__)
+            self._record_variant_error(index, info.message, info.category)
+            await self.send_message("variantError", info.message, index, None, None)
             return ""
 
 
@@ -1000,7 +1055,15 @@ class ParameterExtractionMiddleware(Middleware):
     ) -> None:
         # Receive parameters
         assert context.ws_comm is not None
-        context.params = await context.ws_comm.receive_params()
+        try:
+            context.params = await context.ws_comm.receive_params()
+        except WebSocketDisconnect:
+            # A client that closes the socket before sending its request is
+            # normal (navigation, refresh, an aborted retry). Letting it
+            # propagate makes Starlette log a full ASGI traceback for what is
+            # not an error, so stop the pipeline quietly instead.
+            print("WebSocket closed before parameters were received")
+            return
 
         # Extract and validate
         param_extractor = ParameterExtractionStage(
@@ -1155,8 +1218,21 @@ class CodeGenerationMiddleware(Middleware):
 
             # Check if all variants failed
             if len(context.variant_completions) == 0:
+                # Report the provider's real complaint. "Contact support" tells
+                # a user nothing when the answer is "add credits" or "the key
+                # is wrong".
+                summary = generation_stage.failure_summary(
+                    labels=[
+                        f"Option {index + 1} ({spec.selection_id})"
+                        for index, spec in enumerate(context.variant_specs)
+                    ]
+                )
                 await context.throw_error(
-                    "Error generating code. Please contact support."
+                    summary
+                    or (
+                        "Generation failed before any model produced output. "
+                        "Check the provider settings and try again."
+                    )
                 )
                 return  # Don't continue the pipeline
 

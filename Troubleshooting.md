@@ -78,6 +78,48 @@ If none are found, sign in again and restart the app so the check re-runs.
 You can also paste a fine-grained token with the **Copilot Requests** permission
 into Settings.
 
+**"Sign in with GitHub" says no CLI was found**
+
+That button runs the official CLI's own browser sign-in rather than an OAuth
+flow of its own, so it needs either GitHub Copilot CLI or the GitHub CLI on your
+`PATH`. Settings links to GitHub's install instructions. Install one, then try
+again — or sign in with `copilot` / `gh auth login` in a terminal, which has the
+same result.
+
+**The sign-in browser window opened but nothing happened**
+
+Finish the flow in the browser, then return to shot2code; it re-checks your
+credentials when the CLI exits. If you closed the browser, use **Cancel** and
+start again. The flow times out on its own, and it is always stopped when the
+app closes, so it cannot be left running in the background. shot2code never sees
+the token — the CLI stores it — so if sign-in succeeded but Settings still shows
+nothing, check that the account actually has a Copilot subscription.
+
+**A provider check fails but generation used to work**
+
+Use the per-provider check in Settings; it makes one deliberately tiny — though
+still potentially billable — request and names the category:
+
+- **credentials** — the key is wrong or revoked. Re-paste it.
+- **billing** — the account has no credit left, so add credits or fix billing on
+  the provider's dashboard. An OpenAI account with no remaining credit reports
+  this, not a generic error.
+- **quota** — rate limited. Wait, or select fewer models.
+- **permissions** — the account cannot use that model; enable it with the
+  provider or choose another.
+- **model** — the model id is unknown to that provider, or the model cannot do
+  what shot2code needs (image input and tool calling).
+- **network** — the endpoint is unreachable; check proxies and firewalls.
+- **configuration** — something is missing before a request can be made.
+
+**A check with a custom OpenAI base URL says it needs its own API key**
+
+That is deliberate. The key the backend was started with belongs to the
+backend's own endpoint, and is never sent to an address the request names. Put
+the key for that endpoint in the same request (Settings does this for you). The
+URL must also be `https` unless it points at localhost, and must not embed a
+username or password.
+
 **No Copilot models are listed**
 
 Only models that accept images are shown, because turning a screenshot into code
@@ -95,12 +137,48 @@ There is no Gemini BYOK provider in the Copilot SDK.
 Configuring BYOK never unlocks or re-routes the native OpenAI or Anthropic
 groups. Those still need their own direct keys.
 
+**My endpoint's model list is empty, or "listing is not available"**
+
+`/models` is optional. shot2code asks an OpenAI-compatible endpoint for its list
+and shows what comes back; when the endpoint does not implement that route it
+says so and you type the model name into **Model / deployment** instead. Azure
+OpenAI and Anthropic never list models this way, so their model name is always
+manual. If the listing fails for a real reason — a rejected key, an unreachable
+host — the message says which; shot2code will not invent a list.
+
+**My endpoint's model does not appear in the picker**
+
+Name it in **Model / deployment**. That publishes exactly that one model under
+its real name rather than a vendor family. The name may be up to 128 characters
+and may contain slashes, colons, dots and `@`, but no spaces — use the id the
+endpoint itself reports. If a check says the endpoint does not list it, pick one
+of the ids it does report.
+
+**A BYOK generation fails on tools or images**
+
+shot2code drives the model with screenshots and tool calls, so a BYOK model
+needs **image input (vision) and tool calling**. A successful connection check
+only proves the endpoint answered; it cannot prove those capabilities, which is
+why the requirement is repeated with the result. An endpoint that rejects a tool
+or an image is reported as a model problem — choose a model that supports both.
+
+**A BYOK request went to the wrong API**
+
+A connection with its own base URL uses Chat Completions by default, because
+that is what compatible endpoints implement. A vendor connection with no base
+URL of its own uses Responses. Set **Wire API** explicitly if your endpoint
+needs the other one.
+
 **A BYOK retry ran through the wrong provider**
 
 Versions created by v0.4.0 record identities such as
-`sdk-byok/azure/gpt-5.6-sol (high thinking)`, so retries preserve the runtime as
-well as the model. If an older version predates that identity, choose the BYOK
-entry explicitly in **Models** before retrying.
+`sdk-byok/azure/gpt-5.6-sol (high thinking)`, or
+`sdk-byok/openai/custom/your-model` for a model only your endpoint knows, so
+retries preserve the runtime as well as the model. A retry replays that identity
+using whatever the connection is configured with today, so if you repoint the
+endpoint at a different model the old identity stops resolving and you should
+re-select it in **Models**. If a version predates identities entirely, choose
+the BYOK entry explicitly before retrying.
 
 ## MCP servers
 
@@ -157,7 +235,13 @@ source was chosen or why the request failed.
 
 **Screenshot preview** (the agent rendering its own output to check it) needs
 Chromium. It ships with the desktop app. If it's unavailable, Settings says so
-and the app simply skips that tool.
+and the app simply skips that tool. Running from source, install just the
+headless shell and then use **Check again** in Settings — no restart needed:
+
+```bash
+cd backend
+uv run playwright install chromium-headless-shell
+```
 
 ## Review workspace
 

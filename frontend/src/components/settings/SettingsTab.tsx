@@ -15,6 +15,8 @@ import { HTTP_BACKEND_URL } from "../../config";
 import ModelCatalogPicker from "./ModelCatalogPicker";
 import CopilotSdkByokSettings from "./CopilotSdkByokSettings";
 import McpServersSettings from "./McpServersSettings";
+import CopilotSignIn from "./CopilotSignIn";
+import ProviderConnectionChecks from "./ProviderConnectionChecks";
 import { useModelCatalog } from "../../hooks/useModelCatalog";
 import {
   credentialsFromSettings,
@@ -23,6 +25,10 @@ import {
 } from "../../lib/model-selection";
 import { DEFAULT_COPILOT_SDK_BYOK_SETTINGS } from "../../lib/copilot-sdk-byok";
 import { describeMcpScope, mcpRuntimeScope } from "../../lib/integrations";
+import {
+  describePreviewRemediation,
+  isPackagedDesktopRuntime,
+} from "../../lib/screenshot-preview-help";
 import toast from "react-hot-toast";
 
 interface Props {
@@ -40,6 +46,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   const [copilotAvailable, setCopilotAvailable] = useState<boolean | null>(null);
   const [copilotLogin, setCopilotLogin] = useState<string | null>(null);
   const [showDeprecatedModels, setShowDeprecatedModels] = useState(false);
+  const [isCheckingCapabilities, setIsCheckingCapabilities] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [updateState, setUpdateState] =
     useState<Shot2CodeUpdateState | null>(null);
@@ -72,6 +79,11 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
     (modelId) => selectionProviderOf(catalog, modelId)
   );
   const mcpScopeNote = mcpScope.hasActiveServers ? describeMcpScope(mcpScope) : null;
+
+  // The fix for a missing preview browser is entirely different when the
+  // bundled desktop build cannot start its own copy, so the guidance is chosen
+  // from the runtime rather than assuming a source checkout.
+  const previewHelp = describePreviewRemediation(isPackagedDesktopRuntime());
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +174,32 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
       ...s,
       editorTheme: theme,
     }));
+  };
+
+  // Re-probe the backend's optional capabilities on demand. The screenshot
+  // preview is the one users most often fix outside the app - installing the
+  // browser, or restarting after antivirus released it - so it needs a way to
+  // re-ask without restarting shot2code itself.
+  const recheckCapabilities = async () => {
+    setIsCheckingCapabilities(true);
+    try {
+      const response = await fetch(
+        `${HTTP_BACKEND_URL}/api/capabilities?refresh=true`
+      );
+      if (!response.ok) throw new Error(String(response.status));
+      const data = await response.json();
+      if (typeof data.screenshot_preview === "boolean") {
+        setScreenshotPreviewAvailable(data.screenshot_preview);
+      }
+      if (typeof data.copilot === "boolean") {
+        setCopilotAvailable(data.copilot);
+        setCopilotLogin(data.copilot_login ?? null);
+      }
+    } catch {
+      toast.error("Could not reach the backend to check again");
+    } finally {
+      setIsCheckingCapabilities(false);
+    }
   };
 
   const checkForUpdates = async () => {
@@ -481,18 +519,21 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   </div>
                 </div>
               ) : copilotAvailable === false ? (
-                <p className="text-xs text-gray-500 dark:text-zinc-400">
-                  Not signed in. Run{" "}
-                  <code className="rounded bg-gray-100 px-1 dark:bg-zinc-700">
-                    gh auth login
-                  </code>{" "}
-                  or{" "}
-                  <code className="rounded bg-gray-100 px-1 dark:bg-zinc-700">
-                    copilot
-                  </code>{" "}
-                  in a terminal, or paste a token below. Requires an active
-                  Copilot subscription.
-                </p>
+                <div className="space-y-3">
+                  <p className="text-xs text-gray-500 dark:text-zinc-400">
+                    Not signed in. Sign in below, or run{" "}
+                    <code className="rounded bg-gray-100 px-1 dark:bg-zinc-700">
+                      gh auth login
+                    </code>{" "}
+                    or{" "}
+                    <code className="rounded bg-gray-100 px-1 dark:bg-zinc-700">
+                      copilot
+                    </code>{" "}
+                    in a terminal, or paste a token below. Requires an active
+                    Copilot subscription.
+                  </p>
+                  <CopilotSignIn onSignedIn={refreshModelCatalog} />
+                </div>
               ) : (
                 <p className="text-xs text-gray-500 dark:text-zinc-400">
                   Checking GitHub Copilot sign-in…
@@ -544,6 +585,9 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                 <Input
                   id="openai-api-key"
                   className="mt-2"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
                   placeholder="OpenAI API key"
                   value={settings.openAiApiKey || ""}
                   onChange={(e) =>
@@ -590,6 +634,9 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                 <Input
                   id="anthropic-api-key"
                   className="mt-2"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
                   placeholder="Anthropic API key"
                   value={settings.anthropicApiKey || ""}
                   onChange={(e) =>
@@ -612,6 +659,9 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                 <Input
                   id="gemini-api-key"
                   className="mt-2"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
                   placeholder="Gemini API key"
                   value={settings.geminiApiKey || ""}
                   onChange={(e) =>
@@ -635,6 +685,9 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   <Input
                     id="replicate-api-key"
                     className="mt-2"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
                     placeholder="Replicate API key"
                     value={settings.replicateApiKey || ""}
                     onChange={(e) =>
@@ -646,6 +699,12 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   />
                 </div>
               )}
+
+              <ProviderConnectionChecks
+                settings={settings}
+                catalog={catalog}
+                selectedModels={selectedModels}
+              />
             </div>
           </div>
 
@@ -714,21 +773,60 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
             </div>
             <div className="p-4">
               {screenshotPreviewAvailable === false ? (
-                <div className="flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700/60 dark:bg-amber-900/20">
+                <div
+                  data-testid="screenshot-preview-unavailable"
+                  data-runtime={previewHelp.runtime}
+                  className="flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700/60 dark:bg-amber-900/20"
+                >
                   <BsExclamationTriangleFill className="mt-0.5 shrink-0 text-amber-500" />
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                      Screenshot preview is unavailable
+                      {previewHelp.title}
                     </p>
-                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                      Headless Chromium isn't installed on the backend, so the
-                      agent can't render and visually verify its own output.
-                      Install it with{" "}
-                      <code className="rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-900/40">
-                        playwright install chromium
-                      </code>{" "}
-                      and restart the backend.
+                    <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                      {previewHelp.body}
                     </p>
+                    {previewHelp.command && (
+                      <code className="mt-1.5 block overflow-x-auto whitespace-pre rounded bg-amber-100 px-2 py-1 font-mono text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
+                        {previewHelp.command}
+                      </code>
+                    )}
+                    <p className="mt-1.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                      {previewHelp.followUp}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void recheckCapabilities()}
+                        disabled={isCheckingCapabilities}
+                        data-testid="screenshot-preview-recheck"
+                        className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-amber-300 px-3 py-2 text-xs font-medium text-amber-900 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:cursor-wait disabled:opacity-60 dark:border-amber-700/60 dark:text-amber-100 dark:hover:bg-amber-900/40"
+                      >
+                        <LuRefreshCw
+                          aria-hidden="true"
+                          className={`h-3.5 w-3.5 ${
+                            isCheckingCapabilities ? "animate-spin" : ""
+                          }`}
+                        />
+                        {isCheckingCapabilities ? "Checking…" : "Check again"}
+                      </button>
+                      {previewHelp.showLogAction && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void window.__SHOT2CODE_APP__?.openLogs()
+                          }
+                          data-testid="screenshot-preview-open-logs"
+                          className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-amber-300 px-3 py-2 text-xs font-medium text-amber-900 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:border-amber-700/60 dark:text-amber-100 dark:hover:bg-amber-900/40"
+                        >
+                          <LuFolderOpen
+                            aria-hidden="true"
+                            className="h-3.5 w-3.5"
+                          />
+                          Open diagnostic log
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : screenshotPreviewAvailable === true ? (

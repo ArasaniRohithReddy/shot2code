@@ -3,7 +3,8 @@
 shot2code runs on your own machine. Project history and credentials stay local.
 Generation content leaves the device only for the model provider or BYOK
 endpoint you explicitly select; MCP tool calls go only to servers you explicitly
-enable and trust. The other outbound traffic is the update check and anything
+enable and trust; a provider connection check contacts only the provider you
+asked it to test. The other outbound traffic is the update check and anything
 you explicitly share.
 
 ## Supported versions
@@ -50,13 +51,43 @@ Credit is given in the advisory unless you prefer otherwise.
 ## API keys and local data
 
 - Provider API keys entered in **Settings** are stored by the frontend on your
-  device only. They are sent to the backend with a generation request and used to
-  call that provider — they are not stored server-side and are not sent anywhere
-  else.
+  device only. They are sent to the backend with a generation or connection-check
+  request and used to call that provider — they are not stored server-side and
+  are not sent anywhere else. They are masked in the UI and excluded from
+  validation responses, diagnostics, logs, project history and exported reports.
+  Provider errors are redacted before they are shown or logged, including a
+  credential the provider quotes back in its own message.
+- **A connection check that names its own OpenAI base URL must carry its own key
+  in the same request.** The key this backend was started with belongs to this
+  backend's own endpoint and is never sent to an address a request chooses. A
+  caller-supplied URL is validated with the same rules as a BYOK endpoint:
+  `http`/`https` only, no embedded credentials, and HTTPS unless the host is
+  loopback.
+- Connection checks make one real, deliberately minimal request to the provider,
+  so the account may be billed a negligible amount for it. Replicate is checked
+  against its authenticated account endpoint instead of by running a prediction.
 - The Copilot SDK BYOK connection has its own API key or bearer token. Direct
   OpenAI and Anthropic credentials are never used as a fallback. A
   credentialless connection is allowed only for an OpenAI-compatible localhost
-  endpoint.
+  endpoint. A custom endpoint model is sent under its real name only; no
+  reasoning-effort setting derived from an internal compatibility template ever
+  reaches it.
+- **In-app GitHub sign-in delegates to the official CLI.** shot2code implements
+  no OAuth flow and registers no client id of its own: **Sign in with GitHub**
+  runs `copilot login` (or `gh auth login`) with a fixed argument vector, and
+  the CLI owns the browser handshake and stores the credential. No token passes
+  through shot2code. The process is launched directly rather than through a
+  shell, nothing a request sends can influence the command line, its stdout and
+  stderr are drained but never returned or logged, and the flow is bounded by a
+  timeout, cancellable, and killed when the backend stops.
+- Starting or cancelling that sign-in is accepted only from shot2code's own
+  local window — an `http`/`https` origin whose hostname is exactly `localhost`,
+  `127.0.0.1` or `::1`, or the packaged app's `null` origin. Any other or
+  missing origin is refused with 403 before anything is spawned, so a web page
+  you have open cannot start a sign-in or cancel one. Reading sign-in status is
+  read-only and unguarded, and returns a status only — never a token or a
+  command line. Permissive CORS alone would not prevent a cross-site POST from
+  being sent, which is why the origin is checked in the route itself.
 - MCP environment values and request headers are treated as secrets: values are
   masked in the UI and excluded from diagnostics, logs, project history and
   exported Review reports.

@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping, Sequence
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from llm import Llm, ModelProvider, model_from_value, provider_for_model
 
@@ -58,29 +58,159 @@ BYOK_BASE_PROVIDERS: dict[ByokProvider, ModelProvider] = {
     "anthropic": "anthropic",
 }
 
+# The segment that marks an endpoint's own model rather than a catalog one.
+CUSTOM_ID_SEGMENT = "custom"
+
+# Compatibility templates for a custom endpoint model. Both are non-reasoning
+# entries: an arbitrary endpoint model has no GPT or Claude thinking level, so
+# the template must not imply one and no effort is ever derived from it.
+NEUTRAL_BASE_MODELS: dict[ModelProvider, Llm] = {
+    "openai": Llm.GPT_5_5_NONE,
+    "anthropic": Llm.CLAUDE_SONNET_4_6,
+}
+
+# What an endpoint model name may look like. Real deployments use slashes,
+# colons, dots and at-signs (``vendor/model:tag``); nothing else is allowed,
+# and never whitespace.
+MAX_WIRE_MODEL_LENGTH = 128
+_WIRE_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+\-]*$")
+
 
 def byok_selection_id(provider: ByokProvider, model: Llm) -> str:
-    """The run identity for one base model on the BYOK connection."""
+    """The run identity for one known base model on the BYOK connection."""
     return f"{BYOK_SELECTION_PREFIX}{provider}/{model.value}"
 
 
-def parse_byok_selection_id(value: object) -> tuple[ByokProvider, Llm] | None:
-    """Split a BYOK run identity, or ``None`` when it is not one."""
+def byok_custom_selection_id(provider: ByokProvider, wire_model: str) -> str:
+    """The run identity for a model only the user's own endpoint knows.
+
+    A standards-compatible endpoint serves whatever its operator deployed, and
+    those names are not in shot2code's catalog. The name is URL-encoded into a
+    ``custom/`` segment so a slash or a colon in a model id can never be
+    mistaken for structure, and so the id can never collide with a known-model
+    identity.
+    """
+    return (
+        f"{BYOK_SELECTION_PREFIX}{provider}/{CUSTOM_ID_SEGMENT}/"
+        f"{quote(wire_model, safe='')}"
+    )
+
+
+@dataclass(frozen=True)
+class ByokSelection:
+    """What a BYOK run identity resolves to.
+
+    ``base_model`` is an *internal compatibility* reference only: the runtime
+    needs a known model to look up prompt shape and limits. ``wire_model`` is
+    what the endpoint is actually asked for, and for a custom selection it is
+    the only model name that is true.
+    """
+
+    provider: ByokProvider
+    base_model: Llm
+    wire_model: str | None = None
+
+    @property
+    def is_custom(self) -> bool:
+        return self.wire_model is not None
+
+    @property
+    def selection_id(self) -> str:
+        if self.wire_model is not None:
+            return byok_custom_selection_id(self.provider, self.wire_model)
+        return byok_selection_id(self.provider, self.base_model)
+
+    @property
+    def display_model(self) -> str:
+        """The model name a person should see for this selection."""
+        return self.wire_model or self.base_model.value
+
+
+def neutral_base_model(provider: ByokProvider) -> Llm:
+    """The compatibility template a custom endpoint model runs under.
+
+    Deliberately a *non-reasoning* model: an arbitrary endpoint model has no
+    relationship to GPT or Claude thinking levels, so the template must not
+    imply one. Nothing about it is shown to the user and no effort derived
+    from it is ever sent.
+    """
+    return NEUTRAL_BASE_MODELS[BYOK_BASE_PROVIDERS[provider]]
+
+
+def byok_custom_selection(provider: ByokProvider, wire_model: str) -> ByokSelection:
+    """The selection for one endpoint model, mapped when shot2code knows it.
+
+    A deployment named after a model in the catalog (rare, but it happens)
+    keeps that model as its base, so its thinking level still applies.
+    Every other endpoint model runs under the neutral non-reasoning template.
+    """
+    mapped = model_from_value(wire_model)
+    expected = BYOK_BASE_PROVIDERS[provider]
+    if mapped is not None and provider_for_model(mapped) == expected:
+        return ByokSelection(
+            provider=provider, base_model=mapped, wire_model=wire_model
+        )
+    return ByokSelection(
+        provider=provider,
+        base_model=neutral_base_model(provider),
+        wire_model=wire_model,
+    )
+
+
+def parse_byok_selection_id(value: object) -> ByokSelection | None:
+    """Split a BYOK run identity, or ``None`` when it is not one.
+
+    Both shapes are understood, so ids saved before custom endpoints existed
+    keep working:
+
+    * ``sdk-byok/<provider>/<known model id>``
+    * ``sdk-byok/<provider>/custom/<url-encoded endpoint model>``
+    """
     if not isinstance(value, str) or not value.startswith(BYOK_SELECTION_PREFIX):
         return None
     remainder = value[len(BYOK_SELECTION_PREFIX) :]
-    provider, separator, base_model_id = remainder.partition("/")
-    if not separator or provider not in BYOK_PROVIDERS:
+    provider_value, separator, rest = remainder.partition("/")
+    if not separator or provider_value not in BYOK_PROVIDERS:
         return None
-    model = model_from_value(base_model_id)
+    provider: ByokProvider = provider_value  # pyright: ignore[reportAssignmentType]
+
+    custom_prefix = f"{CUSTOM_ID_SEGMENT}/"
+    if rest.startswith(custom_prefix):
+        encoded = rest[len(custom_prefix) :]
+        if not encoded:
+            return None
+        try:
+            wire_model = unquote(encoded)
+        except Exception:
+            return None
+        if not is_valid_wire_model(wire_model):
+            return None
+        return byok_custom_selection(provider, wire_model)
+
+    model = model_from_value(rest)
     if model is None:
         return None
-    return provider, model  # pyright: ignore[reportReturnType]
+    return ByokSelection(provider=provider, base_model=model)
 
 
 def is_byok_selection_id(value: object) -> bool:
     """True for ids that address the BYOK runtime rather than a direct model."""
     return isinstance(value, str) and value.startswith(BYOK_SELECTION_PREFIX)
+
+
+def is_valid_wire_model(value: object) -> bool:
+    """Whether a string is usable as an endpoint model name.
+
+    Deliberately permissive about the shapes real endpoints use
+    (``org/model:tag``, ``model@version``) and strict about everything else:
+    no whitespace, no control characters, bounded length.
+    """
+    if not isinstance(value, str):
+        return False
+    candidate = value.strip()
+    if not candidate or len(candidate) > MAX_WIRE_MODEL_LENGTH:
+        return False
+    return bool(_WIRE_MODEL.match(candidate))
 
 
 # Limits. A user can misconfigure these by hand, and an imported config can
@@ -236,6 +366,8 @@ class ByokConnectionSummary:
     azure_api_version: str | None
     usable: bool
     reason: str | None
+    # Set when the endpoint serves its own model rather than a catalog one.
+    custom_selection_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -250,6 +382,7 @@ class ByokConnectionSummary:
             "azureApiVersion": self.azure_api_version,
             "usable": self.usable,
             "reason": self.reason,
+            "customSelectionId": self.custom_selection_id,
         }
 
 
@@ -290,6 +423,23 @@ class ByokConnection:
         return byok_selection_id(self.provider, model)
 
     @property
+    def has_custom_model(self) -> bool:
+        """Whether the endpoint was pointed at a model shot2code does not know."""
+        return bool(self.wire_model) and model_from_value(self.wire_model) is None
+
+    @property
+    def custom_selection(self) -> "ByokSelection | None":
+        """The single truthful selection a custom endpoint model produces.
+
+        When the user names a ``wireModel``, that one model is what the
+        endpoint serves - so the catalog offers exactly it, under its real
+        name, instead of pretending the endpoint hosts a whole GPT family.
+        """
+        if not self.wire_model:
+            return None
+        return byok_custom_selection(self.provider, self.wire_model)
+
+    @property
     def unusable_reason(self) -> str | None:
         """Why this connection cannot run, in the words the user will see."""
         if not self.enabled:
@@ -314,6 +464,7 @@ class ByokConnection:
 
     def summary(self) -> ByokConnectionSummary:
         reason = self.unusable_reason
+        custom = self.custom_selection
         return ByokConnectionSummary(
             enabled=self.enabled,
             provider=self.provider,
@@ -326,6 +477,7 @@ class ByokConnection:
             azure_api_version=self.azure_api_version,
             usable=reason is None,
             reason=reason,
+            custom_selection_id=custom.selection_id if custom is not None else None,
         )
 
     def safe_metadata(self) -> dict[str, Any]:
@@ -433,16 +585,29 @@ class IntegrationSettings:
 
     def byok_for(self, selection_id: str) -> ByokConnection | None:
         """The connection a BYOK run identity resolves to, if it is usable."""
+        selection = self.byok_selection_for(selection_id)
+        return self.usable_byok if selection is not None else None
+
+    def byok_selection_for(self, selection_id: str) -> "ByokSelection | None":
+        """The resolved BYOK selection behind an identity, if it can run.
+
+        A custom identity only resolves when the connection is actually
+        pointed at that endpoint model, so a stale id from a previous
+        endpoint fails loudly instead of silently running something else.
+        """
         parsed = parse_byok_selection_id(selection_id)
         if parsed is None:
             return None
-        provider, model = parsed
         connection = self.usable_byok
-        if connection is None or connection.provider != provider:
+        if connection is None or connection.provider != parsed.provider:
             return None
-        if not connection.serves(model):
+        if parsed.is_custom:
+            if connection.wire_model != parsed.wire_model:
+                return None
+            return parsed
+        if not connection.serves(parsed.base_model):
             return None
-        return connection
+        return parsed
 
     @property
     def active_mcp_servers(self) -> tuple[McpServerSettings, ...]:
@@ -505,22 +670,26 @@ def _parse_byok(
         )
     provider: ByokProvider = provider_value  # pyright: ignore[reportAssignmentType]
 
-    wire_value = (
-        _clean_text(payload.get("wireApi"), "copilotSdkByok.wireApi", MAX_NAME_LENGTH)
-        .lower()
-        or "responses"
-    )
-    if wire_value not in WIRE_APIS:
+    wire_value = _clean_text(
+        payload.get("wireApi"), "copilotSdkByok.wireApi", MAX_NAME_LENGTH
+    ).lower()
+    if wire_value and wire_value not in WIRE_APIS:
         raise _fail(
             f"Unsupported wire API '{wire_value}'. Use responses or completions."
         )
-    wire_api: WireApi = wire_value  # pyright: ignore[reportAssignmentType]
-
     base_url = _clean_text(
         payload.get("baseUrl"), "copilotSdkByok.baseUrl", MAX_URL_LENGTH
     )
     if base_url:
         base_url = _validate_endpoint(base_url, "copilotSdkByok.baseUrl")
+    if not wire_value:
+        # Chat Completions is the interface every standards-compatible endpoint
+        # implements; Responses is not. So a connection pointed at someone
+        # else's endpoint defaults to completions, and only a vendor endpoint
+        # (no base URL of its own) keeps the responses default. An explicit
+        # wireApi always wins.
+        wire_value = "completions" if base_url else "responses"
+    wire_api: WireApi = wire_value  # pyright: ignore[reportAssignmentType]
 
     azure_api_version = _clean_text(
         payload.get("azureApiVersion"),
@@ -529,6 +698,15 @@ def _parse_byok(
     )
     if azure_api_version and provider != "azure":
         raise _fail("azureApiVersion only applies to an azure BYOK connection.")
+
+    wire_model = _clean_text(
+        payload.get("wireModel"), "copilotSdkByok.wireModel", MAX_WIRE_MODEL_LENGTH
+    )
+    if wire_model and not is_valid_wire_model(wire_model):
+        raise _fail(
+            f"'{wire_model}' is not a usable endpoint model name. Use the id the "
+            "endpoint itself reports, with no spaces."
+        )
 
     connection = ByokConnection(
         enabled=enabled,
@@ -547,10 +725,7 @@ def _parse_byok(
             MAX_VALUE_LENGTH,
         )
         or None,
-        wire_model=_clean_text(
-            payload.get("wireModel"), "copilotSdkByok.wireModel", MAX_LABEL_LENGTH
-        )
-        or None,
+        wire_model=wire_model or None,
         azure_api_version=azure_api_version or None,
     )
 
@@ -585,7 +760,13 @@ def _parse_byok(
 
 
 
-def _validate_endpoint(url: str, label: str) -> str:
+def validate_endpoint_url(url: str, label: str) -> str:
+    """Refuse an endpoint URL that is unsafe to send a credential to.
+
+    Shared so every caller-supplied URL - BYOK connection or validation
+    request - is held to the same rule: http/https only, no embedded
+    credentials, and plaintext http only when it cannot leave the machine.
+    """
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
         raise _fail(f"{label} must be an http:// or https:// URL.")
@@ -599,6 +780,10 @@ def _validate_endpoint(url: str, label: str) -> str:
             f"{label} must use https:// unless it points at localhost."
         )
     return url
+
+
+def _validate_endpoint(url: str, label: str) -> str:
+    return validate_endpoint_url(url, label)
 
 
 def _parse_string_list(

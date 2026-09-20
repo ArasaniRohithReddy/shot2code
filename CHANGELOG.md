@@ -20,19 +20,41 @@ Checksums for the published Windows artifacts:
 [docs/releases/v0.4.0/SHA256SUMS.txt](docs/releases/v0.4.0/SHA256SUMS.txt).
 
 This release adds a separate GitHub Copilot SDK BYOK runtime, guarded MCP tools,
-a multi-viewport Review workspace and a native Windows menu without replacing
-any existing direct provider.
+a multi-viewport Review workspace, a native Windows menu and a provider
+reliability pass, without replacing any existing direct provider.
 
 ### Added
 
+- **In-app GitHub sign-in.** **Sign in with GitHub** runs the official Copilot
+  CLI's own browser flow (`copilot login`), falling back to `gh auth login`.
+  shot2code implements no OAuth flow and registers no client id of its own, so
+  no token passes through the app; the CLI stores the credential and shot2code
+  re-runs its existing credential check afterwards. The command line is fixed,
+  the process is launched directly rather than through a shell, its output is
+  never shown or logged, and the flow is timed out, cancellable and killed on
+  exit. With neither CLI installed it reports that and links to GitHub's install
+  instructions.
+- **Per-provider connection checks.** Settings can test OpenAI, Anthropic,
+  Gemini, Replicate and the BYOK connection individually. Each makes one
+  minimal but real request — tiny, though the account may still be billed a
+  negligible amount — and reports ready, credentials, billing, quota,
+  permissions, model, network or configuration. Replicate uses its account
+  endpoint instead of running a prediction.
 - **Copilot SDK BYOK.** Configure one dedicated OpenAI-compatible, Azure OpenAI
   or Anthropic connection with its own API key or bearer token, wire API,
   endpoint and optional model-name override. It requires no Copilot
   subscription; an OpenAI-compatible localhost endpoint may be credentialless.
+- **BYOK model discovery.** An OpenAI-compatible connection is asked what it
+  serves at `/models`, and the bounded result is offered in Settings. The route
+  is optional: when an endpoint does not implement it, the model is named by
+  hand instead. Azure OpenAI and Anthropic have no equivalent listing and always
+  use a manual model name. A listing that fails for a real reason is reported;
+  no model list is ever invented.
 - **Separate BYOK model identities.** Models appear under **Copilot SDK
-  (BYOK)** as `sdk-byok/<provider>/<base model>`, so a native model and its BYOK
-  twin can run together as distinct variants. Their identity and requested
-  reasoning effort survive History and retries.
+  (BYOK)** as `sdk-byok/<provider>/<base model>`, or
+  `sdk-byok/<provider>/custom/<model>` for a model only your endpoint knows, so
+  a native model and its BYOK twin can run together as distinct variants. The
+  identity survives History and retries.
 - **MCP servers.** Configure up to eight stdio, HTTP or SSE servers for GitHub
   Copilot subscription and SDK-BYOK variants. Activity is labelled
   `MCP · <server> · <tool>`.
@@ -51,6 +73,20 @@ any existing direct provider.
 - Generation now carries a typed per-selection runtime identity. Native
   OpenAI, Anthropic, Gemini and Copilot choices always remain native even when
   BYOK is enabled.
+- A BYOK connection with its own base URL now defaults to **Chat Completions**,
+  the interface every standards-compatible endpoint implements; a vendor
+  connection with no base URL of its own still defaults to Responses. Either can
+  be selected explicitly.
+- Naming a model in **Model / deployment** now publishes exactly that one model
+  under its real name instead of a whole vendor family, with model names bounded
+  to 128 characters.
+- Generation failures now report the provider's actual complaint — with an
+  action such as "add credits" or "check the API key" — instead of a generic
+  "contact support" message. Each option keeps its own error, and a run where
+  every option failed reports the real cause.
+- Settings reports whether the screenshot-preview browser is available and
+  offers **Check again**, and the backend now names the correct recovery
+  command (`cd backend && uv run playwright install chromium-headless-shell`).
 - The Copilot SDK dependency is locked consistently at 1.0.13.
 - In-app Help and the public release-hub guides cover BYOK, MCP permissions,
   Review and native menu behavior.
@@ -62,19 +98,37 @@ any existing direct provider.
   extending below the fixed desktop shell.
 - Disabled or incomplete BYOK settings and disabled/untrusted incomplete MCP
   drafts no longer abort unrelated direct-provider generations.
-- BYOK variants now pass the selected model's supported reasoning effort into
-  the Copilot SDK; `no thinking` is omitted because it is not an SDK effort
-  value.
+- An OpenAI account with no remaining credit is now classified as a billing
+  problem with an actionable message, rather than surfacing as an unexplained
+  API error.
+- A custom endpoint model no longer receives a GPT or Claude reasoning-effort
+  setting it has no concept of; only the real model name goes on the wire. BYOK
+  variants of catalog models still pass the SDK's supported effort values, and
+  `no thinking` is omitted because it is not an SDK effort value.
+- A client that closes the generation socket before sending its request no
+  longer logs an ASGI traceback.
 
 ### Security
 
-- BYOK never borrows a direct OpenAI or Anthropic key.
+- BYOK never borrows a direct OpenAI or Anthropic key, and a BYOK base URL must
+  be HTTPS unless it points at loopback and may not embed credentials.
+- A provider check that names its own OpenAI base URL must supply its own key in
+  the same request. The key the backend was configured with is only ever used
+  with the backend's own endpoint, so it can never be sent to an address a
+  request chooses. Caller-supplied URLs are validated with the same endpoint
+  rules as a BYOK connection.
+- Starting or cancelling the in-app GitHub sign-in is accepted only from
+  shot2code's own local window (a `localhost`/`127.0.0.1`/`::1` origin, or the
+  packaged app's `null` origin), so a web page cannot trigger a sign-in or kill
+  one. Reading sign-in status stays read-only and unguarded.
 - MCP servers require both **Enabled** and **Trusted**. They remain read-only
   unless **Allow write tools** is enabled.
 - Stdio MCP commands use an explicit argument vector rather than a shell;
   remote MCP requires HTTPS except on localhost.
 - Integration secrets are masked and excluded from validation responses,
-  activity logs, project history and exported Review reports.
+  activity logs, project history and exported Review reports. Provider errors
+  are redacted before they are shown or logged, including a credential quoted
+  back by the provider.
 
 ### Accessibility
 

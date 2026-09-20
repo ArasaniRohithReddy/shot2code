@@ -240,7 +240,8 @@ describe("the WebSocket generation payload", () => {
     expect(payload.copilotSdkByok).toEqual({
       enabled: true,
       provider: "azure",
-      wireApi: "responses",
+      // No wireApi: nothing is pinned, so the backend derives it. Sending a
+      // value here would override that derivation.
       baseUrl: "https://r.openai.azure.com",
       apiKey: BYOK_KEY,
       azureApiVersion: "2024-10-21",
@@ -433,5 +434,153 @@ describe("commit and history snapshots hold no credentials", () => {
       "native",
     ]);
     expect(replayed.map((entry) => entry.id)).toEqual(MIXED_SELECTION);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* An organisation-hosted endpoint serving its own model                       */
+/* -------------------------------------------------------------------------- */
+
+import { byokCustomSelectionId } from "./copilot-sdk-byok";
+
+const CUSTOM_MODEL = "my-model-v1";
+const CUSTOM_ID = byokCustomSelectionId("openai", CUSTOM_MODEL);
+
+function customEndpointSettings(): Settings {
+  const settings = settingsFixture();
+  settings.copilotSdkByok = {
+    ...settings.copilotSdkByok,
+    enabled: true,
+    provider: "openai",
+    baseUrl: "https://api.example.com/v1",
+    apiKey: BYOK_KEY,
+    wireApi: "completions",
+    wireModel: CUSTOM_MODEL,
+  };
+  settings.selectedModels = [OPENAI_BASE, CUSTOM_ID];
+  return settings;
+}
+
+describe("a custom endpoint model on the wire", () => {
+  test("sends the endpoint model name beside its own identity", () => {
+    const payload = sendAndCapture(generationParams(customEndpointSettings()));
+    const selections = payload.modelSelections as Array<
+      WireSelection & { wireModel?: string; provider?: string }
+    >;
+
+    expect(selections).toHaveLength(2);
+    expect(selections[0]).toEqual({
+      id: OPENAI_BASE,
+      baseModel: OPENAI_BASE,
+      runtime: "native",
+    });
+    expect(selections[1]).toEqual({
+      id: CUSTOM_ID,
+      baseModel: CUSTOM_MODEL,
+      runtime: "copilot-byok",
+      wireModel: CUSTOM_MODEL,
+      provider: "openai",
+    });
+  });
+
+  test("never labels the custom pick with a catalog model name", () => {
+    const payload = sendAndCapture(generationParams(customEndpointSettings()));
+    const custom = (payload.modelSelections as WireSelection[])[1];
+
+    // The whole point of the custom identity: nothing here claims a GPT model.
+    expect(custom.id).not.toMatch(/gpt/i);
+    expect(custom.baseModel).not.toMatch(/gpt/i);
+    expect(custom.baseModel).toBe(CUSTOM_MODEL);
+  });
+
+  test("carries the connection so the backend can reach the endpoint", () => {
+    const payload = sendAndCapture(generationParams(customEndpointSettings()));
+    const connection = payload.copilotSdkByok as Record<string, unknown>;
+
+    expect(connection.wireModel).toBe(CUSTOM_MODEL);
+    expect(connection.wireApi).toBe("completions");
+    expect(connection.baseUrl).toBe("https://api.example.com/v1");
+  });
+
+  test("a retry replays the same endpoint identity", () => {
+    const settings = customEndpointSettings();
+    const payload = sendAndCapture(
+      generationParams(settings, { retryModels: [CUSTOM_ID, OPENAI_BASE] })
+    );
+
+    expect(payload.retryModelSelections).toEqual([
+      {
+        id: CUSTOM_ID,
+        baseModel: CUSTOM_MODEL,
+        runtime: "copilot-byok",
+        wireModel: CUSTOM_MODEL,
+        provider: "openai",
+      },
+      { id: OPENAI_BASE, baseModel: OPENAI_BASE, runtime: "native" },
+    ]);
+  });
+
+  test("the endpoint credential never reaches the selection entries", () => {
+    const payload = sendAndCapture(generationParams(customEndpointSettings()));
+    expect(JSON.stringify(payload.modelSelections)).not.toContain(BYOK_KEY);
+  });
+});
+
+describe("a custom endpoint model in what gets written down", () => {
+  /** The same commit shape, but recorded as having run on the endpoint. */
+  function customCommit(): Commit {
+    const settings = customEndpointSettings();
+    const commit = commitFixture();
+    return {
+      ...commit,
+      generationContext: {
+        ...commit.generationContext!,
+        selectedModels: [...settings.selectedModels],
+      },
+      variants: [
+        commit.variants[0],
+        { ...commit.variants[1], model: CUSTOM_ID },
+      ],
+    };
+  }
+
+  test("history keeps the identity verbatim and no credential", () => {
+    const commit = customCommit();
+    const version = commitToHistoryVersion(commit, snapshotState(commit));
+    const serialized = JSON.stringify(version);
+
+    // The run identity survives, so a retry from History replays the real
+    // endpoint rather than resolving to the compatibility template.
+    expect(serialized).toContain(CUSTOM_ID);
+    for (const secret of SECRETS) {
+      expect(serialized).not.toContain(secret);
+    }
+    expect(serialized).not.toContain("api.example.com");
+  });
+
+  test("the project snapshot carries no endpoint credential either", () => {
+    const commit = customCommit();
+    const serialized = JSON.stringify(
+      buildHistoryProjectSnapshot(snapshotState(commit), commit)
+    );
+
+    for (const secret of SECRETS) {
+      expect(serialized).not.toContain(secret);
+    }
+    expect(serialized).not.toContain("api.example.com");
+  });
+
+  test("a retry rebuilt from the stored ids reaches the same endpoint", () => {
+    const stored = customCommit().variants.map((variant) => variant.model!);
+    expect(buildModelSelections(stored)).toEqual([
+      { id: OPENAI_BASE, baseModel: OPENAI_BASE, runtime: "native" },
+      {
+        id: CUSTOM_ID,
+        baseModel: CUSTOM_MODEL,
+        runtime: "copilot-byok",
+        wireModel: CUSTOM_MODEL,
+        provider: "openai",
+      },
+    ]);
   });
 });

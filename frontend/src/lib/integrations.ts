@@ -26,6 +26,7 @@ import {
   parseByokSelectionId,
   runtimeOfSelectionId,
   toByokWirePayload,
+  type ByokProvider,
   type CopilotSdkByokSettings,
   type CopilotSdkByokWirePayload,
   type ModelRuntime,
@@ -121,6 +122,8 @@ export interface ByokConnectionSummary {
   azureApiVersion: string | null;
   usable: boolean;
   reason: string | null;
+  /** Set when the endpoint serves its own model rather than a catalog one. */
+  customSelectionId: string | null;
 }
 
 function parseByokSummary(raw: unknown): ByokConnectionSummary | null {
@@ -141,6 +144,7 @@ function parseByokSummary(raw: unknown): ByokConnectionSummary | null {
     azureApiVersion: nullableText(item.azureApiVersion),
     usable: item.usable === true,
     reason: nullableText(item.reason),
+    customSelectionId: nullableText(item.customSelectionId),
   };
 }
 
@@ -207,15 +211,26 @@ export interface ModelSelectionEntry {
   id: string;
   baseModel: string;
   runtime: ModelRuntime;
+  /**
+   * The endpoint's own model name, for a custom BYOK identity.
+   *
+   * The `id` is already authoritative - the backend parses provider, runtime
+   * and the exact name out of it. This is sent alongside so the backend's
+   * explicit fallback path (`runtime` + `provider` + `wireModel`) can still
+   * resolve the selection if the identity ever fails to parse.
+   */
+  wireModel?: string;
+  provider?: ByokProvider;
 }
 
 /**
  * Turn a saved selection into the per-selection run identities.
  *
  * Every id carries its own runtime, so this is a pure derivation: a native id
- * *is* its base model, and a BYOK id names its provider and base model. Order
- * is preserved and entries are de-duplicated **by id only**, which is what
- * keeps a native pick and the BYOK pick of the same base model as two variants.
+ * *is* its base model, and a BYOK id names its provider and either a base
+ * model or the endpoint model it addresses. Order is preserved and entries are
+ * de-duplicated **by id only**, which is what keeps a native pick and the BYOK
+ * pick of the same base model as two variants.
  *
  * A BYOK id the browser cannot parse is dropped rather than downgraded to
  * native - running someone's prompt on a different runtime than they asked for
@@ -233,7 +248,18 @@ export function buildModelSelections(
     const baseModel = baseModelOfSelectionId(id);
     if (baseModel === null) continue;
     seen.add(id);
-    entries.push({ id, baseModel, runtime: runtimeOfSelectionId(id) });
+
+    const parsed = parseByokSelectionId(id);
+    const entry: ModelSelectionEntry = {
+      id,
+      baseModel,
+      runtime: runtimeOfSelectionId(id),
+    };
+    if (parsed?.isCustom && parsed.wireModel) {
+      entry.wireModel = parsed.wireModel;
+      entry.provider = parsed.provider;
+    }
+    entries.push(entry);
     if (entries.length >= MAX_MODEL_SELECTIONS) break;
   }
 
@@ -261,7 +287,12 @@ export function unavailableByokSelections(
     const parsed = parseByokSelectionId(id);
     if (parsed === null) return true;
     if (!connection.enabled) return true;
-    return parsed.provider !== connection.provider;
+    if (parsed.provider !== connection.provider) return true;
+    // A custom identity names one exact endpoint model. Pointing the
+    // connection at a different one leaves the old pick unserviceable, and the
+    // backend refuses it for the same reason.
+    if (parsed.isCustom) return parsed.wireModel !== connection.wireModel;
+    return false;
   });
 }
 
@@ -403,7 +434,11 @@ export function describeMcpScope(scope: McpRuntimeScope): string {
 /** Human-readable label for a selected id, for hints and warnings. */
 export function describeSelectionEntry(entry: string): string {
   const parsed = parseByokSelectionId(entry);
-  if (parsed) return `${parsed.baseModelId} via ${parsed.provider}`;
+  // Mirrors the backend's own catalog label, so Settings, the picker and a
+  // warning all name a custom endpoint model the same way.
+  if (parsed) {
+    return `${parsed.wireModel ?? parsed.baseModelId} via ${parsed.provider}`;
+  }
   return entry;
 }
 

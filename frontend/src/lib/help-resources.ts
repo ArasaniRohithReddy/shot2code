@@ -5,6 +5,13 @@
  * repository, so a user reading Help sees the same text that ships with the
  * downloadable build. Keeping the list here - free of React - means the URLs
  * can be asserted in tests and checked in one place when a document moves.
+ *
+ * Documentation points at the **rendered** GitHub Pages site, not at the
+ * Markdown source on github.com. The source of truth is still the repository,
+ * but a reader opening Help wants the published page: it is styled, navigable,
+ * searchable and readable on a phone, and it does not ask them to understand
+ * that they are looking at a file in a repo. This matches how Threat Model
+ * Reviewer publishes the same documents.
  */
 
 /** GitHub Pages product page for shot2code. */
@@ -14,9 +21,38 @@ export const HELP_PRODUCT_PAGE_URL =
 /** Every published build, with notes and checksums. */
 export const HELP_RELEASES_PAGE_URL = `${HELP_PRODUCT_PAGE_URL}releases/`;
 
-/** Where the product's own documents live. */
-export const HELP_DOCS_BASE_URL =
-  "https://github.com/ArasaniRohithReddy/app-releases/blob/main/products/shot2code/";
+/** The rendered documentation site for the product's own documents. */
+export const HELP_DOCS_BASE_URL = `${HELP_PRODUCT_PAGE_URL}docs/`;
+
+/**
+ * Source Markdown file -> published route under {@link HELP_DOCS_BASE_URL}.
+ *
+ * Explicit rather than derived from the filename: the site owns these routes,
+ * so guessing a slug would silently 404 the day a document is renamed or
+ * published under a different path. Every entry here must exist in the docs
+ * manifest in app-releases.
+ */
+export const HELP_DOC_ROUTES = {
+  "README.md": "",
+  "INSTALL.md": "install/",
+  "USER-GUIDE.md": "user-guide/",
+  "FAQ.md": "faq/",
+  "TROUBLESHOOTING.md": "troubleshooting/",
+  "ARCHITECTURE.md": "architecture/",
+  "DATA-HANDLING.md": "data-handling/",
+  "SECURITY.md": "security/",
+  "CHANGELOG.md": "changelog/",
+  "RELEASING.md": "releasing/",
+  "CONTRIBUTING.md": "contributing/",
+  "THIRD-PARTY-NOTICES.md": "third-party-notices/",
+} as const;
+
+export type HelpDocFile = keyof typeof HELP_DOC_ROUTES;
+
+/** The published page for one documentation file. */
+export function helpDocUrl(file: HelpDocFile): string {
+  return `${HELP_DOCS_BASE_URL}${HELP_DOC_ROUTES[file]}`;
+}
 
 export const HELP_ISSUES_URL =
   "https://github.com/ArasaniRohithReddy/app-releases/issues";
@@ -61,8 +97,8 @@ export interface HelpSection {
   links: HelpResourceLink[];
 }
 
-function doc(file: string) {
-  return `${HELP_DOCS_BASE_URL}${file}`;
+function doc(file: HelpDocFile) {
+  return helpDocUrl(file);
 }
 
 /** The first-run path, in the order a new user actually walks it. */
@@ -307,4 +343,27 @@ export function isTrustedHelpUrl(href: string): boolean {
   }
   if (url.protocol !== "https:") return false;
   return HELP_ALLOWED_HOSTS.some((host) => url.hostname === host);
+}
+
+/** True for a link into the rendered documentation site. */
+export function isHelpDocUrl(href: string): boolean {
+  return href.startsWith(HELP_DOCS_BASE_URL);
+}
+
+/**
+ * True for a link at raw Markdown source on github.com.
+ *
+ * Documentation must never be linked this way from Help - the reader gets an
+ * unstyled file view of a repository instead of the published page - so this
+ * exists to make that mistake assertable rather than merely discouraged.
+ */
+export function isGitHubSourceViewUrl(href: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return false;
+  }
+  if (url.hostname !== "github.com") return false;
+  return /\/(blob|raw|tree)\//.test(url.pathname);
 }

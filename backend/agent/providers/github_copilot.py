@@ -286,6 +286,7 @@ class CopilotProviderSession(ProviderSession):
         provider_config: Optional["copilot.ProviderConfig"] = None,
         model_api_name: Optional[str] = None,
         reasoning_effort: Optional[CopilotSdkReasoningEffort] = None,
+        allow_reasoning_effort: bool = True,
     ):
         self._client = client
         self._model = model
@@ -302,6 +303,10 @@ class CopilotProviderSession(ProviderSession):
         # the wire comes from that provider's catalog rather than Copilot's.
         self._model_api_name = model_api_name or get_model_api_name(model)
         self._reasoning_effort = reasoning_effort
+        # An arbitrary endpoint model has no GPT or Claude thinking level, so a
+        # custom BYOK run must never be sent one derived from its compatibility
+        # template.
+        self._allow_reasoning_effort = allow_reasoning_effort
 
         self._system_prompt = _extract_system_prompt(prompt_messages)
         self._prompt, self._attachments = _build_prompt_and_attachments(prompt_messages)
@@ -534,11 +539,12 @@ class CopilotProviderSession(ProviderSession):
                 "mode": "replace",
                 "content": self._system_prompt,
             }
-        reasoning_effort = self._reasoning_effort or get_copilot_reasoning_effort(
-            self._model
-        )
-        if reasoning_effort:
-            kwargs["reasoning_effort"] = reasoning_effort
+        if self._allow_reasoning_effort:
+            reasoning_effort = self._reasoning_effort or get_copilot_reasoning_effort(
+                self._model
+            )
+            if reasoning_effort:
+                kwargs["reasoning_effort"] = reasoning_effort
 
         self._session = await self._client.create_session(**kwargs)
         return self._session
