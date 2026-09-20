@@ -872,6 +872,9 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
               <Input
                 id="screenshot-one-api-key"
                 className="mt-3"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
                 placeholder="ScreenshotOne API key"
                 value={settings.screenshotOneApiKey || ""}
                 onChange={(e) =>

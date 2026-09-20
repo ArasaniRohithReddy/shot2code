@@ -28,6 +28,7 @@ describe("native provider key fields", () => {
     "anthropic-api-key",
     "gemini-api-key",
     "replicate-api-key",
+    "screenshot-one-api-key",
   ];
 
   it.each(ids)("masks %s and keeps it out of autofill", (id) => {
