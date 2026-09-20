@@ -13,6 +13,74 @@ in this file; see the git history for those changes.
 
 Nothing yet.
 
+## [0.4.0] - 2026-09-20
+
+Released as [shot2code v0.4.0](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.4.0).
+Checksums for the published Windows artifacts:
+[docs/releases/v0.4.0/SHA256SUMS.txt](docs/releases/v0.4.0/SHA256SUMS.txt).
+
+This release adds a separate GitHub Copilot SDK BYOK runtime, guarded MCP tools,
+a multi-viewport Review workspace and a native Windows menu without replacing
+any existing direct provider.
+
+### Added
+
+- **Copilot SDK BYOK.** Configure one dedicated OpenAI-compatible, Azure OpenAI
+  or Anthropic connection with its own API key or bearer token, wire API,
+  endpoint and optional model-name override. It requires no Copilot
+  subscription; an OpenAI-compatible localhost endpoint may be credentialless.
+- **Separate BYOK model identities.** Models appear under **Copilot SDK
+  (BYOK)** as `sdk-byok/<provider>/<base model>`, so a native model and its BYOK
+  twin can run together as distinct variants. Their identity and requested
+  reasoning effort survive History and retries.
+- **MCP servers.** Configure up to eight stdio, HTTP or SSE servers for GitHub
+  Copilot subscription and SDK-BYOK variants. Activity is labelled
+  `MCP · <server> · <tool>`.
+- **Responsive Review.** Compare two to four real viewport widths at once
+  (1440px, 768px and 390px by default; custom 320–1920px), with runtime
+  horizontal-overflow measurement.
+- **Local source audit.** Deterministic semantic and accessibility findings can
+  be selected and inserted into Chat without auto-sending, or exported as a
+  source-safe JSON report. Results become stale when the version, option, code
+  or viewport set changes.
+- **Native application menu.** File, Edit, View, Window and Help use the same
+  command dispatcher as keyboard shortcuts and keep standard editor roles.
+
+### Changed
+
+- Generation now carries a typed per-selection runtime identity. Native
+  OpenAI, Anthropic, Gemini and Copilot choices always remain native even when
+  BYOK is enabled.
+- The Copilot SDK dependency is locked consistently at 1.0.13.
+- In-app Help and the public release-hub guides cover BYOK, MCP permissions,
+  Review and native menu behavior.
+
+### Fixed
+
+- Disabled or incomplete BYOK settings and disabled/untrusted incomplete MCP
+  drafts no longer abort unrelated direct-provider generations.
+- BYOK variants now pass the selected model's supported reasoning effort into
+  the Copilot SDK; `no thinking` is omitted because it is not an SDK effort
+  value.
+
+### Security
+
+- BYOK never borrows a direct OpenAI or Anthropic key.
+- MCP servers require both **Enabled** and **Trusted**. They remain read-only
+  unless **Allow write tools** is enabled.
+- Stdio MCP commands use an explicit argument vector rather than a shell;
+  remote MCP requires HTTPS except on localhost.
+- Integration secrets are masked and excluded from validation responses,
+  activity logs, project history and exported Review reports.
+
+### Accessibility
+
+- Review frames use real labeled viewport widths and keyboard-operable controls.
+- Findings expose severity, evidence and guidance; the UI states clearly that
+  the deterministic source audit is not WCAG certification.
+- Native menu actions share the renderer's guarded commands so editor-specific
+  shortcuts and focus behavior remain intact.
+
 ## [0.3.3] - 2026-09-14
 
 Released as [shot2code v0.3.3](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.3).
@@ -390,7 +458,8 @@ real multi-file project you can edit, and previews run in a locked-down sandbox.
 - CodePen sharing requires explicit confirmation before any code leaves the
   device.
 
-[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.3.1

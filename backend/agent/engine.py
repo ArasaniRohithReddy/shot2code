@@ -20,6 +20,7 @@ from agent.tools import (
 )
 from config import GENERATION_MAX_COST_USD
 from fs_logging.agent_runs import AgentRunRecorder
+from integrations.config import EMPTY_INTEGRATIONS, ByokConnection, IntegrationSettings
 
 
 class EmptyOutputError(Exception):
@@ -68,6 +69,7 @@ class AgentEngine:
         option_codes: Optional[List[str]] = None,
         recorder: Optional[AgentRunRecorder] = None,
         copilot_github_token: Optional[str] = None,
+        integrations: Optional[IntegrationSettings] = None,
     ):
         self.send_message = send_message
         self.variant_index = variant_index
@@ -78,6 +80,7 @@ class AgentEngine:
         self.gemini_api_key = gemini_api_key
         self.replicate_api_key = replicate_api_key
         self.copilot_github_token = copilot_github_token
+        self.integrations = integrations or EMPTY_INTEGRATIONS
         self.should_generate_images = should_generate_images
         self.should_extract_assets = should_extract_assets
 
@@ -217,6 +220,49 @@ class AgentEngine:
             await self._send("setCode", content)
             self._mark_preview_length(tool_event_id, len(content))
 
+    async def _handle_external_tool_event(
+        self,
+        event: StreamEvent,
+        started_tool_ids: set[str],
+    ) -> None:
+        """Report a tool the provider's own runtime executed (MCP over the SDK).
+
+        shot2code never runs these, so there is nothing to execute here: the
+        events are translated straight onto the same toolStart/toolResult
+        channel the frontend already renders, under an ``MCP · server · tool``
+        name so the origin is obvious.
+        """
+        tool_event_id = event.tool_call_id
+        if not tool_event_id:
+            return
+        display_name = event.tool_display_name or event.tool_name or "tool"
+
+        if event.type == "external_tool_start":
+            if tool_event_id in started_tool_ids:
+                return
+            started_tool_ids.add(tool_event_id)
+            arguments = event.tool_arguments
+            await self._send(
+                "toolStart",
+                data={
+                    "name": display_name,
+                    "input": arguments if isinstance(arguments, dict) else {},
+                },
+                event_id=tool_event_id,
+            )
+            return
+
+        if event.type == "external_tool_result":
+            await self._send(
+                "toolResult",
+                data={
+                    "name": display_name,
+                    "output": event.text,
+                    "ok": True if event.tool_ok is None else event.tool_ok,
+                },
+                event_id=tool_event_id,
+            )
+
     async def _run_with_session(self, session: ProviderSession) -> str:
         max_steps = 30
 
@@ -260,6 +306,9 @@ class AgentEngine:
                         started_tool_ids,
                         streamed_lengths,
                     )
+                    return
+
+                await self._handle_external_tool_event(event, started_tool_ids)
 
             turn = await session.stream_turn(on_event)
 
@@ -328,7 +377,12 @@ class AgentEngine:
 
         raise Exception("Agent exceeded max tool turns")
 
-    async def run(self, model: Llm, prompt_messages: List[ChatCompletionMessageParam]) -> str:
+    async def run(
+        self,
+        model: Llm,
+        prompt_messages: List[ChatCompletionMessageParam],
+        byok_connection: Optional[ByokConnection] = None,
+    ) -> str:
         self.tool_runtime.input_images = self._extract_input_images(prompt_messages)
         seed_file_state_from_messages(self.file_state, prompt_messages)
 
@@ -353,6 +407,9 @@ class AgentEngine:
                 self.should_extract_assets and bool(self.tool_runtime.input_images)
             ),
             recorder=self.recorder,
+            integrations=self.integrations,
+            # Only ever set when the selection itself asked for the BYOK runtime.
+            byok_connection=byok_connection,
         )
         try:
             result = await self._run_with_session(session)

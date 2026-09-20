@@ -6,8 +6,15 @@ import { useModelCatalog } from "../../hooks/useModelCatalog";
 import {
   describeSelection,
   describeSelectionHint,
+  selectionProviderOf,
   type VariantPlanContext,
 } from "../../lib/model-selection";
+import {
+  DEFAULT_COPILOT_SDK_BYOK_SETTINGS,
+  type CopilotSdkByokSettings,
+} from "../../lib/copilot-sdk-byok";
+import { describeMcpScope, mcpRuntimeScope } from "../../lib/integrations";
+import type { McpServerConfig } from "../../lib/mcp-servers";
 
 export interface ModelSelectorProps {
   selectedModels: string[];
@@ -18,13 +25,19 @@ export interface ModelSelectorProps {
   geminiApiKey?: string | null;
   /** Shapes the option-count hint and hides models the mode cannot use. */
   planContext?: VariantPlanContext;
+  /** The additive Copilot SDK BYOK profiles, if any are configured. */
+  copilotSdkByok?: CopilotSdkByokSettings;
+  /** MCP servers, so the picker can say which options will see their tools. */
+  mcpServers?: McpServerConfig[];
 }
 
 /**
  * Compact model picker for the composer and update toolbar.
  *
  * Every configured provider appears here, not just Copilot, so models can be
- * switched while iterating instead of only from Settings.
+ * switched while iterating instead of only from Settings. Copilot SDK BYOK
+ * profiles are entries in their own group with their own ids, so a direct model
+ * and a profile based on that same model can both be picked for one run.
  */
 function ModelSelector({
   selectedModels,
@@ -34,10 +47,19 @@ function ModelSelector({
   anthropicApiKey,
   geminiApiKey,
   planContext = { generationType: "create", inputMode: "image" },
+  copilotSdkByok = DEFAULT_COPILOT_SDK_BYOK_SETTINGS,
+  mcpServers = [],
 }: ModelSelectorProps) {
   const [showDeprecated, setShowDeprecated] = useState(false);
   const selected = selectedModels ?? [];
-  const { catalog, isLoading, error, staleModels, refresh } = useModelCatalog({
+  const {
+    catalog,
+    isLoading,
+    error,
+    staleModels,
+    integrationDiagnostics,
+    refresh,
+  } = useModelCatalog({
     credentials: {
       openAiApiKey,
       anthropicApiKey,
@@ -45,6 +67,7 @@ function ModelSelector({
       copilotGithubToken: githubToken,
     },
     selectedModels: selected,
+    copilotSdkByok,
   });
 
   const hasProviders = catalog.providers.some((provider) => provider.available);
@@ -59,6 +82,11 @@ function ModelSelector({
     );
 
   const label = describeSelection(selected, catalog);
+  const scope = mcpRuntimeScope(
+    { copilotSdkByok, mcpServers },
+    selected,
+    (modelId) => selectionProviderOf(catalog, modelId)
+  );
 
   return (
     <Popover>
@@ -126,6 +154,8 @@ function ModelSelector({
           hint={describeSelectionHint(selected, planContext)}
           idPrefix="composer-model"
           compact
+          integrationDiagnostics={integrationDiagnostics}
+          mcpScopeNote={scope.hasActiveServers ? describeMcpScope(scope) : null}
         />
       </PopoverContent>
     </Popover>

@@ -1,8 +1,10 @@
 # Security Policy
 
-shot2code runs on your own machine. Screenshots, generated code, project history
-and API keys stay local; the only outbound traffic is to the model provider you
-configure, plus the update check and anything you explicitly share.
+shot2code runs on your own machine. Project history and credentials stay local.
+Generation content leaves the device only for the model provider or BYOK
+endpoint you explicitly select; MCP tool calls go only to servers you explicitly
+enable and trust. The other outbound traffic is the update check and anything
+you explicitly share.
 
 ## Supported versions
 
@@ -11,8 +13,9 @@ release rather than as patches to older installers.
 
 | Version | Supported |
 |---|---|
-| 0.3.3 | ✅ Yes — current release |
-| 0.3.2 | ⚠️ Supported for security fixes; update for workspace and zoom improvements |
+| 0.4.0 | ✅ Yes — current release |
+| 0.3.3 | ⚠️ Superseded; update for BYOK/MCP permission controls and Review |
+| 0.3.2 | ❌ No — update to the latest release |
 | 0.3.1 | ⚠️ Superseded by the installer-hardening release; update when you can |
 | 0.3.0 | ❌ No — its updater could replace a live backend; upgrade immediately |
 | < 0.3 | ❌ No — upgrade to the [latest release](https://github.com/ArasaniRohithReddy/shot2code/releases/latest) |
@@ -50,6 +53,13 @@ Credit is given in the advisory unless you prefer otherwise.
   device only. They are sent to the backend with a generation request and used to
   call that provider — they are not stored server-side and are not sent anywhere
   else.
+- The Copilot SDK BYOK connection has its own API key or bearer token. Direct
+  OpenAI and Anthropic credentials are never used as a fallback. A
+  credentialless connection is allowed only for an OpenAI-compatible localhost
+  endpoint.
+- MCP environment values and request headers are treated as secrets: values are
+  masked in the UI and excluded from diagnostics, logs, project history and
+  exported Review reports.
 - `REPLICATE_API_KEY` has no Settings field. It must be set in `backend/.env` and
   is used only for the image generation, editing and background-removal tools.
 - GitHub Copilot credentials are resolved at request time (a token in Settings,
@@ -80,10 +90,10 @@ Because there is no signature to check, verify the download yourself:
    this repository.
 2. Compare the SHA-256 hash with the checksums published in
    [`docs/releases/`](docs/releases/) — for example
-   [v0.3.3](docs/releases/v0.3.3/SHA256SUMS.txt):
+   [v0.4.0](docs/releases/v0.4.0/SHA256SUMS.txt):
 
    ```powershell
-   Get-FileHash .\shot2code-0.3.3-x64.exe -Algorithm SHA256
+   Get-FileHash .\shot2code-0.4.0-x64.exe -Algorithm SHA256
    ```
 
 3. Only then click **More info → Run anyway**, or right-click the file →
@@ -137,12 +147,28 @@ untrusted input.
 - Sharing to CodePen sends code off your device to a third party. It is never
   automatic and always asks for confirmation first.
 
+## MCP servers
+
+- A server must be both **Enabled** and explicitly marked **Trusted** before
+  shot2code starts it or approves any tool.
+- Trusted servers remain read-only unless **Allow write tools** is enabled.
+- Stdio commands are launched directly with an explicit argument vector, never
+  through `cmd` or PowerShell.
+- HTTP and SSE endpoints require HTTPS except on localhost. URLs may not embed
+  credentials, and server counts, arguments, headers, tools and timeouts are
+  bounded.
+- MCP tools are available only to GitHub Copilot subscription and explicit
+  Copilot SDK BYOK variants. Native OpenAI, Anthropic and Gemini variants never
+  receive them.
+- Disabled, untrusted or incomplete server drafts are skipped with diagnostics
+  and cannot block an otherwise valid direct-provider generation.
+
 ## Out of scope
 
 - Missing Authenticode signatures / SmartScreen warnings on the published
   binaries — known and documented above.
-- Vulnerabilities in third-party model providers, CodePen, or CDN-hosted
-  framework assets loaded by a preview.
+- Vulnerabilities in third-party model providers, user-configured MCP servers,
+  CodePen, or CDN-hosted framework assets loaded by a preview.
 - Findings that require an attacker who already has local access to your user
   account or can modify the installation directory.
 - Insecure code produced by a model in response to a prompt. Report a

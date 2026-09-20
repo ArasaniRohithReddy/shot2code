@@ -21,16 +21,23 @@ from config import (
     REPLICATE_API_KEY,
 )
 from custom_types import InputMode
+from integrations.config import (
+    ByokConnection,
+    IntegrationConfigError,
+    IntegrationSettings,
+    parse_integration_settings,
+)
 from llm import (
     COPILOT_MODELS,
     Llm,
 )
 from model_catalog import (
     ModelCatalog,
+    ModelRunSpec,
     ProviderCredentials,
     build_catalog,
-    filter_selection,
-    parse_selected_models,
+    filter_run_specs,
+    parse_model_selections,
 )
 from typing import (
     Any,
@@ -121,17 +128,31 @@ def _empty_models() -> List[Llm]:
     return []
 
 
+def _empty_specs() -> List[ModelRunSpec]:
+    return []
+
+
 def _empty_strings() -> List[str]:
     return []
 
 
 @dataclass
 class ModelSelection:
-    """The models a run will use, plus anything the user should be told."""
+    """What each variant will run on, plus anything the user should be told."""
 
-    models: List[Llm] = field(default_factory=_empty_models)
+    specs: List[ModelRunSpec] = field(default_factory=_empty_specs)
     notices: List[str] = field(default_factory=_empty_strings)
     dropped: List[str] = field(default_factory=_empty_strings)
+
+    @property
+    def models(self) -> List[Llm]:
+        """The base model behind each variant, in order."""
+        return [spec.model for spec in self.specs]
+
+    @property
+    def selection_ids(self) -> List[str]:
+        """What the client picked, so a retry can replay it exactly."""
+        return [spec.selection_id for spec in self.specs]
 
 
 @dataclass
@@ -143,11 +164,15 @@ class PipelineContext:
     params: Dict[str, Any] = field(default_factory=dict)
     extracted_params: "ExtractedParams | None" = None
     prompt_messages: List[ChatCompletionMessageParam] = field(default_factory=list)
-    variant_models: List[Llm] = field(default_factory=list)
+    variant_specs: List[ModelRunSpec] = field(default_factory=_empty_specs)
     planned_variant_count: int = 0
     completions: List[str] = field(default_factory=list)
     variant_completions: Dict[int, str] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def variant_models(self) -> List[Llm]:
+        return [spec.model for spec in self.variant_specs]
 
     @property
     def send_message(self):
@@ -321,12 +346,27 @@ class ExtractedParams:
     asset_base_url: str = ""
     design_system: str | None = None
     copilot_github_token: str | None = None
-    # Models the user explicitly picked, across every provider.
-    selected_models: List[Llm] = field(default_factory=_empty_models)
+    # Copilot SDK BYOK connection and MCP servers, already validated. Holds
+    # secrets, so it is never echoed back to the client or written to history.
+    integrations: IntegrationSettings = field(default_factory=IntegrationSettings)
+    # What the user explicitly picked, in order. Native and BYOK runs of the
+    # same base model are distinct specs with distinct identities.
+    selected_specs: List[ModelRunSpec] = field(default_factory=_empty_specs)
     # Ids the request asked for that this build does not know, kept so the
     # client can be told which picks were ignored instead of guessing.
     unknown_selected_models: List[str] = field(default_factory=_empty_strings)
-    retry_models: List[Llm] | None = None
+    retry_specs: List[ModelRunSpec] | None = None
+
+    @property
+    def selected_models(self) -> List[Llm]:
+        """The base model behind each pick, for callers that only need models."""
+        return [spec.model for spec in self.selected_specs]
+
+    @property
+    def retry_models(self) -> List[Llm] | None:
+        if self.retry_specs is None:
+            return None
+        return [spec.model for spec in self.retry_specs]
 
 
 class ParameterExtractionStage:
@@ -379,26 +419,38 @@ class ParameterExtractionStage:
             params, "copilotGithubToken", COPILOT_GITHUB_TOKEN
         )
 
-        # Models the user explicitly picked, from any provider. `copilotModels`
-        # is the name older clients used for the same list, so it is still
-        # honoured. Unknown ids are collected rather than dropped silently.
-        raw_selected_models: object = params.get("selectedModels")
-        if not isinstance(raw_selected_models, list) or not raw_selected_models:
-            raw_selected_models = params.get("copilotModels")
-        selected_models, unknown_selected_models = parse_selected_models(
-            raw_selected_models
+        # BYOK + MCP settings. A malformed configuration stops the run with an
+        # explanation rather than silently generating without it. Parsed before
+        # the model picks because a BYOK run identity is one of the things that
+        # can be picked - by its own id, never by a direct model's id.
+        try:
+            integrations = parse_integration_settings(params)
+        except IntegrationConfigError as error:
+            await self.throw_error(str(error))
+            raise
+        for diagnostic in integrations.diagnostics:
+            print(f"Integration notice ({diagnostic.code}): {diagnostic.message}")
+
+        # What the user explicitly picked, in order. `modelSelections` carries
+        # the run identity per pick; `selectedModels` (and the older
+        # `copilotModels`) remain supported as plain id lists. Unknown ids are
+        # collected rather than dropped silently.
+        raw_selections: object = params.get("modelSelections")
+        if not isinstance(raw_selections, list) or not raw_selections:
+            raw_selections = params.get("selectedModels")
+        if not isinstance(raw_selections, list) or not raw_selections:
+            raw_selections = params.get("copilotModels")
+        selected_specs, unknown_selected_models = parse_model_selections(
+            raw_selections
         )
 
-        raw_retry_models: object = params.get("retryModels")
-        retry_models: List[Llm] | None = None
-        if isinstance(raw_retry_models, list) and raw_retry_models:
-            by_value = {model.value: model for model in Llm}
-            picked_retry_models = [
-                by_value[value]
-                for value in cast(list[object], raw_retry_models)
-                if isinstance(value, str) and value in by_value
-            ]
-            retry_models = picked_retry_models or None
+        raw_retry: object = params.get("retryModelSelections")
+        if not isinstance(raw_retry, list) or not raw_retry:
+            raw_retry = params.get("retryModels")
+        retry_specs: List[ModelRunSpec] | None = None
+        if isinstance(raw_retry, list) and raw_retry:
+            replayed, _ = parse_model_selections(raw_retry)
+            retry_specs = list(replayed) or None
 
         # Base URL for OpenAI API
         openai_base_url: str | None = None
@@ -470,9 +522,9 @@ class ParameterExtractionStage:
             replicate_api_key=replicate_api_key,
             openai_base_url=openai_base_url,
             copilot_github_token=copilot_github_token,
-            selected_models=list(selected_models),
+            selected_specs=list(selected_specs),
             unknown_selected_models=list(unknown_selected_models),
-            retry_models=retry_models,
+            retry_specs=retry_specs,
             generation_type=generation_type,
             prompt=prompt,
             history=history,
@@ -480,6 +532,7 @@ class ParameterExtractionStage:
             option_codes=option_codes,
             asset_base_url=self.asset_base_url,
             design_system=design_system,
+            integrations=integrations,
         )
 
     def _get_from_settings_dialog_or_env(
@@ -499,7 +552,7 @@ class ParameterExtractionStage:
 
 
 class ModelSelectionStage:
-    """Turns a user's model picks (or the lack of them) into variant models."""
+    """Turns a user's picks (or the lack of them) into what each variant runs."""
 
     def __init__(self, throw_error: Callable[[str], Coroutine[Any, Any, None]]):
         self.throw_error = throw_error
@@ -514,11 +567,14 @@ class ModelSelectionStage:
         copilot_available: bool = False,
         copilot_model_ids: Sequence[str] = (),
         selected_models: Sequence[Llm] = (),
+        selected_specs: Sequence[ModelRunSpec] = (),
         unknown_selected_models: Sequence[str] = (),
         retry_models: List[Llm] | None = None,
+        retry_specs: List[ModelRunSpec] | None = None,
+        byok_reason: str | None = None,
         catalog: ModelCatalog | None = None,
     ) -> ModelSelection:
-        """Pick the models each variant runs on, and say what was skipped."""
+        """Pick what each variant runs on, and say what was skipped."""
         resolved_catalog = catalog or build_catalog(
             ProviderCredentials(
                 openai_api_key=openai_api_key,
@@ -530,25 +586,38 @@ class ModelSelectionStage:
         )
         limit = variant_limit(generation_type, input_mode)
 
+        # Callers may pass plain models (native picks only) or full run specs.
+        picks: List[ModelRunSpec] = list(selected_specs) or [
+            ModelRunSpec.native(model) for model in selected_models
+        ]
+        replay: List[ModelRunSpec] | None = retry_specs or (
+            [ModelRunSpec.native(model) for model in retry_models]
+            if retry_models
+            else None
+        )
+
         # A retry replays the exact lineup the original run used, so it is not
-        # re-filtered: reproducing the earlier result is the point.
-        if retry_models:
-            return self._describe(ModelSelection(models=list(retry_models)))
+        # re-filtered: reproducing the earlier result is the point. Identity is
+        # replayed, but the connection behind a BYOK id comes from the settings
+        # this request carries.
+        if replay:
+            return self._describe(ModelSelection(specs=list(replay)))
 
         notices: List[str] = []
-        if selected_models or unknown_selected_models:
-            result = filter_selection(
-                selected_models,
+        if picks or unknown_selected_models:
+            result = filter_run_specs(
+                picks,
                 resolved_catalog,
                 unknown_ids=unknown_selected_models,
                 input_mode=input_mode,
+                byok_reason=byok_reason,
             )
             if result.notice:
                 notices.append(result.notice)
-            if result.models:
+            if result.specs:
                 return self._describe(
                     ModelSelection(
-                        models=list(result.models[:limit]),
+                        specs=list(result.specs[:limit]),
                         notices=notices,
                         dropped=[item.id for item in result.dropped],
                     )
@@ -568,8 +637,9 @@ class ModelSelectionStage:
         if notices:
             notices.append("Fell back to automatic model selection.")
         return self._describe(
+            # Automatic selection is always native: BYOK is opt-in per pick.
             ModelSelection(
-                models=models,
+                specs=[ModelRunSpec.native(model) for model in models],
                 notices=notices,
                 dropped=[],
             )
@@ -577,8 +647,9 @@ class ModelSelectionStage:
 
     def _describe(self, selection: "ModelSelection") -> "ModelSelection":
         print("Variant models:")
-        for index, model in enumerate(selection.models):
-            print(f"Variant {index + 1}: {model.value}")
+        for index, spec in enumerate(selection.specs):
+            suffix = " (Copilot SDK BYOK)" if spec.is_byok else ""
+            print(f"Variant {index + 1}: {spec.selection_id}{suffix}")
         for notice in selection.notices:
             print(f"Model selection notice: {notice}")
         return selection
@@ -743,6 +814,7 @@ class AgenticGenerationStage:
         input_mode: str | None = None,
         generation_type: str | None = None,
         copilot_github_token: str | None = None,
+        integrations: IntegrationSettings | None = None,
     ):
         self.send_message = send_message
         self.openai_api_key = openai_api_key
@@ -751,6 +823,7 @@ class AgenticGenerationStage:
         self.gemini_api_key = gemini_api_key
         self.replicate_api_key = replicate_api_key
         self.copilot_github_token = copilot_github_token
+        self.integrations = integrations or IntegrationSettings()
         self.should_generate_images = should_generate_images
         self.should_extract_assets = should_extract_assets
         self.file_state = file_state
@@ -766,14 +839,14 @@ class AgenticGenerationStage:
 
     async def process_variants(
         self,
-        variant_models: List[Llm],
+        variant_specs: List[ModelRunSpec],
         prompt_messages: List[ChatCompletionMessageParam],
     ) -> Dict[int, str]:
         tasks: List[asyncio.Task[str]] = []
-        for index, model in enumerate(variant_models):
+        for index, spec in enumerate(variant_specs):
             tasks.append(
                 asyncio.create_task(
-                    self._run_variant(index, model, prompt_messages)
+                    self._run_variant(index, spec, prompt_messages)
                 )
             )
 
@@ -788,12 +861,29 @@ class AgenticGenerationStage:
 
         return variant_completions
 
+    def _byok_connection_for(self, spec: ModelRunSpec) -> ByokConnection | None:
+        """The BYOK connection a variant runs on, or None for a native run.
+
+        A native spec always returns ``None``, so it reaches its own provider
+        even when BYOK is configured and usable.
+        """
+        if not spec.is_byok:
+            return None
+        connection = self.integrations.byok_for(spec.selection_id)
+        if connection is None:
+            raise ValueError(
+                f"Copilot SDK BYOK is no longer configured for "
+                f"'{spec.selection_id}'. Re-select a model for this variant."
+            )
+        return connection
+
     async def _run_variant(
         self,
         index: int,
-        model: Llm,
+        spec: ModelRunSpec,
         prompt_messages: List[ChatCompletionMessageParam],
     ) -> str:
+        model = spec.model
         try:
             async def send_runner_message(
                 type: str,
@@ -833,8 +923,13 @@ class AgenticGenerationStage:
                 initial_file_state=self.file_state,
                 option_codes=self.option_codes,
                 recorder=recorder,
+                integrations=self.integrations,
             )
-            completion = await runner.run(model, prompt_messages)
+            completion = await runner.run(
+                model,
+                prompt_messages,
+                byok_connection=self._byok_connection_for(spec),
+            )
             if completion:
                 await self.send_message("setCode", completion, index, None, None)
             await self.send_message(
@@ -937,10 +1032,10 @@ class StatusBroadcastMiddleware(Middleware):
         assert context.extracted_params is not None
         params = context.extracted_params
         limit = variant_limit(params.generation_type, params.input_mode)
-        if params.retry_models:
-            num_variants = len(params.retry_models)
-        elif params.selected_models:
-            num_variants = min(len(params.selected_models), limit)
+        if params.retry_specs:
+            num_variants = len(params.retry_specs)
+        elif params.selected_specs:
+            num_variants = min(len(params.selected_specs), limit)
         else:
             num_variants = limit
 
@@ -995,6 +1090,9 @@ class CodeGenerationMiddleware(Middleware):
                         for model in copilot_snapshot.models
                         if bool(model.get("vision"))
                     ),
+                    # The BYOK runtime is its own provider group; the direct
+                    # providers above are untouched by it.
+                    byok=params.integrations.byok_summary,
                 )
             )
 
@@ -1002,24 +1100,29 @@ class CodeGenerationMiddleware(Middleware):
             selection = await model_selector.select_models(
                 generation_type=params.generation_type,
                 input_mode=params.input_mode,
-                selected_models=params.selected_models,
+                selected_specs=params.selected_specs,
                 unknown_selected_models=params.unknown_selected_models,
-                retry_models=params.retry_models,
+                retry_specs=params.retry_specs,
+                byok_reason=(
+                    params.integrations.byok_summary.reason
+                    if params.integrations.byok_summary is not None
+                    else None
+                ),
                 catalog=catalog,
             )
-            context.variant_models = selection.models
+            context.variant_specs = selection.specs
 
             # Stale picks can shrink the run below the count already announced;
             # correct it before any variant reports progress.
-            if len(context.variant_models) != context.planned_variant_count:
+            if len(context.variant_specs) != context.planned_variant_count:
                 await context.send_message(
-                    "variantCount", str(len(context.variant_models)), 0
+                    "variantCount", str(len(context.variant_specs)), 0
                 )
-                context.planned_variant_count = len(context.variant_models)
+                context.planned_variant_count = len(context.variant_specs)
 
-            model_data: Dict[str, Any] = {
-                "models": [model.value for model in context.variant_models]
-            }
+            # Ids, not model names: a BYOK profile must round-trip through a
+            # retry as itself rather than as the model it borrows.
+            model_data: Dict[str, Any] = {"models": selection.selection_ids}
             if selection.dropped:
                 model_data["droppedModels"] = selection.dropped
             if selection.notices:
@@ -1042,10 +1145,11 @@ class CodeGenerationMiddleware(Middleware):
                 stack=str(context.extracted_params.stack),
                 input_mode=str(context.extracted_params.input_mode),
                 generation_type=context.extracted_params.generation_type,
+                integrations=context.extracted_params.integrations,
             )
 
             context.variant_completions = await generation_stage.process_variants(
-                variant_models=context.variant_models,
+                variant_specs=context.variant_specs,
                 prompt_messages=context.prompt_messages,
             )
 
@@ -1058,7 +1162,7 @@ class CodeGenerationMiddleware(Middleware):
 
             # Convert to list format
             context.completions = []
-            for i in range(len(context.variant_models)):
+            for i in range(len(context.variant_specs)):
                 if i in context.variant_completions:
                     context.completions.append(context.variant_completions[i])
                 else:

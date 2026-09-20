@@ -13,6 +13,7 @@ import {
   LuFileCode2,
   LuAlertTriangle,
   LuHistory,
+  LuListChecks,
 } from "react-icons/lu";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
@@ -44,6 +45,8 @@ import {
   normalizeProjectState,
   type ProjectPreviewArtifact,
 } from "../../lib/project-files";
+import ReviewWorkspace from "./ReviewWorkspace";
+import { hashReviewProjectFiles } from "../../lib/review";
 
 function escapeSrcDocAttribute(value: string) {
   return value
@@ -88,9 +91,10 @@ interface Props {
   onActiveTabChange: (tab: PreviewTab) => void;
   exportRequested: boolean;
   onExportRequestHandled: () => void;
+  onFixReviewFindings: (instruction: string) => void;
 }
 
-export type PreviewTab = "desktop" | "mobile" | "code";
+export type PreviewTab = "desktop" | "mobile" | "review" | "code";
 
 function PreviewArtifactNotice({
   artifact,
@@ -161,6 +165,7 @@ function PreviewPane({
   onActiveTabChange,
   exportRequested,
   onExportRequestHandled,
+  onFixReviewFindings,
 }: Props) {
   const { appState, disableInSelectAndEditMode } = useAppStore();
   const {
@@ -207,6 +212,10 @@ function PreviewPane({
     [project]
   );
   const composedPreviewCode = previewArtifact.html;
+  const reviewCodeHash = useMemo(
+    () => hashReviewProjectFiles(project.files),
+    [project.files]
+  );
   const previewCode =
     inputMode === "video" && appState === AppState.CODING
       ? extractHtml(composedPreviewCode)
@@ -268,7 +277,7 @@ function PreviewPane({
   }, [downloadProject, exportRequested, onExportRequestHandled]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
@@ -280,22 +289,34 @@ function PreviewPane({
         <div className="relative flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-2 py-2 dark:border-zinc-800 dark:bg-zinc-950 sm:px-3">
           {/* View controls: what is being previewed, and at what size */}
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <TabsList>
+            <TabsList aria-label="Preview workspace views">
               <TabsTrigger
                 value="desktop"
                 title="Desktop"
+                aria-label="Desktop preview"
                 data-testid="tab-desktop"
                 className="text-gray-700 dark:text-zinc-300"
               >
-                <FaDesktop />
+                <FaDesktop aria-hidden="true" />
               </TabsTrigger>
               <TabsTrigger
                 value="mobile"
                 title="Mobile"
+                aria-label="Mobile preview"
                 data-testid="tab-mobile"
                 className="text-gray-700 dark:text-zinc-300"
               >
-                <FaMobile />
+                <FaMobile aria-hidden="true" />
+              </TabsTrigger>
+              <TabsTrigger
+                value="review"
+                title="Compare responsive widths and audit source"
+                aria-label="Review responsive layouts and source accessibility"
+                data-testid="tab-review"
+                className="gap-2 text-gray-700 dark:text-zinc-300"
+              >
+                <LuListChecks aria-hidden="true" />
+                Review
               </TabsTrigger>
               <TabsTrigger
                 value="code"
@@ -303,7 +324,7 @@ function PreviewPane({
                 data-testid="tab-code"
                 className="gap-2 text-gray-700 dark:text-zinc-300"
               >
-                <FaCode />
+                <FaCode aria-hidden="true" />
                 Code
               </TabsTrigger>
             </TabsList>
@@ -546,6 +567,22 @@ function PreviewPane({
                 );
               }
             }}
+          />
+        </TabsContent>
+        <TabsContent
+          forceMount
+          value="review"
+          className="mt-0 min-h-0 min-w-0 flex-1 overflow-hidden data-[state=inactive]:hidden data-[state=active]:flex data-[state=active]:flex-col"
+        >
+          <ReviewWorkspace
+            active={activeTab === "review"}
+            html={previewCode}
+            codeHash={reviewCodeHash}
+            sourcePath={previewArtifact.sourcePath}
+            commitHash={head}
+            variantIndex={selectedVariantIndex}
+            refreshToken={previewRefreshToken}
+            onFixSelectedFindings={onFixReviewFindings}
           />
         </TabsContent>
       </Tabs>

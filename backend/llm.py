@@ -1,10 +1,16 @@
 from enum import Enum
-from typing import Literal, TypedDict, get_args
+from typing import Literal, TypedDict, cast, get_args
 
 # Every provider shot2code can route a generation to. Keeping this a Literal
 # (rather than a bare str) means a typo in a provider name is a type error
 # instead of a model that silently never matches.
-ModelProvider = Literal["openai", "anthropic", "gemini", "copilot"]
+#
+# "sdk-byok" is a runtime rather than a vendor: models under it are the user's
+# own Copilot SDK BYOK profiles, each addressed by its own selection id. No
+# member of :class:`Llm` belongs to it, and enabling it never changes how the
+# direct openai/anthropic/gemini providers behave.
+ModelProvider = Literal["openai", "anthropic", "gemini", "copilot", "sdk-byok"]
+CopilotSdkReasoningEffort = Literal["low", "medium", "high", "xhigh", "max"]
 
 MODEL_PROVIDERS: tuple[ModelProvider, ...] = get_args(ModelProvider)
 
@@ -407,3 +413,13 @@ def get_model_effort(model: Llm) -> str | None:
     if provider == "gemini":
         return GEMINI_MODEL_CONFIG.get(model, {}).get("thinking_level")
     return COPILOT_MODEL_CONFIG.get(model, {}).get("reasoning_effort")
+
+
+def get_copilot_sdk_reasoning_effort(
+    model: Llm,
+) -> CopilotSdkReasoningEffort | None:
+    """Translate a model variant's effort to the values accepted by the SDK."""
+    effort = get_model_effort(model)
+    if effort not in get_args(CopilotSdkReasoningEffort):
+        return None
+    return cast(CopilotSdkReasoningEffort, effort)

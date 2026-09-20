@@ -8,8 +8,10 @@
 Turn screenshots, mockups, designs and screen recordings into clean, working
 code — using AI, on your own machine.
 
-shot2code is a **desktop app for Windows**. Everything runs locally: your
-screenshots, your code and your API keys never leave your computer.
+shot2code is a **desktop app for Windows**. The app, project history and
+credentials live on your machine; generation data goes only to the model
+provider or endpoint you explicitly select, and MCP tools run only through
+servers you explicitly enable and trust.
 
 ## Screenshots
 
@@ -119,6 +121,14 @@ Other things it can do:
   Deleting a project removes it and its versions from the device.
 - **Screenshot preview** — the agent renders its own output in a headless
   browser and visually checks its work
+- **Responsive Review** — compare two to four real viewport widths at once,
+  measure horizontal overflow, and run a deterministic local semantic and
+  accessibility source audit. Selected findings can be inserted into Chat
+  without being sent automatically.
+- **MCP tools for Copilot runtimes** — connect bounded stdio, HTTP or SSE
+  servers. A server must be enabled and trusted, stays read-only unless write
+  tools are explicitly allowed, and is never exposed to native OpenAI,
+  Anthropic or Gemini variants.
 - **Asset extraction** — reuses the real logos and images from your screenshot
   (needs a Gemini key)
 - **Image generation and editing** (needs a Replicate key)
@@ -165,13 +175,39 @@ Every shortcut is listed in Help (**Ctrl+/**). Project actions use conflict-free
 Ctrl+Alt combinations: **Ctrl+Alt+N** starts a project, **Ctrl+Alt+I** opens
 Import, **Ctrl+Alt+U** opens Upload, **Ctrl+Alt+S** opens Settings, and
 **Ctrl+Alt+E** exports the current project. Use **Ctrl+1–4** for Preview, Code,
-Chat, and History, and **Ctrl+Shift+Enter** to retry an AI-generated version.
-On wide windows, pressing **Ctrl+3** again collapses the chat panel, and
-**Ctrl+1** or **Ctrl+4** bring it back. Navigation shortcuts pause while typing
+Chat, and History, **Ctrl+Alt+C** to show or hide the Chat panel, and
+**Ctrl+Shift+Enter** to retry an AI-generated version. On wide windows,
+**Ctrl+Alt+C** collapses the chat panel, and **Ctrl+1** or **Ctrl+4** bring it
+back. Navigation shortcuts pause while typing
 or while a dialog is open. In the code editor, Tab moves focus out and
 **Ctrl+]** indents. In the desktop app, use **Ctrl+=** or **Ctrl++** to zoom in,
 **Ctrl+-** to zoom out, and **Ctrl+0** to reset; the numpad add and subtract
 keys work with Ctrl as well.
+
+### Application menu (desktop app)
+
+The desktop app has a real menu bar rather than Electron's stock one, and every
+item runs the same command the keyboard runs — the menu can never do something
+the shortcut does not.
+
+| Menu | Items |
+| --- | --- |
+| **File** | New project, Upload screenshots, Import project, Export current project, Settings, Exit |
+| **Edit** | Undo, Redo, Cut, Copy, Paste, Delete, Select All |
+| **View** | Preview, Code, Chat, History, Show Chat panel, Zoom In/Out/Actual Size, Toggle Full Screen |
+| **Window** | Minimize, Close |
+| **Help** | Help center, Keyboard shortcuts, Product page, Documentation (User guide), All releases, Report an issue, Open diagnostic logs, About shot2code |
+
+Each item shows the accelerator published in Help, but deliberately does not
+capture it: the keystroke stays with the page, so **Ctrl+Z** still drives
+CodeMirror's own history, **Ctrl+/** still toggles a comment inside the editor,
+and Ctrl+=/-/0 still run through the app's single zoom handler. Clicking a menu
+item raises the window first, so a command works even when the window is
+minimised or behind something. Items that need a project — Export and the
+workspace views — are greyed out until one is open. **Reload** and **Toggle
+Developer Tools** appear only in a development build, so a release cannot reload
+the renderer out from under a running generation. Help links open in your
+browser and point at the same published pages the Help centre uses.
 
 ### Preview and CodePen
 
@@ -266,6 +302,7 @@ You need **one** provider. GitHub Copilot is easiest because it needs no API key
 | Provider | Setup | Notes |
 |---|---|---|
 | **GitHub Copilot** ⭐ | `gh auth login` (or `copilot`) — needs an active Copilot subscription | Claude, GPT, Gemini and Grok through one sign-in |
+| **Copilot SDK BYOK** | A separate OpenAI-compatible, Azure OpenAI or Anthropic endpoint and its own credential | No Copilot subscription required; appears as a separate model group and never re-routes a native provider |
 | Gemini | API key | Also powers asset extraction and **video input** |
 | Anthropic | API key | |
 | OpenAI | API key | |
@@ -305,6 +342,50 @@ credentials in this order:
 So if you already use the GitHub CLI, it just works — Settings shows which
 account was picked up. Otherwise create a fine-grained token with the
 **Copilot Requests** permission.
+
+### GitHub Copilot SDK BYOK
+
+**Settings → GitHub Copilot SDK BYOK** adds a separate endpoint through the
+Copilot SDK. It supports OpenAI-compatible servers, Azure OpenAI and Anthropic;
+the connection has its own API key or bearer token, wire API and optional model
+name override. An OpenAI-compatible endpoint on `localhost` may be
+credentialless. The SDK has no native Gemini BYOK provider.
+
+BYOK is additive. Its models appear under **Copilot SDK (BYOK)** with identities
+such as `sdk-byok/azure/gpt-5.6-sol (high thinking)`. A native model and its
+BYOK twin can be selected in the same generation, keep their requested
+reasoning effort, and remain distinct in History and retries. Direct OpenAI,
+Anthropic, Gemini, Replicate and Copilot-subscription credentials and routing
+are unchanged; they are never borrowed as BYOK credentials.
+
+### MCP servers
+
+Settings accepts up to eight MCP servers over stdio, HTTP or SSE. Local servers
+are spawned directly from an argument vector, never through a shell; remote
+servers require HTTPS except on localhost. A server must be both **Enabled**
+and **Trusted** before a Copilot subscription or SDK-BYOK option can use it.
+Tools are read-only by default, and **Allow write tools** is a separate,
+explicit permission. Native OpenAI, Anthropic and Gemini variants never receive
+MCP tools.
+
+Environment values and request headers are masked and excluded from History,
+logs, validation responses and Review reports. Disabled, untrusted or
+incomplete drafts are reported as notices and do not block direct generations.
+
+### Responsive Review
+
+The **Review** destination renders the current project at two to four actual CSS
+viewport widths at once. The defaults are 1440px, 768px and 390px; custom
+widths may range from 320px to 1920px. Each frame reports real horizontal
+overflow rather than estimating it from a screenshot.
+
+Beside the frames, a deterministic local audit checks generated source for
+semantic and accessibility problems. Results are bound to the version, option,
+source hash and viewport set, so changing any of them marks the report stale.
+Selected findings are inserted into Chat for review and editing but are never
+sent automatically. JSON reports contain findings and safe relative file
+labels, not source code or credentials. This is an automated source audit, not
+WCAG certification.
 
 ## Running from source
 

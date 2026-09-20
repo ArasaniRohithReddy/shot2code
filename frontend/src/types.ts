@@ -1,5 +1,14 @@
 import { Stack } from "./lib/stacks";
 import { CodeGenerationModel } from "./lib/models";
+import type {
+  CopilotSdkByokSettings,
+  CopilotSdkByokWirePayload,
+} from "./lib/copilot-sdk-byok";
+import type { ModelSelectionEntry } from "./lib/integrations";
+import type {
+  McpServerConfig,
+  McpServerWirePayload,
+} from "./lib/mcp-servers";
 
 export enum EditorTheme {
   ESPRESSO = "espresso",
@@ -34,9 +43,27 @@ export interface Settings {
    * every provider rather than Copilot alone.
    */
   copilotModels: string[];
-  /** Model ids to generate with; empty means shot2code chooses. */
+  /**
+   * Model ids to generate with; empty means shot2code chooses.
+   *
+   * Holds native model ids and Copilot SDK BYOK run identities
+   * (`sdk-byok/<provider>/<base model>`) in one ordered list. Both are kept
+   * verbatim in Settings and in history: a native id and the BYOK identity of
+   * that same base model are two separate picks that produce two separate
+   * variants on two separate runtimes.
+   */
   selectedModels: string[];
   projectContext: ProjectContext | null;
+  /**
+   * The Copilot SDK "bring your own key" connection.
+   *
+   * A separate, additive runtime with its own endpoint and key. It never
+   * reads, replaces or re-routes `openAiApiKey`, `openAiBaseURL`,
+   * `anthropicApiKey`, `geminiApiKey` or `replicateApiKey`.
+   */
+  copilotSdkByok: CopilotSdkByokSettings;
+  /** MCP servers offered to Copilot and Copilot SDK BYOK runs. */
+  mcpServers: McpServerConfig[];
 }
 
 export interface DesignSystem {
@@ -124,6 +151,24 @@ export interface CodeGenerationParams {
   isAssetExtractionEnabled?: boolean;
 }
 export type FullGenerationSettings = CodeGenerationParams &
-  Settings & {
+  Omit<Settings, "copilotSdkByok" | "mcpServers"> & {
     designSystem?: string | null;
+    /**
+     * The authoritative selection: one entry per pick, in order, each naming
+     * its own run identity and runtime. `selectedModels` carries the same ids
+     * for an older backend.
+     */
+    modelSelections: ModelSelectionEntry[];
+    /** A retry replays the identities the original run recorded. */
+    retryModelSelections?: ModelSelectionEntry[];
+    /**
+     * Wire shape of the integration settings.
+     *
+     * This describes what is *configured*, not what this run picked. The
+     * runtime is decided per selection id, so sending this block never
+     * re-routes a native pick. Secrets are read from the current Settings at
+     * send time and are never persisted.
+     */
+    copilotSdkByok: CopilotSdkByokWirePayload;
+    mcpServers: McpServerWirePayload[];
   };

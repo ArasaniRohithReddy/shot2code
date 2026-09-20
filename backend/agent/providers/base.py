@@ -8,6 +8,12 @@ StreamEventType = Literal[
     "assistant_delta",
     "thinking_delta",
     "tool_call_delta",
+    # Tools the provider's own agent runtime executed (MCP servers reached
+    # through the Copilot SDK). shot2code never runs these itself, so they
+    # arrive already started, progressed and finished.
+    "external_tool_start",
+    "external_tool_progress",
+    "external_tool_result",
 ]
 
 
@@ -18,6 +24,10 @@ class StreamEvent:
     tool_call_id: Optional[str] = None
     tool_name: Optional[str] = None
     tool_arguments: Any = None
+    # How an externally executed tool should be named in the activity feed.
+    tool_display_name: Optional[str] = None
+    # Whether an externally executed tool succeeded; None until it finishes.
+    tool_ok: Optional[bool] = None
 
 
 @dataclass

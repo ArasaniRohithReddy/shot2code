@@ -67,6 +67,61 @@ engine, which resolves it via `append_tool_results`. Notes:
   *request* count, not dollars; reporting it as USD trips
   `GENERATION_MAX_COST_USD` and aborts normal runs.
 
+## Copilot SDK BYOK and MCP in the browser
+
+Both are **additive**. The OpenAI base URL and key, the Anthropic key, the
+Gemini key, the Replicate key, the native provider catalog and the native
+routing are untouched by this feature and must stay that way.
+
+`frontend/src/lib/copilot-sdk-byok.ts` owns the BYOK connection, and
+`frontend/src/lib/mcp-servers.ts` owns the server list. Both are pure and mirror
+the limits and validation in `backend/integrations/config.py`.
+`frontend/src/lib/integrations.ts` joins the two and builds every payload;
+`integrations-client.ts` is the only I/O.
+
+**The run identity is per selection.** One connection produces one selectable
+entry per base model, `sdk-byok/<provider>/<base model id>`, published by the
+backend as a fifth catalog provider, `sdk-byok`. No `Llm` value starts with that
+prefix, so a BYOK identity can never collide with a native model id, and a run
+may contain `gpt-5.6-sol (high thinking)` **and** its BYOK twin: two entries,
+two variants, two runtimes.
+
+That identity is what crosses the wire. `buildModelSelections` turns the saved
+selection into `modelSelections: [{id, baseModel, runtime}]` - order preserved,
+de-duplicated **by id only** - and a retry sends `retryModelSelections` in the
+same shape. `selectedModels` still goes along as plain ids for an older backend.
+A native id *is* its base model; a BYOK id carries its provider and base model,
+so the mapping is a pure derivation with no catalog lookup.
+
+`copilotSdkByok` describes what is *configured*, not what a run picked, so
+sending it can never re-route a native selection. **There is no reroute warning,
+because there is no rerouting**, and the native openai/anthropic/gemini/copilot
+groups still require their own direct key - their `credential_source` is never
+`sdk-byok`.
+
+`variantModels` streams selection ids, so `variant.model` on a commit records
+the identity a variant actually ran as. Settings and history keep the synthetic
+id rather than resolving it to the base model, which is what lets a retry replay
+the real runtime.
+
+The UI is stricter than the backend in one place on purpose: a dedicated
+credential is required unless the endpoint is an OpenAI-compatible server on
+localhost. A direct provider key is never offered as a fallback, because it
+belongs to the native runtime and must keep working there untouched.
+
+Credentials are read from the current Settings at send time and nothing else.
+`CommitGenerationContext` and the history serializers carry model ids only -
+`serializeGenerationContext` is a closed allowlist, and
+`frontend/src/lib/integration-generation.test.ts` asserts that no key, bearer
+token, MCP env value or request header reaches a commit or a snapshot.
+
+MCP runs for Copilot subscription variants and BYOK variants only; a native
+OpenAI/Anthropic/Gemini variant never sees an MCP tool. A server needs `enabled`
+*and* `trusted` before it starts, and stays read-only until `allowWriteTools` is
+set as well. `env` and `headers` may hold tokens: they are masked in the list,
+masked and read-only in the editor until revealed, and excluded from
+`stripIntegrationSecrets`.
+
 ## Imported project context
 
 The Import tab can analyse a folder, ZIP, or selected source files through
@@ -102,6 +157,30 @@ are loaded on first use, while Chromium and Copilot capability probes run as
 bounded background tasks. Do not move optional discovery back into an awaited
 FastAPI startup hook: frozen imports and antivirus scanning can make those
 probes take minutes even though the core API is healthy.
+
+The native application menu is built in `desktop/app-menu.js`, which returns the
+whole template as plain data and never requires Electron, so `app-menu.test.js`
+asserts labels, accelerators, enablement and click routing under `node --test`.
+
+- A menu item that maps to app behaviour **sends a typed command** on
+  `shot2code:menu-command`; `App.tsx` runs it through `runAppCommand`, the same
+  dispatcher the keyboard shortcuts use. Never reimplement a behaviour in the
+  menu, and never add a command id that is missing from `APP_COMMANDS` in
+  `frontend/src/lib/app-shortcuts.ts` - the renderer drops unknown commands.
+- Those items must keep `registerAccelerator: false`. Registering them would
+  hand **Ctrl+Z** to the menu (CodeMirror keeps its own history and would undo
+  nothing), swallow **Ctrl+/** inside the editor, bypass the in-app guards for
+  text fields and open dialogs, and double-apply zoom, which `zoom-controls.js`
+  already owns through `before-input-event`. `registerAccelerator` is honoured
+  on Windows and Linux only.
+- Menu clicks go through `focusMainWindow()` first, so a command works while the
+  window is hidden or minimised.
+- The renderer publishes `{ hasProject, canExport, isChatPanelVisible }` on
+  `shot2code:menu-state`. Until it does, project-only items stay enabled and the
+  renderer shows its own toast; that is deliberate, because a silently dead menu
+  item is worse than an honest message.
+- New files in `desktop/` must be added to `files:` in `electron-builder.yml` or
+  they are missing from the packaged app.
 
 The UI is served over `file://` in the packaged app but over `http://` in dev,
 and that difference has caused every desktop-only bug so far. When touching

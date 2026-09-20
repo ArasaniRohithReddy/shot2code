@@ -8,7 +8,10 @@ import pytest
 
 import routes.generate_code as generate_code
 from copilot_auth import CopilotAuthSnapshot
+from integrations.config import parse_integration_settings
 from llm import Llm
+from integrations.config import parse_integration_settings
+from model_catalog import ModelRunSpec, parse_model_selections
 from routes.generate_code import (
     CodeGenerationMiddleware,
     ExtractedParams,
@@ -64,6 +67,14 @@ def context_for(recorder: Recorder, **overrides: Any) -> PipelineContext:
         "option_codes": [],
     }
     params.update(overrides)
+    # Tests express picks as direct models; the pipeline works on targets.
+    for key in ("selected_models", "retry_models"):
+        if key in params:
+            models = params.pop(key)
+            target_key = (
+                "selected_specs" if key == "selected_models" else "retry_specs"
+            )
+            params[target_key] = [ModelRunSpec.native(model) for model in models]
     context.extracted_params = ExtractedParams(**params)
     return context
 
@@ -80,9 +91,12 @@ def stub_generation(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(generate_code, "get_copilot_snapshot", fake_snapshot)
 
     async def fake_process_variants(
-        self: Any, variant_models: list[Llm], prompt_messages: list[Any]
+        self: Any, variant_specs: list[ModelRunSpec], prompt_messages: list[Any]
     ) -> dict[int, str]:
-        return {index: f"<html>{model.value}</html>" for index, model in enumerate(variant_models)}
+        return {
+            index: f"<html>{spec.selection_id}</html>"
+            for index, spec in enumerate(variant_specs)
+        }
 
     monkeypatch.setattr(
         generate_code.AgenticGenerationStage,
@@ -200,3 +214,99 @@ async def test_no_usable_credentials_errors_instead_of_generating() -> None:
     assert recorder.errors
     assert "No API key found" in recorder.errors[0]
     assert recorder.of_type("variantModels") == []
+
+
+
+@pytest.mark.asyncio
+async def test_native_and_byok_runs_of_one_model_coexist() -> None:
+    """The whole point of per-selection identity: both variants run."""
+    recorder = Recorder()
+    settings = parse_integration_settings(
+        {
+            "copilotSdkByok": {
+                "enabled": True,
+                "provider": "azure",
+                "baseUrl": "https://res.openai.azure.com",
+                "apiKey": "azure-secret",
+            }
+        }
+    )
+    specs, unknown = parse_model_selections(
+        [
+            {
+                "id": Llm.GPT_5_5_HIGH.value,
+                "baseModel": Llm.GPT_5_5_HIGH.value,
+                "runtime": "native",
+            },
+            {
+                "id": f"sdk-byok/azure/{Llm.GPT_5_5_HIGH.value}",
+                "baseModel": Llm.GPT_5_5_HIGH.value,
+                "runtime": "copilot-byok",
+            },
+        ]
+    )
+    assert unknown == ()
+    context = context_for(recorder, integrations=settings, selected_specs=list(specs))
+
+    await run_pipeline(context)
+
+    data = recorder.of_type("variantModels")[0][3]
+    assert data is not None
+    # Two variants, same base model, two different run identities.
+    assert data["models"] == [
+        Llm.GPT_5_5_HIGH.value,
+        f"sdk-byok/azure/{Llm.GPT_5_5_HIGH.value}",
+    ]
+    assert [message[1] for message in recorder.of_type("variantCount")] == ["2"]
+    assert [spec.runtime for spec in context.variant_specs] == [
+        "native",
+        "copilot-byok",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_native_pick_is_never_rerouted_by_an_enabled_byok() -> None:
+    recorder = Recorder()
+    settings = parse_integration_settings(
+        {
+            "copilotSdkByok": {
+                "enabled": True,
+                "provider": "openai",
+                "baseUrl": "https://api.example.com/v1",
+                "apiKey": "sk-byok",
+            }
+        }
+    )
+    specs, _ = parse_model_selections([Llm.GPT_5_5_HIGH.value])
+    context = context_for(recorder, integrations=settings, selected_specs=list(specs))
+
+    await run_pipeline(context)
+
+    data = recorder.of_type("variantModels")[0][3]
+    assert data is not None
+    assert data["models"] == [Llm.GPT_5_5_HIGH.value]
+    assert context.variant_specs[0].runtime == "native"
+
+
+@pytest.mark.asyncio
+async def test_a_retry_replays_byok_identity() -> None:
+    recorder = Recorder()
+    settings = parse_integration_settings(
+        {
+            "copilotSdkByok": {
+                "enabled": True,
+                "provider": "azure",
+                "baseUrl": "https://res.openai.azure.com",
+                "apiKey": "azure-rotated",
+            }
+        }
+    )
+    identity = f"sdk-byok/azure/{Llm.GPT_5_5_HIGH.value}"
+    specs, _ = parse_model_selections([identity])
+    context = context_for(recorder, integrations=settings, retry_specs=list(specs))
+
+    await run_pipeline(context)
+
+    data = recorder.of_type("variantModels")[0][3]
+    assert data is not None
+    assert data["models"] == [identity]

@@ -731,7 +731,7 @@ wheels = [
 
 [[package]]
 name = "github-copilot-sdk"
-version = "1.0.11"
+version = "1.0.13"
 source = { registry = "https://packagefeedproxy.microsoft.io/pypi/simple/" }
 dependencies = [
     { name = "httpx" },
@@ -739,7 +739,7 @@ dependencies = [
     { name = "python-dateutil" },
 ]
 wheels = [
-    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/github-copilot-sdk/1.0.11/github_copilot_sdk-1.0.11-py3-none-any.whl", hash = "sha256:6f664c7b843c34ab5a7455f7effb4d339eae75969d2b72f43c2e6214c9c637dc" },
+    { url = "https://ms-feed-25.pkgs.visualstudio.com/6f084628-a36d-42cb-934d-057357e379dc/_packaging/49d7402f-07bb-4b18-a9ce-086e6e98a554/pypi/download/github-copilot-sdk/1.0.13/github_copilot_sdk-1.0.13-py3-none-any.whl", hash = "sha256:941dd5b55cf32ba55c73c651052a4a52b259b470c68bf6a6ac3d240c235402c9" },
 ]
 
 [[package]]
@@ -2163,7 +2163,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.84.0,<0.85.0" },
     { name = "beautifulsoup4", specifier = ">=4.12.2,<5.0.0" },
     { name = "fastapi", specifier = ">=0.115.6,<0.116.0" },
-    { name = "github-copilot-sdk", specifier = ">=1.0.11,<2.0.0" },
+    { name = "github-copilot-sdk", specifier = ">=1.0.13,<2.0.0" },
     { name = "google-genai", specifier = ">=1.16.1,<2.0.0" },
     { name = "httpx", specifier = ">=0.28.1,<0.29.0" },
     { name = "langfuse", specifier = ">=3.0.2,<4.0.0" },

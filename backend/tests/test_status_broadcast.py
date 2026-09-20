@@ -5,6 +5,7 @@ from typing import Any, cast
 import pytest
 
 from llm import Llm
+from model_catalog import ModelRunSpec
 from routes.generate_code import (
     ExtractedParams,
     PipelineContext,
@@ -150,10 +151,10 @@ async def test_retry_broadcasts_the_original_variant_count() -> None:
         history=[],
         file_state={"path": "src/App.tsx", "content": "export default App"},
         option_codes=[],
-        retry_models=[
-            Llm.GPT_5_6_SOL_HIGH,
-            Llm.CLAUDE_OPUS_5_HIGH,
-            Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL,
+        retry_specs=[
+            ModelRunSpec.native(Llm.GPT_5_6_SOL_HIGH),
+            ModelRunSpec.native(Llm.CLAUDE_OPUS_5_HIGH),
+            ModelRunSpec.native(Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL),
         ],
     )
 
@@ -196,6 +197,11 @@ def _context_with(**overrides: Any) -> PipelineContext:
         "option_codes": [],
     }
     params.update(overrides)
+    # Tests pick direct models; the stage works on targets, so wrap them here.
+    if "selected_models" in params:
+        params["selected_specs"] = [
+            ModelRunSpec.native(model) for model in params.pop("selected_models")
+        ]
     context.extracted_params = ExtractedParams(**params)
     context.metadata["sent"] = sent
     return context

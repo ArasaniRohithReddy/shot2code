@@ -5,11 +5,18 @@ keys in the browser rather than on the server. They are used to answer "is this
 provider usable" and are never echoed back, logged, or persisted.
 """
 
+from typing import Any
+
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from config import ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
 from copilot_auth import get_copilot_snapshot
+from integrations.config import (
+    ByokConnectionSummary,
+    IntegrationConfigError,
+    parse_integration_settings,
+)
 from llm import ModelProvider
 from model_catalog import (
     CatalogModel,
@@ -22,6 +29,10 @@ from model_catalog import (
 router = APIRouter()
 
 
+def _no_diagnostics() -> list[dict[str, Any]]:
+    return []
+
+
 class ModelEntry(BaseModel):
     id: str
     provider: ModelProvider
@@ -31,6 +42,11 @@ class ModelEntry(BaseModel):
     status: str
     recommended: bool
     supports_video: bool
+    # Copilot SDK BYOK entries carry the run identity in `id` plus the direct
+    # model whose capabilities they borrow. Native entries have runtime
+    # "native" and no base model, exactly as before BYOK existed.
+    runtime: str = "native"
+    base_model_id: str | None = None
 
 
 class ProviderEntry(BaseModel):
@@ -48,6 +64,10 @@ class ProviderEntry(BaseModel):
 class ModelCatalogResponse(BaseModel):
     providers: list[ProviderEntry]
     stale_selection: list[str] = Field(default_factory=list)
+    # Why part of the integration configuration is not in play, in safe words.
+    integration_diagnostics: list[dict[str, Any]] = Field(
+        default_factory=_no_diagnostics
+    )
 
 
 class ModelCatalogRequest(BaseModel):
@@ -59,6 +79,8 @@ class ModelCatalogRequest(BaseModel):
     copilotGithubToken: str | None = None
     selectedModels: list[str] = Field(default_factory=list)
     refresh: bool = False
+    # Copilot SDK BYOK connection, in the same shape the generate socket takes.
+    copilotSdkByok: dict[str, Any] | None = None
 
 
 def _serialize_model(model: CatalogModel) -> ModelEntry:
@@ -71,10 +93,16 @@ def _serialize_model(model: CatalogModel) -> ModelEntry:
         status=model.status,
         recommended=model.recommended,
         supports_video=model.supports_video,
+        runtime=model.runtime,
+        base_model_id=model.base_model_id,
     )
 
 
-def _serialize(catalog: ModelCatalog, selected: list[str]) -> ModelCatalogResponse:
+def _serialize(
+    catalog: ModelCatalog,
+    selected: list[str],
+    diagnostics: list[dict[str, Any]] | None = None,
+) -> ModelCatalogResponse:
     return ModelCatalogResponse(
         providers=[
             ProviderEntry(
@@ -91,6 +119,7 @@ def _serialize(catalog: ModelCatalog, selected: list[str]) -> ModelCatalogRespon
             for provider in catalog.providers
         ],
         stale_selection=list(stale_selection_ids(selected, catalog)),
+        integration_diagnostics=list(diagnostics or []),
     )
 
 
@@ -115,6 +144,23 @@ async def _catalog_for(
     if token:
         request_providers.add("copilot")
 
+    # An invalid BYOK block must not break the picker: the direct providers are
+    # unaffected and the reason travels as a diagnostic.
+    byok: ByokConnectionSummary | None = None
+    diagnostics: list[dict[str, Any]] = []
+    if request.copilotSdkByok is not None:
+        try:
+            settings = parse_integration_settings(
+                {"copilotSdkByok": request.copilotSdkByok}
+            )
+        except IntegrationConfigError as error:
+            diagnostics.append(
+                {"scope": "byok", "code": "invalid", "message": str(error)}
+            )
+        else:
+            byok = settings.byok_summary
+            diagnostics.extend(item.to_dict() for item in settings.diagnostics)
+
     catalog = build_catalog(
         ProviderCredentials(
             openai_api_key=openai_key or OPENAI_API_KEY,
@@ -128,9 +174,10 @@ async def _catalog_for(
                 if bool(model.get("vision"))
             ),
             request_providers=frozenset(request_providers),
+            byok=byok,
         )
     )
-    return _serialize(catalog, request.selectedModels)
+    return _serialize(catalog, request.selectedModels, diagnostics)
 
 
 @router.get("/api/models", response_model=ModelCatalogResponse)

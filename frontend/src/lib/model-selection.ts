@@ -1,19 +1,32 @@
 import type { Settings } from "../types";
+import type { IntegrationDiagnostic } from "./integrations";
+import { parseIntegrationDiagnostics } from "./integrations";
+import {
+  MODEL_RUNTIMES,
+  runtimeOfSelectionId,
+  type ModelRuntime,
+} from "./copilot-sdk-byok";
 
 /**
  * The provider/model catalog the pickers render.
  *
  * The backend owns what exists: GitHub Copilot is discovered live from the
  * signed-in plan, the API-key providers come from a validated list maintained
- * with shot2code. The browser owns the keys, so it posts them (never storing
- * them anywhere else) and gets back availability, labels and which saved picks
- * have gone stale. Nothing here holds a credential beyond the request.
+ * with shot2code, and `sdk-byok` is one run identity per base model a usable
+ * BYOK connection can serve. The native groups are completely unaffected by
+ * BYOK: they still need their own direct key and their credential source is
+ * never `sdk-byok`.
  *
  * This module stays free of I/O and app config so it can be reasoned about on
  * its own; the request itself lives in `model-catalog-client.ts`.
  */
 
-export type ProviderId = "copilot" | "openai" | "anthropic" | "gemini";
+export type ProviderId =
+  | "copilot"
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "sdk-byok";
 
 export type ModelStatus = "available" | "deprecated";
 
@@ -26,6 +39,16 @@ export interface CatalogModel {
   status: ModelStatus;
   recommended: boolean;
   supports_video: boolean;
+  /**
+   * How this entry executes.
+   *
+   * A native entry is a direct provider model, exactly as before BYOK existed.
+   * A `copilot-byok` entry is a separate run identity that borrows
+   * `base_model_id`'s capabilities - picking it never picks the direct model,
+   * and both can be picked at once.
+   */
+  runtime: ModelRuntime;
+  base_model_id?: string | null;
 }
 
 export interface CatalogProvider {
@@ -33,21 +56,56 @@ export interface CatalogProvider {
   label: string;
   available: boolean;
   credential_label: string;
-  credential_source?: "request" | "environment" | "session" | null;
-  source_kind: "discovered" | "curated";
+  credential_source?: CredentialSource | null;
+  source_kind: "discovered" | "curated" | "configured";
   detail: string;
   models: CatalogModel[];
   unsupported_model_ids: string[];
 }
 
+/**
+ * Where a provider's credential came from. Never the credential itself.
+ *
+ * `sdk-byok` means the backend can reach that provider through a Copilot SDK
+ * BYOK connection rather than its own API key.
+ */
+export type CredentialSource =
+  | "request"
+  | "environment"
+  | "session"
+  | "sdk-byok";
+
+const CREDENTIAL_SOURCES: CredentialSource[] = [
+  "request",
+  "environment",
+  "session",
+  "sdk-byok",
+];
+
+const CREDENTIAL_SOURCE_LABELS: Record<CredentialSource, string> = {
+  request: "Your saved key",
+  environment: "Backend .env",
+  session: "Signed in",
+  "sdk-byok": "Copilot SDK BYOK",
+};
+
+export function credentialSourceLabel(
+  source: CredentialSource | null | undefined
+): string | null {
+  return source ? CREDENTIAL_SOURCE_LABELS[source] : null;
+}
+
 export interface ModelCatalog {
   providers: CatalogProvider[];
   stale_selection: string[];
+  /** Why part of the integration configuration is not in play, safely worded. */
+  integration_diagnostics: IntegrationDiagnostic[];
 }
 
 export const EMPTY_CATALOG: ModelCatalog = {
   providers: [],
   stale_selection: [],
+  integration_diagnostics: [],
 };
 
 export interface CatalogCredentials {
@@ -57,7 +115,13 @@ export interface CatalogCredentials {
   copilotGithubToken?: string | null;
 }
 
-const PROVIDER_IDS: ProviderId[] = ["copilot", "openai", "anthropic", "gemini"];
+const PROVIDER_IDS: ProviderId[] = [
+  "copilot",
+  "openai",
+  "anthropic",
+  "gemini",
+  "sdk-byok",
+];
 
 function isProviderId(value: unknown): value is ProviderId {
   return (
@@ -78,6 +142,12 @@ function parseModel(raw: unknown): CatalogModel | null {
     status: model.status === "deprecated" ? "deprecated" : "available",
     recommended: model.recommended === true,
     supports_video: model.supports_video === true,
+    // An older backend omits the runtime; the id still says which it is.
+    runtime: MODEL_RUNTIMES.includes(model.runtime as ModelRuntime)
+      ? (model.runtime as ModelRuntime)
+      : runtimeOfSelectionId(model.id),
+    base_model_id:
+      typeof model.base_model_id === "string" ? model.base_model_id : null,
   };
 }
 
@@ -107,14 +177,16 @@ export function parseModelCatalog(raw: unknown): ModelCatalog {
             typeof provider.credential_label === "string"
               ? provider.credential_label
               : "",
-          credential_source:
-            provider.credential_source === "request" ||
-            provider.credential_source === "environment" ||
-            provider.credential_source === "session"
-              ? provider.credential_source
-              : null,
+          credential_source: CREDENTIAL_SOURCES.includes(
+            provider.credential_source as CredentialSource
+          )
+            ? (provider.credential_source as CredentialSource)
+            : null,
           source_kind:
-            provider.source_kind === "discovered" ? "discovered" : "curated",
+            provider.source_kind === "discovered" ||
+            provider.source_kind === "configured"
+              ? provider.source_kind
+              : "curated",
           detail: typeof provider.detail === "string" ? provider.detail : "",
           models: models
             .map(parseModel)
@@ -128,6 +200,9 @@ export function parseModelCatalog(raw: unknown): ModelCatalog {
       ];
     }),
     stale_selection: staleSelection,
+    integration_diagnostics: parseIntegrationDiagnostics(
+      payload.integration_diagnostics
+    ),
   };
 }
 
@@ -159,11 +234,15 @@ export function findCatalogModel(
  *
  * A selection is only trusted against a catalog that actually loaded; an empty
  * one means "backend unreachable", and discarding every pick on that basis
- * would quietly reset a user's choices.
+ * would quietly reset a user's choices. `knownExtraIds` carries ids the catalog
+ * is not offering but the browser still recognises - a BYOK profile that is
+ * configured and merely incomplete - so fixing the profile is offered instead
+ * of deleting the pick.
  */
 export function partitionSelection(
   selection: string[],
-  catalog: ModelCatalog
+  catalog: ModelCatalog,
+  knownExtraIds: ReadonlySet<string> = new Set()
 ): { valid: string[]; stale: string[] } {
   const unique = [...new Set(selection)];
   if (catalog.providers.length === 0) {
@@ -171,8 +250,8 @@ export function partitionSelection(
   }
   const known = catalogModelIds(catalog);
   return {
-    valid: unique.filter((id) => known.has(id)),
-    stale: unique.filter((id) => !known.has(id)),
+    valid: unique.filter((id) => known.has(id) || knownExtraIds.has(id)),
+    stale: unique.filter((id) => !known.has(id) && !knownExtraIds.has(id)),
   };
 }
 
@@ -205,8 +284,16 @@ export function describeSelection(
 ): string {
   if (selection.length === 0) return "Auto";
   if (selection.length === 1) {
-    const model = findCatalogModel(catalog, selection[0]);
-    return model ? model.label : selection[0].replace("copilot/", "");
+    const id = selection[0];
+    const model = findCatalogModel(catalog, id);
+    if (model) {
+      return model.runtime === "copilot-byok"
+        ? `BYOK · ${model.family || model.label}`
+        : model.label;
+    }
+    return runtimeOfSelectionId(id) === "copilot-byok"
+      ? `BYOK · ${id.slice(id.lastIndexOf("/") + 1)}`
+      : id.replace("copilot/", "");
   }
   return `${selection.length} models`;
 }
@@ -264,6 +351,45 @@ export function hasDeprecatedModels(catalog: ModelCatalog): boolean {
   return catalog.providers.some((provider) =>
     provider.models.some((model) => model.status === "deprecated")
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Copilot SDK BYOK entries                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The BYOK group, which the backend builds - one run identity per base model.
+ *
+ * It sits beside the native providers rather than inside them, and never
+ * changes their availability or their credential source. A native model and
+ * the BYOK identity that borrows it are two separate entries with two separate
+ * ids, so both can be picked for one run and each keeps its own runtime.
+ */
+export function byokProviderGroup(
+  catalog: ModelCatalog
+): CatalogProvider | undefined {
+  return catalog.providers.find((provider) => provider.id === "sdk-byok");
+}
+
+/** Run identities the BYOK group currently offers. */
+export function byokCatalogSelectionIds(catalog: ModelCatalog): Set<string> {
+  return new Set(byokProviderGroup(catalog)?.models.map((m) => m.id) ?? []);
+}
+
+/** The provider a selected id belongs to, BYOK identities included. */
+export function selectionProviderOf(
+  catalog: ModelCatalog,
+  modelId: string
+): ProviderId | undefined {
+  return findCatalogModel(catalog, modelId)?.provider;
+}
+
+/** The runtime a selected id will execute on, from the catalog or its id. */
+export function selectionRuntimeOf(
+  catalog: ModelCatalog,
+  modelId: string
+): ModelRuntime {
+  return findCatalogModel(catalog, modelId)?.runtime ?? runtimeOfSelectionId(modelId);
 }
 
 /**

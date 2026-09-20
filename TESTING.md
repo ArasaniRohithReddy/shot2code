@@ -80,6 +80,7 @@ The desktop shell is plain Node, so a syntax check catches most mistakes:
 cd desktop
 node --check main.js
 node --check preload.js
+node --check app-menu.js
 ```
 
 The update install path has its own tests, run with Node's built-in runner:
@@ -92,7 +93,14 @@ npm test
 They cover backend readiness and timeout handling, zoom accelerators, the
 single-installer guard, the abort-and-stay-retryable path when the backend
 cannot be stopped, and — on Windows — that the backend process tree is really
-gone before an installer is launched.
+gone before an installer is launched. `app-menu.test.js` asserts the whole
+native menu as data: the five menus and their order, every accelerator (no
+collisions, no hard-coded `Ctrl` in a cross-platform label), that renderer
+commands never register their accelerator, that reload and DevTools ship only
+in development, that project-only items are disabled without a project, that
+each external link resolves to a published release-hub page, and that the menu
+commands, the accelerators and the IPC channel names still match
+`frontend/src/lib/app-shortcuts.ts` and `frontend/src/lib/desktop-menu.ts`.
 
 To run the shell against the source tree (it starts the backend through uv and
 loads `desktop/renderer` if present, otherwise the Vite dev server):
@@ -118,7 +126,7 @@ It records backend startup, renderer load failures, crashes and console errors.
 - Touched backend code: `uv run pytest` and `uv run pyright`
 - Touched frontend code: `pnpm exec tsc --noEmit` and `pnpm lint`
 - Touched the desktop shell: `node --check main.js`, `node --check preload.js`
-  and `node --test update-lifecycle.test.js`
+  and `npm test` (which includes the application-menu suite)
 - Touched both: all of the above
 
 Anything that changes how the UI is loaded (routing, asset paths, `window.open`)

@@ -16,6 +16,12 @@ export interface PreviewSelection extends PreviewSelectionPayload {
   previewId: string;
 }
 
+export interface PreviewRuntimeMetrics {
+  viewportWidth: number;
+  documentWidth: number;
+  horizontalOverflow: boolean;
+}
+
 export type PreviewToHostMessage =
   | {
       channel: typeof PREVIEW_BRIDGE_CHANNEL;
@@ -32,6 +38,12 @@ export type PreviewToHostMessage =
       channel: typeof PREVIEW_BRIDGE_CHANNEL;
       nonce: string;
       type: "exit-select-mode";
+    }
+  | {
+      channel: typeof PREVIEW_BRIDGE_CHANNEL;
+      nonce: string;
+      type: "runtime-metrics";
+      payload: PreviewRuntimeMetrics;
     };
 
 export type PreviewHostMessage =
@@ -45,6 +57,11 @@ export type PreviewHostMessage =
       channel: typeof PREVIEW_BRIDGE_CHANNEL;
       nonce: string;
       type: "clear-selection";
+    }
+  | {
+      channel: typeof PREVIEW_BRIDGE_CHANNEL;
+      nonce: string;
+      type: "request-runtime-metrics";
     };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,6 +95,33 @@ export function parsePreviewToHostMessage(
       channel: PREVIEW_BRIDGE_CHANNEL,
       nonce: expectedNonce,
       type: value.type,
+    };
+  }
+
+  if (value.type === "runtime-metrics" && isRecord(value.payload)) {
+    const { viewportWidth, documentWidth, horizontalOverflow } = value.payload;
+    if (
+      typeof viewportWidth !== "number" ||
+      !Number.isFinite(viewportWidth) ||
+      viewportWidth < 0 ||
+      viewportWidth > 100_000 ||
+      typeof documentWidth !== "number" ||
+      !Number.isFinite(documentWidth) ||
+      documentWidth < 0 ||
+      documentWidth > 1_000_000 ||
+      typeof horizontalOverflow !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      channel: PREVIEW_BRIDGE_CHANNEL,
+      nonce: expectedNonce,
+      type: "runtime-metrics",
+      payload: {
+        viewportWidth,
+        documentWidth,
+        horizontalOverflow,
+      },
     };
   }
 
@@ -124,6 +168,16 @@ export function createClearPreviewSelectionMessage(
   };
 }
 
+export function createRequestPreviewMetricsMessage(
+  nonce: string
+): PreviewHostMessage {
+  return {
+    channel: PREVIEW_BRIDGE_CHANNEL,
+    nonce,
+    type: "request-runtime-metrics",
+  };
+}
+
 function ensureHtmlDocument(content: string): string {
   if (!content.trim()) {
     return "<!doctype html><html><head></head><body></body></html>";
@@ -164,6 +218,8 @@ function buildPreviewBridgeScript(nonce: string): string {
   let enabled = false;
   let hovered = null;
   let selected = null;
+  let metricsFrame = 0;
+  let metricsEnabled = false;
 
   const isRecord = (value) =>
     typeof value === "object" && value !== null && !Array.isArray(value);
@@ -196,6 +252,48 @@ function buildPreviewBridgeScript(nonce: string): string {
     const message = { channel, nonce, type };
     if (payload !== undefined) message.payload = payload;
     window.parent.postMessage(message, "*");
+  };
+  const postRuntimeMetrics = () => {
+    metricsFrame = 0;
+    const root = document.documentElement;
+    const body = document.body;
+    const viewportWidth = Math.max(
+      0,
+      Math.round(root ? root.clientWidth : window.innerWidth)
+    );
+    const documentWidth = Math.max(
+      viewportWidth,
+      Math.ceil(root ? root.scrollWidth : 0),
+      Math.ceil(body ? body.scrollWidth : 0)
+    );
+    post("runtime-metrics", {
+      viewportWidth,
+      documentWidth,
+      horizontalOverflow: documentWidth > viewportWidth + 1,
+    });
+  };
+  const queueRuntimeMetrics = () => {
+    if (!metricsEnabled || metricsFrame) return;
+    metricsFrame = window.requestAnimationFrame(postRuntimeMetrics);
+  };
+  const enableRuntimeMetrics = () => {
+    if (!metricsEnabled) {
+      metricsEnabled = true;
+      if (typeof ResizeObserver === "function") {
+        const resizeObserver = new ResizeObserver(queueRuntimeMetrics);
+        resizeObserver.observe(document.documentElement);
+        if (document.body) resizeObserver.observe(document.body);
+      }
+      if (typeof MutationObserver === "function") {
+        const mutationObserver = new MutationObserver(queueRuntimeMetrics);
+        mutationObserver.observe(document.documentElement, {
+          attributes: true,
+          childList: true,
+          subtree: true,
+        });
+      }
+    }
+    queueRuntimeMetrics();
   };
   const truncate = (value, limit) =>
     value.length <= limit
@@ -404,7 +502,11 @@ function buildPreviewBridgeScript(nonce: string): string {
     if (selected && selected.isConnected) showOverlay(selected, "selection");
   };
   window.addEventListener("scroll", reposition, true);
-  window.addEventListener("resize", reposition);
+  window.addEventListener("resize", () => {
+    reposition();
+    queueRuntimeMetrics();
+  });
+  window.addEventListener("load", queueRuntimeMetrics);
   window.addEventListener(
     "keydown",
     (event) => {
@@ -428,6 +530,10 @@ function buildPreviewBridgeScript(nonce: string): string {
     }
     if (data.type === "clear-selection") {
       clearSelection();
+      return;
+    }
+    if (data.type === "request-runtime-metrics") {
+      enableRuntimeMetrics();
       return;
     }
   });

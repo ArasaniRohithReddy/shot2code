@@ -28,6 +28,13 @@ import { nanoid } from "nanoid";
 import { Stack } from "./lib/stacks";
 import { CodeGenerationModel } from "./lib/models";
 import { withMigratedModelSelection } from "./lib/model-selection";
+import { DEFAULT_COPILOT_SDK_BYOK_SETTINGS } from "./lib/copilot-sdk-byok";
+import {
+  buildGenerationIntegrationPayload,
+  buildModelSelections,
+  needsIntegrationNormalization,
+  withIntegrationDefaults,
+} from "./lib/integrations";
 import { buildGenerationContext } from "./lib/project-context-summary";
 import useBrowserTabIndicator from "./hooks/useBrowserTabIndicator";
 import { LuChevronLeft, LuHistory, LuPanelLeftClose } from "react-icons/lu";
@@ -55,7 +62,9 @@ import PreviewPane, {
 import StartPane from "./components/start-pane/StartPane";
 import SettingsTab from "./components/settings/SettingsTab";
 import DesignSystemsModal from "./components/settings/DesignSystemsModal";
-import HelpCenterDialog from "./components/help/HelpCenterDialog";
+import HelpCenterDialog, {
+  type HelpTabId,
+} from "./components/help/HelpCenterDialog";
 import type { InputTab } from "./components/unified-input/UnifiedInputPane";
 import {
   Commit,
@@ -85,7 +94,9 @@ import {
 import {
   getAppShortcutCommand,
   isEditableShortcutTarget,
+  type AppCommand,
 } from "./lib/app-shortcuts";
+import { useDesktopMenu } from "./hooks/useDesktopMenu";
 
 interface GenerationCommitOptions {
   generationBaseHash?: string | null;
@@ -157,6 +168,8 @@ function App() {
       codeGenerationModel: CodeGenerationModel.GEMINI_3_FLASH_PREVIEW_MINIMAL,
       selectedDesignSystemId: null,
       projectContext: null,
+      copilotSdkByok: DEFAULT_COPILOT_SDK_BYOK_SETTINGS,
+      mcpServers: [],
     },
     "setting"
   );
@@ -164,6 +177,18 @@ function App() {
   // choice under an older field; move it across once, on load.
   useEffect(() => {
     setSettings((current) => withMigratedModelSelection(current));
+  }, [setSettings]);
+
+  // The BYOK profile and MCP list are nested objects, which `usePersistedState`
+  // only fills in at the top level. Normalising them on load keeps a blob saved
+  // by an older build (or hand-edited) on the current shape. Nothing else is
+  // read or rewritten: absent means "off" and "no servers".
+  useEffect(() => {
+    setSettings((current) =>
+      needsIntegrationNormalization(current)
+        ? withIntegrationDefaults(current)
+        : current
+    );
   }, [setSettings]);
 
   const [appTheme, setAppTheme] = usePersistedState<AppTheme>(
@@ -214,6 +239,12 @@ function App() {
     useState<PreviewTab>("desktop");
   const [isExportRequested, setIsExportRequested] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [helpTab, setHelpTab] = useState<HelpTabId>("get-started");
+  /** Help is one dialog; the caller chooses which tab it lands on. */
+  const openHelp = useCallback((tab: HelpTabId = "get-started") => {
+    setHelpTab(tab);
+    setIsHelpOpen(true);
+  }, []);
   const handleExportRequestHandled = useCallback(
     () => setIsExportRequested(false),
     []
@@ -485,13 +516,39 @@ function App() {
               : null,
         };
 
+    // Each pick carries its own run identity and runtime. A native id runs on
+    // its native provider and a `sdk-byok/<provider>/<model>` id runs on the
+    // SDK, so the same base model can appear twice in one run as two variants
+    // and a native pick is never re-routed. `modelSelections` is authoritative;
+    // `selectedModels` goes along for an older backend. A retry replays the
+    // identities it recorded, with the *current* integration settings, and
+    // neither block is ever written into the commit.
+    const integrations = buildGenerationIntegrationPayload(
+      {
+        copilotSdkByok:
+          settings.copilotSdkByok ?? DEFAULT_COPILOT_SDK_BYOK_SETTINGS,
+        mcpServers: settings.mcpServers ?? [],
+      },
+      generationContext.selectedModels
+    );
+
     const updatedParams = {
       ...settings,
       ...requestParams,
       inputMode: generationContext.inputMode,
       generatedCodeConfig: generationContext.stack,
-      copilotModels: [...generationContext.selectedModels],
-      selectedModels: [...generationContext.selectedModels],
+      modelSelections: integrations.modelSelections,
+      copilotModels: [...integrations.selectedModels],
+      selectedModels: [...integrations.selectedModels],
+      ...(requestParams.retryModels
+        ? {
+            retryModelSelections: buildModelSelections(
+              requestParams.retryModels
+            ),
+          }
+        : {}),
+      copilotSdkByok: integrations.copilotSdkByok,
+      mcpServers: integrations.mcpServers,
       ...(generationContext.isAssetExtractionEnabled === undefined
         ? {}
         : {
@@ -1047,24 +1104,43 @@ function App() {
   const isCodingOrReady =
     appState === AppState.CODING || appState === AppState.CODE_READY;
 
-  useEffect(() => {
-    const handleShortcut = (event: KeyboardEvent) => {
-      const command = getAppShortcutCommand(event);
-      if (!command) return;
-
-      const openDialog = document.querySelector(
-        '[role="dialog"][data-state="open"]'
+  const openConversation = useCallback(() => {
+    setIsHistoryOpen(false);
+    setIsSettingsOpen(false);
+    setIsConversationCollapsed(false);
+    setMobilePane("chat");
+  }, [setIsConversationCollapsed]);
+  const handleFixReviewFindings = useCallback(
+    (instruction: string) => {
+      const existingDraft =
+        useAppStore.getState().updateInstruction.trim();
+      setUpdateInstruction(
+        existingDraft ? `${existingDraft}\n\n${instruction}` : instruction
       );
-      if (
-        openDialog ||
-        (isEditableShortcutTarget(event.target) &&
-          command !== "export-project")
-      ) {
-        return;
-      }
+      openConversation();
+      window.setTimeout(() => {
+        const composer = document.querySelector<HTMLTextAreaElement>(
+          '[data-testid="update-input"]'
+        );
+        composer?.focus();
+        composer?.setSelectionRange(
+          composer.value.length,
+          composer.value.length
+        );
+      }, 0);
+    },
+    [openConversation, setUpdateInstruction]
+  );
 
-      event.preventDefault();
-
+  /**
+   * The one place a command runs.
+   *
+   * A keyboard shortcut and the native desktop menu both land here, so the
+   * menu can never drift from the keyboard, and a rule such as "wait for an
+   * option to finish before exporting" is written once.
+   */
+  const runAppCommand = useCallback(
+    (command: AppCommand) => {
       const requireProject = () => {
         if (isCodingOrReady) return true;
         toast("Open or create a project to use this shortcut.");
@@ -1116,6 +1192,23 @@ function App() {
           setIsConversationCollapsed(false);
           setMobilePane("chat");
           break;
+        case "toggle-chat-panel":
+          if (!requireProject()) break;
+          // Matches the rail button: coming back from History or Settings
+          // always reveals the conversation, and only a second press on an
+          // already-visible panel collapses it.
+          if (isHistoryOpen || isSettingsOpen) {
+            openConversation();
+            break;
+          }
+          if (isDesktopLayout) {
+            setIsConversationCollapsed((previous) => !previous);
+            break;
+          }
+          setMobilePane((previous) =>
+            previous === "chat" ? "preview" : "chat"
+          );
+          break;
         case "show-settings":
           setIsSettingsOpen(true);
           setIsHistoryOpen(false);
@@ -1148,20 +1241,71 @@ function App() {
           break;
         }
         case "show-help":
-          setIsHelpOpen(true);
+          openHelp("get-started");
+          break;
+        case "show-keyboard-shortcuts":
+          openHelp("shortcuts");
           break;
       }
+    },
+    [
+      appState,
+      commits,
+      head,
+      isCodingOrReady,
+      isDesktopLayout,
+      isHistoryOpen,
+      isSettingsOpen,
+      openConversation,
+      openHelp,
+      setIsConversationCollapsed,
+    ]
+  );
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const command = getAppShortcutCommand(event);
+      if (!command) return;
+
+      const openDialog = document.querySelector(
+        '[role="dialog"][data-state="open"]'
+      );
+      if (
+        openDialog ||
+        (isEditableShortcutTarget(event.target) &&
+          command !== "export-project")
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      runAppCommand(command);
     };
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [
-    appState,
-    commits,
-    head,
-    isCodingOrReady,
-    setIsConversationCollapsed,
-  ]);
+  }, [runAppCommand]);
+
+  // The Chat panel is a column on the desktop layout and a switchable pane on
+  // a narrow window, so "visible" means something different in each.
+  const isChatPanelVisible = isDesktopLayout
+    ? !isConversationCollapsed
+    : mobilePane === "chat";
+  const canExportProject =
+    isCodingOrReady &&
+    (appState === AppState.CODE_READY ||
+      (!!head && getSelectedVariantState(commits[head]).status === "complete"));
+
+  // The native desktop menu runs the same commands, and disables the
+  // project-only items rather than offering something that cannot work.
+  useDesktopMenu({
+    onCommand: runAppCommand,
+    state: {
+      hasProject: isCodingOrReady,
+      canExport: canExportProject,
+      isChatPanelVisible,
+    },
+  });
 
   const showContentPanel =
     appState === AppState.CODING ||
@@ -1175,12 +1319,6 @@ function App() {
     showContentPanel &&
     !isSettingsOpen &&
     !isConversationCollapsed;
-  const openConversation = useCallback(() => {
-    setIsHistoryOpen(false);
-    setIsSettingsOpen(false);
-    setIsConversationCollapsed(false);
-    setMobilePane("chat");
-  }, [setIsConversationCollapsed]);
 
   return (
     <div
@@ -1233,7 +1371,7 @@ function App() {
           onNewProject={() => {
             openStartPane("upload");
           }}
-          onOpenHelp={() => setIsHelpOpen(true)}
+          onOpenHelp={() => openHelp("get-started")}
           onOpenSettings={() => {
             setIsSettingsOpen(true);
             setIsHistoryOpen(false);
@@ -1394,6 +1532,8 @@ function App() {
                     openAiApiKey: settings.openAiApiKey,
                     anthropicApiKey: settings.anthropicApiKey,
                     geminiApiKey: settings.geminiApiKey,
+                    copilotSdkByok: settings.copilotSdkByok,
+                    mcpServers: settings.mcpServers,
                     planContext: {
                       generationType: "update",
                       inputMode: "image",
@@ -1495,6 +1635,7 @@ function App() {
                 onActiveTabChange={setActivePreviewTab}
                 exportRequested={isExportRequested}
                 onExportRequestHandled={handleExportRequestHandled}
+                onFixReviewFindings={handleFixReviewFindings}
                 onOpenHistory={() => {
                   setIsHistoryOpen(true);
                   setMobilePane("chat");
@@ -1516,7 +1657,11 @@ function App() {
         updateDesignSystem={updateDesignSystem}
         deleteDesignSystem={deleteDesignSystem}
       />
-      <HelpCenterDialog open={isHelpOpen} onOpenChange={setIsHelpOpen} />
+      <HelpCenterDialog
+        open={isHelpOpen}
+        onOpenChange={setIsHelpOpen}
+        initialTab={helpTab}
+      />
     </div>
   );
 }

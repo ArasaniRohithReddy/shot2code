@@ -9,6 +9,7 @@ directories:
 # Main-process/preload files and the Vite build staged into renderer/
 files:
   - main.js
+  - app-menu.js
   - backend-readiness.js
   - update-lifecycle.js
   - zoom-controls.js

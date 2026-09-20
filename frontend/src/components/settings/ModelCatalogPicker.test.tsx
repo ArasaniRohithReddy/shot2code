@@ -21,6 +21,8 @@ function model(
     status: "available",
     recommended: false,
     supports_video: provider === "gemini" || provider === "copilot",
+    runtime: provider === "sdk-byok" ? "copilot-byok" : "native",
+    base_model_id: null,
     ...overrides,
   };
 }
@@ -64,6 +66,7 @@ const catalog: ModelCatalog = {
     provider("anthropic", [], { available: false, label: "Anthropic" }),
   ],
   stale_selection: [],
+  integration_diagnostics: [],
 };
 
 function render(overrides: Partial<Parameters<typeof ModelCatalogPicker>[0]> = {}) {
@@ -178,8 +181,151 @@ test("hides models that cannot read video in video mode", () => {
 
 test("explains itself when no provider is configured", () => {
   const html = render({
-    catalog: { providers: [], stale_selection: [] },
+    catalog: { providers: [], stale_selection: [], integration_diagnostics: [] },
   });
 
   expect(html).toContain("No model provider is configured yet");
+});
+
+/* -------------------------------------------------------------------------- */
+/* Copilot SDK BYOK is an additive group, never a rewrite of a direct one      */
+/* -------------------------------------------------------------------------- */
+
+/** The catalog with the backend-built BYOK group appended. */
+const catalogWithByok: ModelCatalog = {
+  ...catalog,
+  providers: [
+    ...catalog.providers,
+    provider(
+      "sdk-byok",
+      [
+        model("sdk-byok/azure/gpt-5.5 (high thinking)", "sdk-byok", {
+          label: "Azure prod (GPT 5.5)",
+          family: "Azure prod",
+          base_model_id: "gpt-5.5 (high thinking)",
+          runtime: "copilot-byok",
+        }),
+      ],
+      {
+        label: "Copilot SDK (BYOK)",
+        credential_label: "BYOK profile with its own endpoint and key",
+        credential_source: "sdk-byok",
+        source_kind: "configured",
+        detail: "Your own endpoints, run through the Copilot SDK.",
+      }
+    ),
+  ],
+};
+
+test("renders the BYOK entries in their own group, alongside the direct ones", () => {
+  const html = render({ catalog: catalogWithByok });
+
+  expect(html).toContain('aria-labelledby="test-sdk-byok-label"');
+  expect(html).toContain("Copilot SDK (BYOK)");
+  expect(html).toContain(">Experimental</span>");
+  expect(html).toContain(">Yours</span>");
+  // The direct OpenAI group is still there, untouched.
+  expect(html).toContain('aria-labelledby="test-openai-label"');
+});
+
+test("a profile and the direct model it borrows are two independent picks", () => {
+  const html = render({
+    catalog: catalogWithByok,
+    selectedModels: ["sdk-byok/azure/gpt-5.5 (high thinking)"],
+  });
+
+  expect(html).toContain('id="test-sdk-byok/azure/gpt-5.5 (high thinking)"');
+  // The direct entry for the same base model stays unchecked.
+  expect(html).toMatch(
+    /<input id="test-gpt-5\.5 \(high thinking\)"(?:(?!checked)[^>])*>/
+  );
+  expect(html).toContain(">Your endpoint</span>");
+});
+
+test("can show both picks selected at once", () => {
+  const html = render({
+    catalog: catalogWithByok,
+    selectedModels: [
+      "gpt-5.5 (high thinking)",
+      "sdk-byok/azure/gpt-5.5 (high thinking)",
+    ],
+  });
+
+  const direct = html.match(
+    /<input id="test-gpt-5\.5 \(high thinking\)"[^>]*>/
+  )?.[0];
+  const byok = html.match(
+    /<input id="test-sdk-byok\/azure\/gpt-5\.5 \(high thinking\)"[^>]*>/
+  )?.[0];
+  expect(direct).toContain('checked=""');
+  expect(byok).toContain('checked=""');
+  expect(html).toContain("Reset to automatic (2)");
+});
+
+test("labels which credential a provider group is using", () => {
+  const html = render({ catalog: catalogWithByok });
+
+  expect(html).toContain(">Copilot SDK BYOK</span>");
+  expect(html).toContain(">Your saved key</span>");
+});
+
+test("marks a BYOK row by its runtime, not by its group", () => {
+  const html = render({ catalog: catalogWithByok });
+
+  // The badge follows `runtime`, so an entry keeps it even if a future backend
+  // files it somewhere else.
+  expect(html).toContain(">Your endpoint</span>");
+  const nativeRow = html.match(
+    /<label for="test-gpt-5\.5 \(high thinking\)"[\s\S]*?<\/label>/
+  )?.[0];
+  expect(nativeRow).not.toContain("Your endpoint");
+});
+
+test("shows the backend's integration diagnostics near the picker", () => {
+  const html = render({
+    integrationDiagnostics: [
+      {
+        scope: "byok",
+        code: "unusable",
+        message: "'Azure prod' needs its own API key.",
+        target: "sdk-byok/azure/gpt-5.5 (high thinking)",
+      },
+      { scope: "mcp", code: "untrusted", message: "Docs is not trusted." },
+    ],
+  });
+
+  expect(html).toContain('aria-label="Integration notices"');
+  expect(html).toContain("&#x27;Azure prod&#x27; needs its own API key.");
+  expect(html).toContain("Docs is not trusted.");
+});
+
+test("keeps diagnostics visible even with no provider configured", () => {
+  const html = render({
+    catalog: { providers: [], stale_selection: [], integration_diagnostics: [] },
+    integrationDiagnostics: [
+      { scope: "byok", code: "invalid", message: "Azure BYOK needs a URL." },
+    ],
+  });
+
+  expect(html).toContain("Azure BYOK needs a URL.");
+});
+
+test("says where MCP tools will and will not appear", () => {
+  const html = render({
+    mcpScopeNote: "MCP tools from Docs are offered to GitHub Copilot only.",
+  });
+
+  expect(html).toContain(
+    "MCP tools from Docs are offered to GitHub Copilot only."
+  );
+});
+
+test("never warns about rerouting, because nothing is rerouted", () => {
+  const html = render({
+    catalog: catalogWithByok,
+    selectedModels: ["gpt-5.5 (high thinking)", "sdk-byok/azure/gpt-5.5 (high thinking)"],
+  });
+
+  expect(html).not.toContain("will also run through your BYOK endpoint");
+  expect(html).not.toContain("routes a whole provider at once");
 });

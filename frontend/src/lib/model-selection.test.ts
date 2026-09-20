@@ -2,7 +2,10 @@ import {
   EMPTY_CATALOG,
   LEGACY_DEFAULT_CODE_GENERATION_MODEL,
   availableProviders,
+  byokCatalogSelectionIds,
+  byokProviderGroup,
   catalogModelIds,
+  credentialSourceLabel,
   describeSelection,
   describeSelectionHint,
   findCatalogModel,
@@ -12,6 +15,8 @@ import {
   parseModelCatalog,
   partitionSelection,
   plannedVariantCount,
+  selectionProviderOf,
+  selectionRuntimeOf,
   variantLimit,
   withMigratedModelSelection,
   type CatalogModel,
@@ -34,6 +39,8 @@ function model(
     status: "available",
     recommended: false,
     supports_video: provider === "gemini" || provider === "copilot",
+    runtime: provider === "sdk-byok" ? "copilot-byok" : "native",
+    base_model_id: null,
     ...overrides,
   };
 }
@@ -73,6 +80,7 @@ const catalog: ModelCatalog = {
     provider("gemini", [model("gemini-3.6-flash (low thinking)", "gemini")]),
   ],
   stale_selection: [],
+  integration_diagnostics: [],
 };
 
 describe("parseModelCatalog", () => {
@@ -362,5 +370,228 @@ describe("withMigratedModelSelection", () => {
     };
 
     expect(withMigratedModelSelection(settings)).toBe(settings);
+  });
+});
+
+
+/* -------------------------------------------------------------------------- */
+/* Copilot SDK BYOK is a provider group the backend builds                     */
+/* -------------------------------------------------------------------------- */
+
+const byokCatalog: ModelCatalog = {
+  ...catalog,
+  providers: [
+    ...catalog.providers,
+    provider(
+      "sdk-byok",
+      [
+        model("sdk-byok/azure/gpt-5.5 (high thinking)", "sdk-byok", {
+          label: "Azure prod (GPT 5.5)",
+          family: "Azure prod",
+          base_model_id: "gpt-5.5 (high thinking)",
+          runtime: "copilot-byok",
+        }),
+      ],
+      {
+        credential_source: "sdk-byok",
+        source_kind: "configured",
+        unsupported_model_ids: ["sdk-byok/azure/retired-model"],
+      }
+    ),
+  ],
+};
+
+describe("credential source labels", () => {
+  it("names each source, including the SDK BYOK one", () => {
+    expect(credentialSourceLabel("request")).toBe("Your saved key");
+    expect(credentialSourceLabel("environment")).toBe("Backend .env");
+    expect(credentialSourceLabel("session")).toBe("Signed in");
+    expect(credentialSourceLabel("sdk-byok")).toBe("Copilot SDK BYOK");
+  });
+
+  it("says nothing when the provider has no credential", () => {
+    expect(credentialSourceLabel(null)).toBeNull();
+    expect(credentialSourceLabel(undefined)).toBeNull();
+  });
+});
+
+describe("parsing the sdk-byok provider", () => {
+  it("reads the group, its source kind and its per-entry base model", () => {
+    const parsed = parseModelCatalog({
+      providers: [
+        {
+          id: "sdk-byok",
+          label: "Copilot SDK (BYOK)",
+          available: true,
+          credential_label: "BYOK profile with its own endpoint and key",
+          credential_source: "sdk-byok",
+          source_kind: "configured",
+          detail: "Your own endpoints.",
+          models: [
+            {
+              id: "sdk-byok/azure/gpt-5.5 (high thinking)",
+              provider: "sdk-byok",
+              label: "Azure prod (GPT 5.5)",
+              family: "Azure prod",
+              status: "available",
+              recommended: false,
+              supports_video: false,
+              base_model_id: "gpt-5.5 (high thinking)",
+              runtime: "copilot-byok",
+            },
+          ],
+          unsupported_model_ids: ["sdk-byok/azure/retired-model"],
+        },
+      ],
+      stale_selection: [],
+      integration_diagnostics: [
+        { scope: "byok", code: "unusable", message: "Needs a key." },
+      ],
+    });
+
+    const group = parsed.providers[0];
+    expect(group.id).toBe("sdk-byok");
+    expect(group.source_kind).toBe("configured");
+    expect(group.credential_source).toBe("sdk-byok");
+    expect(group.models[0].base_model_id).toBe("gpt-5.5 (high thinking)");
+    expect(group.models[0].runtime).toBe("copilot-byok");
+    expect(group.unsupported_model_ids).toEqual(["sdk-byok/azure/retired-model"]);
+    expect(parsed.integration_diagnostics).toHaveLength(1);
+  });
+
+  it("infers the runtime from the id when an older backend omits it", () => {
+    const parsed = parseModelCatalog({
+      providers: [
+        {
+          id: "sdk-byok",
+          label: "Copilot SDK (BYOK)",
+          available: true,
+          credential_label: "",
+          source_kind: "configured",
+          detail: "",
+          models: [
+            { id: "sdk-byok/azure/gpt-5.5 (high thinking)", provider: "sdk-byok" },
+          ],
+          unsupported_model_ids: [],
+        },
+        {
+          id: "openai",
+          label: "OpenAI",
+          available: true,
+          credential_label: "",
+          source_kind: "curated",
+          detail: "",
+          models: [{ id: "gpt-5.5 (high thinking)", provider: "openai" }],
+          unsupported_model_ids: [],
+        },
+      ],
+    });
+
+    expect(parsed.providers[0].models[0].runtime).toBe("copilot-byok");
+    expect(parsed.providers[1].models[0].runtime).toBe("native");
+  });
+
+  it("ignores a credential source or provider it does not recognise", () => {
+    const parsed = parseModelCatalog({
+      providers: [
+        {
+          id: "openai",
+          label: "OpenAI",
+          available: true,
+          credential_label: "",
+          credential_source: "telepathy",
+          source_kind: "curated",
+          detail: "",
+          models: [{ id: "x", provider: "telepathy" }],
+          unsupported_model_ids: [],
+        },
+        { id: "telepathy", label: "Nope", available: true },
+      ],
+    });
+
+    expect(parsed.providers).toHaveLength(1);
+    expect(parsed.providers[0].credential_source).toBeNull();
+    expect(parsed.providers[0].models).toEqual([]);
+  });
+});
+
+describe("the BYOK group", () => {
+  it("is found beside the direct groups, not inside one", () => {
+    const group = byokProviderGroup(byokCatalog);
+    expect(group?.id).toBe("sdk-byok");
+    expect(byokCatalogSelectionIds(byokCatalog)).toEqual(
+      new Set(["sdk-byok/azure/gpt-5.5 (high thinking)"])
+    );
+  });
+
+  it("is absent when the backend offers none", () => {
+    expect(byokProviderGroup(catalog)).toBeUndefined();
+    expect(byokCatalogSelectionIds(catalog).size).toBe(0);
+  });
+
+  it("reports the runtime a selected id executes on", () => {
+    expect(
+      selectionRuntimeOf(byokCatalog, "sdk-byok/azure/gpt-5.5 (high thinking)")
+    ).toBe("copilot-byok");
+    expect(selectionRuntimeOf(byokCatalog, "gpt-5.5 (high thinking)")).toBe(
+      "native"
+    );
+    // An id the catalog has never heard of still declares its own runtime.
+    expect(selectionRuntimeOf(catalog, "sdk-byok/openai/whatever")).toBe(
+      "copilot-byok"
+    );
+    expect(selectionRuntimeOf(catalog, "unknown-model")).toBe("native");
+  });
+
+  it("does not disturb the direct groups it sits beside", () => {
+    expect(groupModelsByProvider(byokCatalog).map((g) => g.provider.id)).toEqual(
+      ["copilot", "openai", "gemini", "sdk-byok"]
+    );
+    const openai = byokCatalog.providers.find((p) => p.id === "openai");
+    expect(openai?.models.map((m) => m.id)).toEqual([
+      "gpt-5.5 (high thinking)",
+      "gpt-5.4-2026-03-05 (low thinking)",
+    ]);
+  });
+});
+
+describe("selection with BYOK entries", () => {
+  it("resolves a BYOK id to the sdk-byok provider, not its base model's", () => {
+    expect(selectionProviderOf(byokCatalog, "sdk-byok/azure/gpt-5.5 (high thinking)")).toBe("sdk-byok");
+    expect(selectionProviderOf(byokCatalog, "gpt-5.5 (high thinking)")).toBe(
+      "openai"
+    );
+    expect(selectionProviderOf(byokCatalog, "unknown-model")).toBeUndefined();
+  });
+
+  it("treats a direct pick and a BYOK pick as two separate picks", () => {
+    const selection = ["gpt-5.5 (high thinking)", "sdk-byok/azure/gpt-5.5 (high thinking)"];
+    const result = partitionSelection(selection, byokCatalog);
+
+    expect(result.valid).toEqual(selection);
+    expect(result.stale).toEqual([]);
+    expect(plannedVariantCount(selection, {
+      generationType: "create",
+      inputMode: "image",
+    })).toBe(2);
+  });
+
+  it("keeps a configured-but-incomplete profile out of the stale list", () => {
+    const configured = new Set(["sdk-byok/azure/retired-model"]);
+    expect(
+      partitionSelection(["sdk-byok/azure/retired-model"], byokCatalog, configured).stale
+    ).toEqual([]);
+    expect(partitionSelection(["sdk-byok/azure/retired-model"], byokCatalog).stale).toEqual([
+      "sdk-byok/azure/retired-model",
+    ]);
+  });
+
+  it("labels a single BYOK pick by its profile name", () => {
+    expect(describeSelection(["sdk-byok/azure/gpt-5.5 (high thinking)"], byokCatalog)).toBe(
+      "BYOK · Azure prod"
+    );
+    expect(
+      describeSelection(["gpt-5.5 (high thinking)"], byokCatalog)
+    ).toBe("GPT 5.5 (high)");
   });
 });

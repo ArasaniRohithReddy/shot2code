@@ -443,7 +443,20 @@ class AgentRunRecorder:
             elif event.type == "assistant_delta":
                 self._assistant_buffer.append(event.text)
                 payload.update({"kind": "assistant", "text": event.text})
-            else:  # tool_call_delta
+            elif event.type != "tool_call_delta":
+                # Tools the provider ran itself (MCP through the Copilot SDK).
+                # Arguments and output are already redacted and bounded by the
+                # provider before they reach here.
+                payload.update(
+                    {
+                        "kind": event.type,
+                        "tool_call_id": event.tool_call_id,
+                        "tool_name": event.tool_display_name or event.tool_name,
+                        "text": event.text,
+                        "ok": event.tool_ok,
+                    }
+                )
+            else:
                 args = event.tool_arguments
                 args_text = args if isinstance(args, str) else json.dumps(
                     to_serializable(args), ensure_ascii=False

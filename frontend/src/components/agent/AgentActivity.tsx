@@ -19,7 +19,9 @@ import {
   BsBookmarkCheck,
   BsBoundingBox,
   BsCamera,
+  BsPlug,
 } from "react-icons/bs";
+import { parseMcpToolName } from "../../lib/integrations";
 import ReactMarkdown from "react-markdown";
 import { Light as SyntaxHighlighterBase } from "react-syntax-highlighter";
 import html from "react-syntax-highlighter/dist/esm/languages/hljs/xml";
@@ -186,6 +188,11 @@ function getEventIcon(type: AgentEventType, toolName?: string) {
   if (toolName === "screenshot_preview") {
     return <BsCamera className="text-cyan-500" />;
   }
+  // An MCP tool is named `MCP · <server> · <tool>` by the backend, so it is
+  // recognised by shape rather than by a list this build would have to know.
+  if (parseMcpToolName(toolName)) {
+    return <BsPlug className="text-sky-500" />;
+  }
   return <BsFileEarmarkPlus className="text-gray-500" />;
 }
 
@@ -281,6 +288,14 @@ function getEventTitle(event: AgentEvent): string {
       return event.status === "running"
         ? "Screenshotting preview"
         : "Screenshotted preview";
+    }
+    // Server and tool name only; the arguments stay in the details pane, which
+    // is where every other tool's input already lives.
+    const mcp = parseMcpToolName(event.toolName);
+    if (mcp) {
+      return event.status === "running"
+        ? `Calling ${mcp.server} · ${mcp.tool}`
+        : `${mcp.server} · ${mcp.tool}`;
     }
     return event.status === "running" ? "Running tool" : "Tool completed";
   }

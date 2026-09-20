@@ -13,11 +13,16 @@ import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { HTTP_BACKEND_URL } from "../../config";
 import ModelCatalogPicker from "./ModelCatalogPicker";
+import CopilotSdkByokSettings from "./CopilotSdkByokSettings";
+import McpServersSettings from "./McpServersSettings";
 import { useModelCatalog } from "../../hooks/useModelCatalog";
 import {
   credentialsFromSettings,
   describeSelectionHint,
+  selectionProviderOf,
 } from "../../lib/model-selection";
+import { DEFAULT_COPILOT_SDK_BYOK_SETTINGS } from "../../lib/copilot-sdk-byok";
+import { describeMcpScope, mcpRuntimeScope } from "../../lib/integrations";
 import toast from "react-hot-toast";
 
 interface Props {
@@ -40,16 +45,33 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
     useState<Shot2CodeUpdateState | null>(null);
   const initialCopilotToken = useRef(settings.copilotGithubToken);
 
+  const byokSettings =
+    settings.copilotSdkByok ?? DEFAULT_COPILOT_SDK_BYOK_SETTINGS;
+  const mcpServers = settings.mcpServers ?? [];
+
   const {
     catalog,
     isLoading: isCatalogLoading,
     error: catalogError,
     staleModels,
+    integrationDiagnostics,
     refresh: refreshCatalog,
   } = useModelCatalog({
     credentials: credentialsFromSettings(settings),
     selectedModels: settings.selectedModels ?? [],
+    copilotSdkByok: byokSettings,
   });
+
+  const selectedModels = settings.selectedModels ?? [];
+  // A native pick always runs on its native provider, so nothing is re-routed
+  // and there is no conflict to report. MCP scope is still worth saying,
+  // because only the SDK runtimes see those tools.
+  const mcpScope = mcpRuntimeScope(
+    { copilotSdkByok: byokSettings, mcpServers },
+    selectedModels,
+    (modelId) => selectionProviderOf(catalog, modelId)
+  );
+  const mcpScopeNote = mcpScope.hasActiveServers ? describeMcpScope(mcpScope) : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -424,6 +446,8 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   inputMode: "image",
                 })}
                 idPrefix="settings-model"
+                integrationDiagnostics={integrationDiagnostics}
+                mcpScopeNote={mcpScopeNote}
               />
             </div>
           </div>
@@ -621,6 +645,31 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
               )}
             </div>
           </div>
+
+          {/* Copilot SDK BYOK — an additive runtime, never a re-route */}
+          <CopilotSdkByokSettings
+            settings={byokSettings}
+            onChange={(update) =>
+              setSettings((s) => ({
+                ...s,
+                copilotSdkByok: update(
+                  s.copilotSdkByok ?? DEFAULT_COPILOT_SDK_BYOK_SETTINGS
+                ),
+              }))
+            }
+            mcpServers={mcpServers}
+            selectedModels={selectedModels}
+          />
+
+          {/* MCP servers — Copilot and Copilot SDK BYOK runs only */}
+          <McpServersSettings
+            servers={mcpServers}
+            onChange={(update) =>
+              setSettings((s) => ({ ...s, mcpServers: update(s.mcpServers ?? []) }))
+            }
+            copilotSdkByok={byokSettings}
+            scopeNote={mcpScopeNote}
+          />
 
           {/* Image Generation */}
           <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">

@@ -44,7 +44,7 @@ describe("Help centre panels", () => {
     const html = render({ initialTab: "get-started" });
 
     expect(html).toContain("Connect a model");
-    expect(html).toContain("Iterate in Chat");
+    expect(html).toContain("Review, then iterate in Chat");
     expect(html).toContain(`href="${HELP_PRODUCT_PAGE_URL}"`);
     expect(html).toContain(`href="${HELP_DOCS_BASE_URL}INSTALL.md"`);
     expect(html).toContain(`href="${HELP_DOCS_BASE_URL}USER-GUIDE.md"`);
@@ -133,10 +133,24 @@ describe("Help centre panels", () => {
     expect(html).toContain("Export project");
     expect(html).toContain("Show History");
     expect(html).toContain("Open Help");
+    // The native desktop menu shows the same key beside its View item.
+    expect(html).toContain("Show or hide the Chat panel");
     // The pane dividers are focus-scoped rather than application shortcuts,
     // but a user looking for keys should still find them here.
     expect(html).toContain("Move a workspace divider");
     expect(html).toContain("Restore the default width");
     expect(html).toContain("Indent in the code editor");
+  });
+
+  it("opens straight on the keys when Help > Keyboard shortcuts asks for them", () => {
+    const shortcuts = render({ initialTab: "shortcuts" });
+    const getStarted = render({ initialTab: "get-started" });
+
+    // Radix renders only the selected tab's panel, so the tab the caller asked
+    // for is the one whose content is present.
+    expect(shortcuts).toContain("Show or hide the Chat panel");
+    expect(shortcuts).not.toContain("Connect a model");
+    expect(getStarted).toContain("Connect a model");
+    expect(getStarted).not.toContain("Move a workspace divider");
   });
 });

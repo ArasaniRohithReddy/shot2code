@@ -36,13 +36,18 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /**
+   * Which tab to land on. Help ▸ Keyboard shortcuts in the desktop menu opens
+   * the same dialog straight on the keys.
+   */
+  initialTab?: HelpTabId;
+  /**
    * Injected by tests. In the app this comes from the desktop preload bridge,
    * which resolves to an empty string on success and to the reason on failure.
    */
   openDiagnosticLogs?: (() => Promise<string>) | null;
 }
 
-type HelpTabId = "get-started" | "guides" | "support" | "shortcuts";
+export type HelpTabId = "get-started" | "guides" | "support" | "shortcuts";
 
 const SHORTCUT_GROUPS = ["Project", "Workspace", "Help"] as const;
 
@@ -322,7 +327,12 @@ export function HelpCenterPanels({
  * the system browser: the desktop shell turns a `target="_blank"` http(s) link
  * into `shell.openExternal`, and the browser build opens a tab.
  */
-function HelpCenterDialog({ open, onOpenChange, openDiagnosticLogs }: Props) {
+function HelpCenterDialog({
+  open,
+  onOpenChange,
+  initialTab = "get-started",
+  openDiagnosticLogs,
+}: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-3xl grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0">
@@ -334,7 +344,13 @@ function HelpCenterDialog({ open, onOpenChange, openDiagnosticLogs }: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <HelpCenterPanels openDiagnosticLogs={openDiagnosticLogs} />
+        {/* Keyed on the requested tab so asking for the shortcuts while Help
+            is already open actually moves to them. */}
+        <HelpCenterPanels
+          key={initialTab}
+          initialTab={initialTab}
+          openDiagnosticLogs={openDiagnosticLogs}
+        />
       </DialogContent>
     </Dialog>
   );

@@ -1,6 +1,7 @@
 import {
   createClearPreviewSelectionMessage,
   createPreviewHostMessage,
+  createRequestPreviewMetricsMessage,
   createSandboxedPreviewDocument,
   parsePreviewToHostMessage,
   PREVIEW_BRIDGE_CHANNEL,
@@ -39,6 +40,7 @@ describe("preview sandbox document", () => {
       result.html.indexOf("runtime.js")
     );
     expect(result.html).toContain("window.parent.postMessage");
+    expect(result.html).toContain("request-runtime-metrics");
     expect(result.html).not.toContain("window.parent.document");
   });
 
@@ -88,5 +90,43 @@ describe("preview message validation", () => {
       nonce: NONCE,
       type: "clear-selection",
     });
+    expect(createRequestPreviewMetricsMessage(NONCE)).toEqual({
+      channel: PREVIEW_BRIDGE_CHANNEL,
+      nonce: NONCE,
+      type: "request-runtime-metrics",
+    });
+  });
+
+  it("accepts bounded runtime metrics from the expected frame nonce", () => {
+    const metrics = {
+      channel: PREVIEW_BRIDGE_CHANNEL,
+      nonce: NONCE,
+      type: "runtime-metrics",
+      payload: {
+        viewportWidth: 390,
+        documentWidth: 642,
+        horizontalOverflow: true,
+      },
+    };
+
+    expect(parsePreviewToHostMessage(metrics, NONCE)).toEqual(metrics);
+    expect(
+      parsePreviewToHostMessage(
+        {
+          ...metrics,
+          payload: { ...metrics.payload, documentWidth: Number.NaN },
+        },
+        NONCE
+      )
+    ).toBeNull();
+    expect(
+      parsePreviewToHostMessage(
+        {
+          ...metrics,
+          payload: { ...metrics.payload, horizontalOverflow: "yes" },
+        },
+        NONCE
+      )
+    ).toBeNull();
   });
 });

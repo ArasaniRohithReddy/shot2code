@@ -56,7 +56,13 @@ class TestModelCatalogEndpoint:
 
         assert response.status_code == 200
         by_id = providers(response.json())
-        assert set(by_id) == {"copilot", "openai", "anthropic", "gemini"}
+        assert set(by_id) == {
+            "copilot",
+            "openai",
+            "anthropic",
+            "gemini",
+            "sdk-byok",
+        }
 
     def test_providers_without_credentials_are_unavailable_and_empty(
         self, client: TestClient

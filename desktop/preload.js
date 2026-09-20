@@ -18,4 +18,15 @@ contextBridge.exposeInMainWorld("__SHOT2CODE_APP__", {
     ipcRenderer.on("shot2code:update-state", listener);
     return () => ipcRenderer.removeListener("shot2code:update-state", listener);
   },
+  // The native menu sends the same typed commands the keyboard shortcuts use,
+  // so the renderer runs one dispatcher for both instead of two code paths.
+  onMenuCommand: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("shot2code:menu-command", listener);
+    return () =>
+      ipcRenderer.removeListener("shot2code:menu-command", listener);
+  },
+  // Tells the menu what it may offer: whether a project is open, whether it
+  // can be exported yet, and whether the Chat panel is showing.
+  setMenuState: (state) => ipcRenderer.send("shot2code:menu-state", state),
 });

@@ -13,7 +13,14 @@ from deferred_routes import (
 )
 from optional_startup import OptionalStartupTasks
 from preview_screenshot import close_screenshot_preview, probe_screenshot_preview
-from routes import capabilities, design_systems, history, home, models
+from routes import (
+    capabilities,
+    design_systems,
+    history,
+    home,
+    integrations,
+    models,
+)
 from uploaded_assets import configure_uploaded_asset_routes
 
 app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
@@ -117,5 +124,6 @@ app.add_middleware(
 app.include_router(home.router)
 app.include_router(capabilities.router)
 app.include_router(models.router)
+app.include_router(integrations.router)
 app.include_router(design_systems.router)
 app.include_router(history.router)

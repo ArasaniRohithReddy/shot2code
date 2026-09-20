@@ -17,6 +17,12 @@ interface Shot2CodeUpdateState {
   message: string | null;
 }
 
+interface Shot2CodeMenuState {
+  hasProject: boolean;
+  canExport: boolean;
+  isChatPanelVisible: boolean;
+}
+
 interface Window {
   __SHOT2CODE_BACKEND__?: {
     http?: string;
@@ -33,5 +39,12 @@ interface Window {
     onUpdateState: (
       callback: (state: Shot2CodeUpdateState) => void
     ) => () => void;
+    /**
+     * Native menu -> renderer. The payload is typed as unknown because it
+     * crosses a process boundary; `readDesktopMenuCommand` validates it.
+     */
+    onMenuCommand: (callback: (payload: unknown) => void) => () => void;
+    /** Renderer -> native menu: what the menu may offer right now. */
+    setMenuState: (state: Shot2CodeMenuState) => void;
   };
 }

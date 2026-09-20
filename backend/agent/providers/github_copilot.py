@@ -19,7 +19,7 @@ import base64
 import json
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import copilot
 from copilot.tools import ToolBinaryResult, ToolInvocation
@@ -35,7 +35,18 @@ from agent.providers.base import (
 from agent.tools import CanonicalToolDefinition, ToolCall
 from costs.token_usage import TokenUsage
 from fs_logging.agent_runs import AgentRunRecorder
-from llm import Llm, get_copilot_api_name, get_copilot_reasoning_effort
+from integrations.copilot_sdk import (
+    MAX_PROGRESS_CHARS,
+    mcp_tool_display_name,
+    redact_tool_arguments,
+    summarize_tool_output,
+)
+from llm import (
+    CopilotSdkReasoningEffort,
+    Llm,
+    get_copilot_reasoning_effort,
+    get_model_api_name,
+)
 from video import extract_evenly_spaced_frames
 
 
@@ -46,6 +57,9 @@ _TAG_THINKING = "thinking"
 _TAG_TOOL = "tool"
 _TAG_DONE = "done"
 _TAG_ERROR = "error"
+# Tools the SDK ran inside its own loop (MCP servers). shot2code only reports
+# these; it never executes them.
+_TAG_EXTERNAL = "external"
 
 # A full code generation can run for several minutes. send_and_wait defaults to
 # 60s, which would abort mid-generation.
@@ -58,6 +72,17 @@ class _PendingToolCall:
 
     tool_call: ToolCall
     future: "asyncio.Future[Any]"
+
+
+@dataclass
+class _ExternalToolCall:
+    """An MCP tool the SDK executed itself, tracked only so it can be reported."""
+
+    tool_call_id: str
+    server_name: str
+    tool_name: str
+    display_name: str
+    progress: List[str] = field(default_factory=list)
 
 
 def serialize_copilot_tools(
@@ -256,6 +281,11 @@ class CopilotProviderSession(ProviderSession):
         prompt_messages: List[ChatCompletionMessageParam],
         tools: List[CanonicalToolDefinition],
         recorder: Optional[AgentRunRecorder] = None,
+        mcp_servers: Optional[Dict[str, "copilot.MCPServerConfig"]] = None,
+        permission_handler: Optional[Callable[[Any, Any], Any]] = None,
+        provider_config: Optional["copilot.ProviderConfig"] = None,
+        model_api_name: Optional[str] = None,
+        reasoning_effort: Optional[CopilotSdkReasoningEffort] = None,
     ):
         self._client = client
         self._model = model
@@ -263,6 +293,15 @@ class CopilotProviderSession(ProviderSession):
         self._recorder = recorder
         self._total_usage = TokenUsage()
         self._reported_cost_usd: Optional[float] = None
+        self._mcp_servers: Dict[str, "copilot.MCPServerConfig"] = dict(
+            mcp_servers or {}
+        )
+        self._permission_handler = permission_handler
+        self._provider_config = provider_config
+        # A BYOK session talks to the user's own endpoint, so the model name on
+        # the wire comes from that provider's catalog rather than Copilot's.
+        self._model_api_name = model_api_name or get_model_api_name(model)
+        self._reasoning_effort = reasoning_effort
 
         self._system_prompt = _extract_system_prompt(prompt_messages)
         self._prompt, self._attachments = _build_prompt_and_attachments(prompt_messages)
@@ -271,6 +310,7 @@ class CopilotProviderSession(ProviderSession):
         self._queue: "asyncio.Queue[Tuple[str, Any]]" = asyncio.Queue()
         self._send_task: Optional["asyncio.Task[None]"] = None
         self._pending: Dict[str, _PendingToolCall] = {}
+        self._external_tools: Dict[str, _ExternalToolCall] = {}
         self._started = False
         self._client_owned = True
 
@@ -325,6 +365,112 @@ class CopilotProviderSession(ProviderSession):
                 self._queue.put_nowait((_TAG_THINKING, text))
         elif event_type == "assistant.usage":
             self._accumulate_usage(data)
+        elif event_type == "tool.execution_start":
+            self._on_external_tool_start(data)
+        elif event_type in (
+            "tool.execution_partial_result",
+            "tool.execution_progress",
+        ):
+            self._on_external_tool_progress(data)
+        elif event_type == "tool.execution_complete":
+            self._on_external_tool_complete(data)
+
+    def _on_external_tool_start(self, data: Any) -> None:
+        """Record an MCP tool the SDK is about to run, and announce it.
+
+        Only MCP tools are surfaced: shot2code's own tools come back through
+        the handler path and are already reported by the engine.
+        """
+        server_name = getattr(data, "mcp_server_name", None)
+        if not server_name:
+            return
+        tool_call_id = getattr(data, "tool_call_id", None) or (
+            f"mcp_{uuid.uuid4().hex[:12]}"
+        )
+        tool_name = (
+            getattr(data, "mcp_tool_name", None)
+            or getattr(data, "tool_name", None)
+            or "tool"
+        )
+        external = _ExternalToolCall(
+            tool_call_id=tool_call_id,
+            server_name=str(server_name),
+            tool_name=str(tool_name),
+            display_name=mcp_tool_display_name(str(server_name), str(tool_name)),
+        )
+        self._external_tools[tool_call_id] = external
+        self._queue.put_nowait(
+            (
+                _TAG_EXTERNAL,
+                StreamEvent(
+                    type="external_tool_start",
+                    tool_call_id=tool_call_id,
+                    tool_name=external.tool_name,
+                    tool_display_name=external.display_name,
+                    # Arguments can carry the very credentials the server needs,
+                    # so they are masked before they reach the feed or the log.
+                    tool_arguments=redact_tool_arguments(
+                        getattr(data, "arguments", None)
+                    ),
+                ),
+            )
+        )
+
+    def _on_external_tool_progress(self, data: Any) -> None:
+        tool_call_id = getattr(data, "tool_call_id", None)
+        external = self._external_tools.get(tool_call_id or "")
+        if external is None:
+            return
+        text = getattr(data, "progress_message", None) or getattr(
+            data, "partial_output", None
+        )
+        if not text:
+            return
+        chunk = summarize_tool_output(str(text), MAX_PROGRESS_CHARS)
+        external.progress.append(chunk)
+        self._queue.put_nowait(
+            (
+                _TAG_EXTERNAL,
+                StreamEvent(
+                    type="external_tool_progress",
+                    text=chunk,
+                    tool_call_id=external.tool_call_id,
+                    tool_name=external.tool_name,
+                    tool_display_name=external.display_name,
+                ),
+            )
+        )
+
+    def _on_external_tool_complete(self, data: Any) -> None:
+        tool_call_id = getattr(data, "tool_call_id", None)
+        external = self._external_tools.pop(tool_call_id or "", None)
+        if external is None:
+            return
+        ok = bool(getattr(data, "success", False))
+        result = getattr(data, "result", None)
+        error = getattr(data, "error", None)
+        raw_output = ""
+        if not ok and error is not None:
+            raw_output = str(getattr(error, "message", "") or "")
+        if not raw_output and result is not None:
+            raw_output = str(getattr(result, "content", "") or "")
+        if not raw_output and external.progress:
+            raw_output = external.progress[-1]
+
+        self._queue.put_nowait(
+            (
+                _TAG_EXTERNAL,
+                StreamEvent(
+                    type="external_tool_result",
+                    # Bounded: MCP output is model-facing and can be huge.
+                    text=summarize_tool_output(raw_output),
+                    tool_call_id=external.tool_call_id,
+                    tool_name=external.tool_name,
+                    tool_display_name=external.display_name,
+                    tool_ok=ok,
+                ),
+            )
+        )
 
     def _accumulate_usage(self, data: Any) -> None:
         if data is None:
@@ -361,29 +507,48 @@ class CopilotProviderSession(ProviderSession):
         ]
 
         kwargs: Dict[str, Any] = {
-            "model": get_copilot_api_name(self._model),
+            "model": self._model_api_name,
             "tools": sdk_tools,
             "streaming": True,
             "on_event": self._on_session_event,
             # shot2code supplies its own tools; Copilot's built-in file and
             # shell tools would edit the developer's disk. ToolSet classifies
             # by registration source, so allowing "custom:*" keeps our tools
-            # while every built-in stays out.
-            "available_tools": copilot.ToolSet().add_custom("*"),
+            # while every built-in stays out. MCP tools are added only when the
+            # user configured trusted servers for this run.
+            "available_tools": self._available_tools(),
             "skip_custom_instructions": True,
             "enable_config_discovery": False,
         }
+        if self._mcp_servers:
+            kwargs["mcp_servers"] = self._mcp_servers
+            # MCP OAuth tokens belong to the person at the keyboard, not to
+            # this machine's disk.
+            kwargs["mcp_oauth_token_storage"] = "in-memory"
+        if self._permission_handler is not None:
+            kwargs["on_permission_request"] = self._permission_handler
+        if self._provider_config is not None:
+            kwargs["provider"] = self._provider_config
         if self._system_prompt:
             kwargs["system_message"] = {
                 "mode": "replace",
                 "content": self._system_prompt,
             }
-        reasoning_effort = get_copilot_reasoning_effort(self._model)
+        reasoning_effort = self._reasoning_effort or get_copilot_reasoning_effort(
+            self._model
+        )
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
 
         self._session = await self._client.create_session(**kwargs)
         return self._session
+
+    def _available_tools(self) -> "copilot.ToolSet":
+        """Only shot2code's own tools, plus MCP when trusted servers exist."""
+        tool_set = copilot.ToolSet().add_custom("*")
+        if self._mcp_servers:
+            tool_set = tool_set.add_mcp("*")
+        return tool_set
 
     async def _run_send(self) -> str:
         session = await self._ensure_session()
@@ -428,6 +593,12 @@ class CopilotProviderSession(ProviderSession):
 
             if tag == _TAG_THINKING:
                 await on_event(StreamEvent(type="thinking_delta", text=payload))
+                continue
+
+            if tag == _TAG_EXTERNAL:
+                # Reported, never executed here: the SDK's own agent loop runs
+                # MCP tools and hands shot2code the play-by-play.
+                await on_event(payload)
                 continue
 
             if tag == _TAG_ERROR:
@@ -533,7 +704,7 @@ class CopilotProviderSession(ProviderSession):
 
         u = self._total_usage
         print(
-            f"[TOKEN USAGE] provider=copilot model={get_copilot_api_name(self._model)} | "
+            f"[TOKEN USAGE] provider=copilot model={self._model_api_name} | "
             f"input={u.input} output={u.output} "
             f"cache_read={u.cache_read} cache_write={u.cache_write} total={u.total}"
         )

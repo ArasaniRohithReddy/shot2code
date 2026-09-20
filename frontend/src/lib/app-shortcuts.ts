@@ -6,10 +6,43 @@ export type AppShortcutCommand =
   | "show-code"
   | "show-chat"
   | "show-history"
+  | "toggle-chat-panel"
   | "show-settings"
   | "export-project"
   | "retry-generation"
   | "show-help";
+
+/**
+ * Everything the app can be asked to do, from the keyboard or from the native
+ * desktop menu. The menu is allowed to offer commands that have no key of
+ * their own; both routes end in the same dispatcher, so a command can never
+ * behave differently depending on how it was triggered.
+ */
+export type AppCommand = AppShortcutCommand | "show-keyboard-shortcuts";
+
+export const APP_COMMANDS = [
+  "new-project",
+  "open-import",
+  "open-upload",
+  "show-preview",
+  "show-code",
+  "show-chat",
+  "show-history",
+  "toggle-chat-panel",
+  "show-settings",
+  "export-project",
+  "retry-generation",
+  "show-help",
+  "show-keyboard-shortcuts",
+] as const satisfies readonly AppCommand[];
+
+/** Runtime guard for a command that crossed a process boundary. */
+export function isAppCommand(value: unknown): value is AppCommand {
+  return (
+    typeof value === "string" &&
+    (APP_COMMANDS as readonly string[]).includes(value)
+  );
+}
 
 export interface AppShortcutDefinition {
   command: AppShortcutCommand;
@@ -80,6 +113,12 @@ export const APP_SHORTCUTS: AppShortcutDefinition[] = [
     keys: ["Mod", "4"],
   },
   {
+    command: "toggle-chat-panel",
+    group: "Workspace",
+    label: "Show or hide the Chat panel",
+    keys: ["Mod", "Alt", "C"],
+  },
+  {
     command: "show-help",
     group: "Help",
     label: "Open Help",
@@ -111,6 +150,7 @@ export function getAppShortcutCommand(
     if (event.code === "KeyU") return "open-upload";
     if (event.code === "KeyE") return "export-project";
     if (event.code === "KeyS") return "show-settings";
+    if (event.code === "KeyC") return "toggle-chat-panel";
     return null;
   }
 

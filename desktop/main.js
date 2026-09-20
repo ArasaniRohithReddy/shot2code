@@ -1,6 +1,7 @@
 const {
   app,
   BrowserWindow,
+  Menu,
   shell,
   dialog,
   ipcMain,
@@ -16,7 +17,14 @@ const {
   terminateWindowsProcessTreeSync,
 } = require("./update-lifecycle");
 const { waitForBackend } = require("./backend-readiness");
-const { installZoomControls } = require("./zoom-controls");
+const { applyZoomCommand, installZoomControls } = require("./zoom-controls");
+const {
+  DEFAULT_MENU_STATE,
+  MENU_COMMAND_CHANNEL,
+  MENU_LINKS,
+  MENU_STATE_CHANNEL,
+  createAppMenu,
+} = require("./app-menu");
 
 const untrustedPreloadPath = path.join(__dirname, "untrusted-preload.js");
 
@@ -34,6 +42,7 @@ let mainWindow = null;
 let splashWindow = null;
 let logStream = null;
 let desktopUpdater = null;
+let appMenu = null;
 let updateState = {
   status: isDev ? "unavailable" : "idle",
   currentVersion: app.getVersion(),
@@ -178,12 +187,115 @@ function closeSplash() {
 }
 
 /**
+ * A menu click must reach the app even when the window is behind something,
+ * minimised, or hidden - on Windows the menu bar lives on the window, but the
+ * accelerators and a restored-from-tray click can both fire while the renderer
+ * is not the foreground. Raise it first, then deliver.
+ */
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.focus();
+  return mainWindow;
+}
+
+/**
+ * Menu -> renderer. The renderer runs the command through the very same
+ * function its keyboard shortcut uses, so the menu can never drift from the
+ * keyboard.
+ */
+function sendMenuCommand(command) {
+  const target = focusMainWindow();
+  if (!target) {
+    log(`menu: dropped "${command}" because no window is open`);
+    return false;
+  }
+  log(`menu: ${command}`);
+  target.webContents.send(MENU_COMMAND_CHANNEL, { command });
+  return true;
+}
+
+/**
+ * View > Zoom uses the same helper as Ctrl+=/-/0 so both paths share one step
+ * size, one clamp and one log line. The menu items are registered with
+ * `registerAccelerator: false`, so a keypress is still handled once, by the
+ * `before-input-event` handler installed on the window.
+ */
+function applyMenuZoom(command) {
+  const target = focusMainWindow();
+  if (!target) return false;
+  try {
+    const result = applyZoomCommand(target.webContents, command);
+    log(`page zoom ${command}: ${Math.round(result.factor * 100)}%`);
+    return true;
+  } catch (err) {
+    log(`page zoom ${command} failed: ${err.message}`);
+    return false;
+  }
+}
+
+function showAboutDialog() {
+  const detail = [
+    `Electron ${process.versions.electron}`,
+    `Chromium ${process.versions.chrome}`,
+    `Node ${process.versions.node}`,
+    "",
+    `Log file: ${logFile()}`,
+  ].join("\n");
+
+  const options = {
+    type: "info",
+    title: "About shot2code",
+    message: `shot2code ${app.getVersion()}`,
+    detail,
+    buttons: ["Close", "Product page"],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  };
+
+  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  const shown = parent
+    ? dialog.showMessageBox(parent, options)
+    : dialog.showMessageBox(options);
+
+  shown
+    .then(({ response }) => {
+      if (response === 1) shell.openExternal(MENU_LINKS.productPage);
+    })
+    .catch((err) => log(`about dialog failed: ${err.message}`));
+}
+
+function installApplicationMenu() {
+  appMenu = createAppMenu({
+    buildFromTemplate: (template) => Menu.buildFromTemplate(template),
+    setApplicationMenu: (menu) => Menu.setApplicationMenu(menu),
+    isDev,
+    version: app.getVersion(),
+    send: sendMenuCommand,
+    openExternal: (url) => {
+      log(`menu: opening ${url}`);
+      shell.openExternal(url);
+    },
+    openDiagnosticLogs: () => openDiagnosticLogs(),
+    applyZoom: applyMenuZoom,
+    showAbout: showAboutDialog,
+  });
+  appMenu.render();
+  return appMenu;
+}
+
+function openDiagnosticLogs() {
+  return shell.openPath(logFile());
+}
+
+/**
  * Screen recording. navigator.mediaDevices.getDisplayMedia() is rejected in
  * Electron unless the main process answers the request, which is why "Record
  * Screen" reported "Could not start screen recording". Prefer the OS picker so
  * the user chooses what to share, and fall back to the primary screen.
- */
-function enableScreenCapture() {
+ */function enableScreenCapture() {
   const handler = async (_request, callback) => {
     try {
       const sources = await desktopCapturer.getSources({
@@ -366,6 +478,7 @@ function createWindow() {
   // cannot handle those schemes and would silently do nothing.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     const isolatedWindow = {
+      autoHideMenuBar: true,
       webPreferences: {
         preload: untrustedPreloadPath,
         contextIsolation: true,
@@ -400,6 +513,9 @@ function createWindow() {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+    // The next window starts with no project, so the menu must not keep
+    // offering Export and the workspace views from the previous one.
+    if (appMenu) appMenu.setState({ ...DEFAULT_MENU_STATE, hasProject: false });
   });
 }
 
@@ -460,7 +576,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
-    ipcMain.handle("shot2code:open-logs", () => shell.openPath(logFile()));
+    ipcMain.handle("shot2code:open-logs", () => openDiagnosticLogs());
     ipcMain.handle("shot2code:get-app-info", () => ({
       version: app.getVersion(),
       update: updateState,
@@ -478,7 +594,15 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle("shot2code:install-update", () => {
       return installDownloadedUpdate();
     });
+    // The renderer owns the truth about whether a project is open, so it tells
+    // the menu what to enable. Until that first message the project items stay
+    // enabled and the renderer answers with its own toast, which is honest
+    // either way.
+    ipcMain.on(MENU_STATE_CHANNEL, (_event, state) => {
+      if (appMenu) appMenu.setState(state);
+    });
 
+    installApplicationMenu();
     createSplash();
     enableScreenCapture();
     initAutoUpdate();

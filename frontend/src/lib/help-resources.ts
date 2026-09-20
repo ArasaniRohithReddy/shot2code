@@ -71,7 +71,7 @@ export const HELP_GET_STARTED_STEPS = [
     id: "connect",
     title: "Connect a model",
     detail:
-      "Sign in to GitHub Copilot, or paste an OpenAI, Anthropic or Gemini key in Settings. Generation needs exactly one of those.",
+      "Sign in to GitHub Copilot, paste an OpenAI, Anthropic or Gemini key, or configure a separate Copilot SDK BYOK endpoint in Settings.",
   },
   {
     id: "describe",
@@ -81,9 +81,9 @@ export const HELP_GET_STARTED_STEPS = [
   },
   {
     id: "iterate",
-    title: "Iterate in Chat",
+    title: "Review, then iterate in Chat",
     detail:
-      "Ask for changes in plain language. Every edit becomes a new version you can compare, branch from, or roll back.",
+      "Compare real responsive widths, audit the generated source locally, then insert selected findings into Chat. Every edit becomes a new version.",
   },
   {
     id: "ship",

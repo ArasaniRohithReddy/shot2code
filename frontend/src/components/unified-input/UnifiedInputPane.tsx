@@ -76,6 +76,8 @@ function UnifiedInputPane({
     openAiApiKey: settings.openAiApiKey,
     anthropicApiKey: settings.anthropicApiKey,
     geminiApiKey: settings.geminiApiKey,
+    copilotSdkByok: settings.copilotSdkByok,
+    mcpServers: settings.mcpServers,
     planContext: {
       generationType: "create",
       inputMode: activeTab === "text" ? "text" : "image",

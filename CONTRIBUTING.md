@@ -98,14 +98,36 @@ If your change touches both halves of the app, run both sets.
 ## Desktop shell and packaging
 
 The Electron shell is plain Node, so start with a syntax check, then run the
-updater lifecycle tests:
+shell's test suite:
 
 ```powershell
 cd desktop
 node --check main.js
 node --check preload.js
-node --test update-lifecycle.test.js
+node --check app-menu.js
+npm test
 ```
+
+The native application menu lives in `desktop/app-menu.js`, which builds the
+whole template as plain data and never imports Electron, so `app-menu.test.js`
+can assert labels, accelerators, enablement and click routing without launching
+a browser process. Two rules keep it honest, and both are enforced by tests:
+
+- A menu item the app already knows how to do **sends a typed command** to the
+  renderer over `shot2code:menu-command`, and the renderer runs it through the
+  same dispatcher its keyboard shortcut uses. The menu never reimplements a
+  behaviour, and its command ids must exist in `APP_COMMANDS`
+  (`frontend/src/lib/app-shortcuts.ts`).
+- Those items set `registerAccelerator: false`. The key is printed beside the
+  label but left to the page, so CodeMirror keeps **Ctrl+Z** and **Ctrl+/**,
+  the in-app guards for text fields and open dialogs still apply, and zoom is
+  still applied exactly once by the `before-input-event` handler in
+  `zoom-controls.js`.
+
+The renderer reports `{ hasProject, canExport, isChatPanelVisible }` back over
+`shot2code:menu-state` so project-only items can be disabled; until that first
+message arrives the items stay enabled and the renderer answers with its own
+toast rather than the menu silently doing nothing.
 
 The packaged app serves the UI over `file://` while `pnpm dev` serves it over
 `http://`, and that single difference has caused every desktop-only bug so far.
