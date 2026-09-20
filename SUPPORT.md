@@ -43,7 +43,9 @@ Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md) and include:
 - What happened, what you expected, and numbered steps to reproduce
 - The version from **Settings**, or the installer filename
 - How you run it: NSIS installer, MSI, portable ZIP, or from source
-- Which model provider and model you used
+- Which model provider and model you used, including whether the option was a
+  native model or an `sdk-byok/...` identity
+- Whether an MCP server or the Review workspace was involved
 - For the desktop app, the **tail of the log** — this is usually enough on its own:
 
   ```
@@ -65,7 +67,7 @@ you chose (separate pages, responsive views, UI states, supporting references).
 Use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md).
 Describe the problem you are trying to solve before the solution you have in
 mind, say where in shot2code it would live (upload, generation, editor,
-preview, export, import, history, settings, desktop shell), and mention any
+preview, Review, export, import, history, settings, MCP, desktop shell), and mention any
 workaround you use today.
 
 Requests that would require executing imported project code, or that would make

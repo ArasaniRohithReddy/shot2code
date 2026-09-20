@@ -32,6 +32,7 @@ Windows version (e.g. Windows 11 23H2, x64):
 **Which model provider?**
 - [ ] GitHub Copilot (via `gh auth login` / `copilot` login)
 - [ ] GitHub Copilot (token pasted into Settings)
+- [ ] GitHub Copilot SDK BYOK (`sdk-byok/...`)
 - [ ] OpenAI
 - [ ] Anthropic
 - [ ] Gemini
@@ -44,11 +45,17 @@ Model(s) selected:
 - [ ] Upload / screen recording
 - [ ] Generation (streaming, variants, retry)
 - [ ] Preview (sandboxed preview, select-and-edit)
+- [ ] Review (responsive frames, overflow or source audit)
 - [ ] Code tab / file tree / editing
 - [ ] Export (single HTML or project folder) or CodePen
 - [ ] Import an existing project (folder, ZIP, source files)
 - [ ] Project history / recent projects
 - [ ] Settings, install, startup or auto-update
+- [ ] MCP server configuration or tool execution
+
+BYOK provider/endpoint type, if used:
+
+MCP transport and server name, if used (do not paste credentials):
 
 **Generation details** (if the problem is with the generated result)
 

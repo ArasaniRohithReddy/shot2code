@@ -65,6 +65,9 @@ You need one of:
 - A GitHub Copilot subscription. Run `gh auth login` (or `copilot`) once in a
   terminal, then restart shot2code. Settings shows which account it picked up.
 - An API key for OpenAI, Anthropic or Gemini, entered in Settings.
+- A separate **GitHub Copilot SDK BYOK** connection for an OpenAI-compatible,
+  Azure OpenAI or Anthropic endpoint. BYOK does not require a Copilot
+  subscription and never borrows the direct provider keys.
 
 **Copilot shows "Not signed in" even though the CLI works**
 
@@ -80,6 +83,47 @@ into Settings.
 Only models that accept images are shown, because turning a screenshot into code
 requires image input. If the list is empty, your plan may not currently include
 a vision-capable model.
+
+**No Copilot SDK (BYOK) models are listed**
+
+Open **Settings → GitHub Copilot SDK BYOK**. The connection must be switched on
+and usable. Azure OpenAI needs its resource endpoint and a dedicated API key or
+bearer token. Remote OpenAI-compatible and Anthropic endpoints need their own
+credential; only an OpenAI-compatible endpoint on `localhost` may omit one.
+There is no Gemini BYOK provider in the Copilot SDK.
+
+Configuring BYOK never unlocks or re-routes the native OpenAI or Anthropic
+groups. Those still need their own direct keys.
+
+**A BYOK retry ran through the wrong provider**
+
+Versions created by v0.4.0 record identities such as
+`sdk-byok/azure/gpt-5.6-sol (high thinking)`, so retries preserve the runtime as
+well as the model. If an older version predates that identity, choose the BYOK
+entry explicitly in **Models** before retrying.
+
+## MCP servers
+
+**A configured MCP server does not run**
+
+The server must be both **Enabled** and **Trusted**. Stdio servers also need a
+command; HTTP and SSE servers need an HTTPS URL unless they point at localhost.
+Use **Validate servers** to see configuration diagnostics. Validation does not
+start the server or contact its endpoint.
+
+**A write tool is rejected**
+
+Trusted servers are read-only by default. Turn on **Allow write tools** only
+when you intend that server to change files, data or remote state.
+
+**My OpenAI, Anthropic or Gemini option cannot see MCP tools**
+
+That is intentional. MCP tools are exposed only to GitHub Copilot subscription
+and explicit Copilot SDK BYOK options. Native provider variants remain isolated
+from the SDK runtime.
+
+An unfinished, disabled or untrusted server draft is skipped with a notice and
+does not block a direct-provider generation.
 
 **An imported project has no components or tokens**
 
@@ -114,6 +158,34 @@ source was chosen or why the request failed.
 **Screenshot preview** (the agent rendering its own output to check it) needs
 Chromium. It ships with the desktop app. If it's unavailable, Settings says so
 and the app simply skips that tool.
+
+## Review workspace
+
+**A Review frame reports horizontal overflow**
+
+The frame measures the rendered document at its labeled CSS width. Inspect
+fixed-width elements, unwrapped tables and long unbroken content. Add a custom
+width between 320px and 1920px when the problem occurs at a specific breakpoint.
+
+**Review says the results are stale**
+
+The version, selected option, source or viewport set changed after the audit.
+Rerun it before exporting the report or inserting findings into Chat.
+
+**The audit missed something**
+
+The audit is deterministic and local, but it checks the composed source rather
+than certifying the runtime experience. It is not WCAG certification; continue
+with keyboard, screen-reader and browser testing.
+
+## Settings and layout
+
+**I cannot scroll to the final Settings controls**
+
+Update to v0.4.0 or newer. Settings now owns a viewport-bounded scroll area in
+both empty and active projects, so Screenshot by URL and every control below it
+remain reachable. If an older build is stuck, close Settings, resize the window
+or reduce zoom temporarily, then install the current release.
 
 ## Running from source
 

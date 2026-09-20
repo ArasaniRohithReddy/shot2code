@@ -34,3 +34,40 @@ The local API is rooted at `/api/history`: list projects, fetch a complete
 version tree, atomically upsert a project with an optional version, append an
 immutable version, update head/selection pointers, delete a project, and inspect
 schema health at `/api/history/health`.
+
+## Model and integration APIs
+
+`/api/models` exposes a secret-free catalogue. Native OpenAI, Anthropic and
+Gemini groups are available only when their direct credentials are present;
+GitHub Copilot is discovered from the signed-in plan. A configured Copilot SDK
+BYOK connection appears as a separate `sdk-byok` group whose ids are
+`sdk-byok/<provider>/<base model>`.
+
+Generation accepts the authoritative per-selection shape:
+
+```json
+{
+  "modelSelections": [
+    {
+      "id": "gpt-5.6-sol (high thinking)",
+      "baseModel": "gpt-5.6-sol (high thinking)",
+      "runtime": "native"
+    },
+    {
+      "id": "sdk-byok/azure/gpt-5.6-sol (high thinking)",
+      "baseModel": "gpt-5.6-sol (high thinking)",
+      "runtime": "copilot-byok"
+    }
+  ]
+}
+```
+
+Legacy `selectedModels` and `retryModels` remain supported when the typed fields
+are absent. The selection id is persisted in `variantModels` and History so a
+retry keeps the runtime identity.
+
+`POST /api/integrations/validate` validates the optional `copilotSdkByok` and
+`mcpServers` blocks without contacting an endpoint or starting a server. BYOK
+uses only its dedicated API key or bearer token. MCP servers must be enabled and
+trusted; write tools require a separate opt-in, and inactive/incomplete drafts
+are returned as diagnostics rather than blocking direct-provider generations.
