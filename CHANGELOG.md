@@ -57,6 +57,9 @@ any existing direct provider.
 
 ### Fixed
 
+- Settings now owns a bounded inner scroll area in both empty and active
+  projects, so the final provider/tool controls remain reachable instead of
+  extending below the fixed desktop shell.
 - Disabled or incomplete BYOK settings and disabled/untrusted incomplete MCP
   drafts no longer abort unrelated direct-provider generations.
 - BYOK variants now pass the selected model's supported reasoning effort into

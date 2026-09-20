@@ -1323,7 +1323,9 @@ function App() {
   return (
     <div
       className={`dark:bg-black dark:text-white ${
-        appState === AppState.CODING || appState === AppState.CODE_READY
+        isSettingsOpen ||
+        appState === AppState.CODING ||
+        appState === AppState.CODE_READY
           ? "flex h-dvh flex-col overflow-hidden xl:block xl:h-screen"
           : "min-h-screen"
       }`}

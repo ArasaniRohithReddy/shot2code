@@ -210,7 +210,10 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   })();
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div
+      data-testid="settings-scroll-container"
+      className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+    >
       <div className="px-4 py-4 lg:px-6 lg:py-6">
         {/* Header */}
         <div className="mb-6">
