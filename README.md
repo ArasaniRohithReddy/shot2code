@@ -18,28 +18,21 @@ servers you explicitly enable and trust.
 <!-- Every image below has descriptive alt text; the summaries repeat the key
      detail so the gallery is usable without loading the images. -->
 
-The workspace at 1920×1080 — chat, History and the centered desktop preview:
+The responsive Review workspace renders the synthetic Northwind Analytics
+project at real CSS widths and audits its generated source locally:
 
-![shot2code at 1920 by 1080. A narrow rail labels Chat, History, New, Shortcuts and Settings. The conversation panel shows two generated options and their activity. The main workspace displays a 1366-pixel desktop preview centered on a neutral backdrop, with Desktop, Mobile and Code tabs, Fit and 100 percent controls, a History 2 of 2 control, Select and edit, download and refresh actions.](docs/assets/workspace-full-hd.png)
+![shot2code Review at 1920 by 1008. Chat and two generated options sit beside the responsive Review workspace. A real-width Northwind Analytics desktop frame is visible with the local automated source audit, summary counts and selected findings.](docs/assets/review-workspace-og-light.png)
 
-The Code workspace in the light and dark themes:
+Provider configuration in the light and dark themes:
 
-| Light | Dark |
+| MCP tools and native menu | Copilot SDK BYOK |
 |---|---|
-| ![The shot2code Code workspace at 1920 by 1080 in the light theme. The left conversation panel shows two model options; the main area shows index.html formatted across 88 lines with Entry and Preview badges, Format, Copy, Download and CodePen actions, and a language and line-count status bar.](docs/assets/code-workspace.png) | ![The shot2code Code workspace at 1440 by 900 in the dark theme. The rail, conversation panel, toolbar, file header and syntax-highlighted editor use coordinated dark surfaces while preserving the same History, model-option and file actions.](docs/assets/code-workspace-dark.png) |
+| ![shot2code at 1440 by 900 in the light theme. Settings shows the Demo component library MCP server as active and read-only, with Enabled and Trusted on and write tools off. The native View menu is open with workspace and zoom commands.](docs/assets/mcp-menu-light.png) | ![shot2code at 1440 by 900 in the dark theme. The GitHub Copilot SDK BYOK card is enabled for a generic OpenAI-compatible endpoint, with a synthetic base URL, a fully masked dedicated key and a custom endpoint model.](docs/assets/byok-settings-dark.png) |
 
-The chat adapts down to narrow windows, so an edit is always one sentence away:
+At 768×1024, Review becomes a single-column workspace while keeping Preview,
+Chat and History as separate destinations:
 
-| Tablet width (768×1024) | Narrow window (352×700) |
-|---|---|
-| ![The shot2code Chat workspace at 768 by 1024. The rail becomes a top bar, Preview and Chat are paired beside a separate History button, two generated model options are visible, and the agent activity and update composer remain usable in one column.](docs/assets/chat-tablet.png) | ![The shot2code Chat workspace at 352 by 700. Preview and Chat remain paired beside the responsive History affordance, while the conversation and update composer stack without horizontal overflow.](docs/assets/chat-narrow.png) |
-
-<details>
-<summary>The centered Preview and History controls at tablet width</summary>
-
-![The shot2code Preview workspace at 1024 by 768. Preview and Chat share a segmented control beside a separate History button. The preview toolbar stays on one row with Fit 75 percent and 100 percent controls, and the generated page remains centered below it.](docs/assets/workspace-tablet.png)
-
-</details>
+![shot2code Review at 768 by 1024. The responsive top navigation, Review controls, real-width Northwind Analytics frame and local source-audit panel reflow into a tablet layout without horizontal page overflow.](docs/assets/review-workspace-tablet.png)
 
 ## Install
 
@@ -64,6 +57,7 @@ Download the latest build from
 
 Because there is no signature to check, verify the download instead. Published
 SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
+[v0.4.0](docs/releases/v0.4.0/SHA256SUMS.txt),
 [v0.3.3](docs/releases/v0.3.3/SHA256SUMS.txt),
 [v0.3.2](docs/releases/v0.3.2/SHA256SUMS.txt),
 [v0.3.1](docs/releases/v0.3.1/SHA256SUMS.txt) and
