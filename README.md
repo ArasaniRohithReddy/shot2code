@@ -256,10 +256,13 @@ through validated, per-preview messages instead of direct parent-window access.
 
 The preview renders a fixed-width canvas — 1366px for desktop, 375px for mobile
 — centred on a neutral backdrop so a wide window never leaves a misleading blank
-strip beside it. **Fit** scales the desktop canvas down to the window (the
-button shows the current percentage) and **100%** keeps it at its original size,
-scrolling instead of clipping. Below 640px the canvas always fits, because a
-1366px page at 100% cannot be read on a phone.
+strip beside it. The desktop canvas has its own zoom controls: **−** and **+**
+step it in 10% increments between 25% and 200%, the percentage between them is a
+live readout of what is on screen, **Fit** scales the canvas down to the window
+and **100%** returns it to its original size. Zooming past the window pans the
+canvas instead of clipping it, and the iframe stays fully interactive
+throughout. Below 640px the canvas always fits, because a 1366px page at 100%
+cannot be read on a phone.
 
 CodePen sharing is available only when the selected stack can run honestly in a
 browser-only Pen. The app splits document head, HTML, CSS and JavaScript, keeps

@@ -14,6 +14,8 @@ import {
   LuAlertTriangle,
   LuHistory,
   LuListChecks,
+  LuMinus,
+  LuPlus,
 } from "react-icons/lu";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
@@ -56,6 +58,13 @@ import {
   createExportRuntimePreview,
   type ExportRuntimePreview,
 } from "../../lib/export-runtime-preview";
+import {
+  canZoomPreviewIn,
+  canZoomPreviewOut,
+  formatPreviewZoomPercent,
+  stepPreviewZoom,
+  type PreviewViewMode,
+} from "./preview-layout";
 
 function escapeSrcDocAttribute(value: string) {
   return value
@@ -224,7 +233,11 @@ function PreviewPane({
     setVariantFileContent,
   } = useProjectStore();
   const [desktopScale, setDesktopScale] = useState(1);
-  const [desktopViewMode, setDesktopViewMode] = useState<"fit" | "actual">("fit");
+  const [desktopViewMode, setDesktopViewMode] =
+    useState<PreviewViewMode>("fit");
+  // Zoom the user typed in with the +/- buttons; only read while the mode is
+  // `custom`, so Fit and 100% stay one click away without losing it.
+  const [desktopZoom, setDesktopZoom] = useState(1);
   const [previewRefreshToken, setPreviewRefreshToken] = useState(0);
   const [previewSource, setPreviewSource] = useState<PreviewSource>("html");
   // Below `sm` the 1366px canvas at 100% is unusable, so the choice is hidden
@@ -233,6 +246,22 @@ function PreviewPane({
   const effectiveDesktopViewMode = canChooseDesktopZoom
     ? desktopViewMode
     : "fit";
+  // Stepping from the committed custom zoom rather than the reported scale
+  // keeps rapid clicks deterministic; the reported scale seeds the first step
+  // so zooming out of Fit continues from what is on screen.
+  const zoomStepBase =
+    effectiveDesktopViewMode === "custom" ? desktopZoom : desktopScale;
+  const desktopZoomPercent = formatPreviewZoomPercent(desktopScale);
+  const canZoomIn = canZoomPreviewIn(zoomStepBase);
+  const canZoomOut = canZoomPreviewOut(zoomStepBase);
+
+  const stepDesktopZoom = useCallback(
+    (direction: 1 | -1) => {
+      setDesktopZoom(stepPreviewZoom(zoomStepBase, direction));
+      setDesktopViewMode("custom");
+    },
+    [zoomStepBase]
+  );
 
   // Sorted commit list for version navigation
   const sortedCommits = useMemo(() =>
@@ -512,42 +541,80 @@ function PreviewPane({
                 {activeTab === "desktop" && canChooseDesktopZoom && (
                   <div
                     role="group"
-                    aria-label="Desktop preview size"
-                    className="inline-flex items-center rounded-lg bg-gray-100 p-0.5 dark:bg-zinc-800"
+                    aria-label="Desktop preview zoom"
+                    data-testid="preview-zoom-controls"
+                    className="inline-flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-zinc-800"
                   >
+                    <button
+                      type="button"
+                      onClick={() => stepDesktopZoom(-1)}
+                      disabled={!canZoomOut}
+                      title={`Zoom out to ${formatPreviewZoomPercent(
+                        stepPreviewZoom(zoomStepBase, -1)
+                      )}%`}
+                      aria-label={`Zoom the desktop preview out to ${formatPreviewZoomPercent(
+                        stepPreviewZoom(zoomStepBase, -1)
+                      )} percent`}
+                      data-testid="preview-zoom-out"
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-white hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none dark:text-zinc-300 dark:hover:bg-zinc-600 dark:hover:text-zinc-100"
+                    >
+                      <LuMinus className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    <span
+                      role="status"
+                      aria-live="polite"
+                      data-testid="preview-zoom-value"
+                      title={`Desktop preview is at ${desktopZoomPercent}% of the 1366px canvas`}
+                      className="inline-flex min-h-11 w-14 items-center justify-center px-1 text-xs font-semibold tabular-nums text-violet-700 dark:text-violet-200"
+                    >
+                      {desktopZoomPercent}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => stepDesktopZoom(1)}
+                      disabled={!canZoomIn}
+                      title={`Zoom in to ${formatPreviewZoomPercent(
+                        stepPreviewZoom(zoomStepBase, 1)
+                      )}%`}
+                      aria-label={`Zoom the desktop preview in to ${formatPreviewZoomPercent(
+                        stepPreviewZoom(zoomStepBase, 1)
+                      )} percent`}
+                      data-testid="preview-zoom-in"
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-md text-gray-600 transition-colors hover:bg-white hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none dark:text-zinc-300 dark:hover:bg-zinc-600 dark:hover:text-zinc-100"
+                    >
+                      <LuPlus className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    <span
+                      aria-hidden="true"
+                      className="mx-0.5 h-5 w-px bg-gray-300 dark:bg-zinc-600"
+                    />
                     <button
                       type="button"
                       onClick={() => setDesktopViewMode("fit")}
                       title="Scale the 1366px canvas down to fit the window"
-                      aria-pressed={desktopViewMode === "fit"}
-                      aria-label={
-                        desktopScale < 1
-                          ? `Fit the preview to the window, currently ${Math.round(
-                              desktopScale * 100
-                            )} percent`
-                          : "Fit the preview to the window"
-                      }
-                      className={`min-h-11 rounded-md px-3 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
-                        desktopViewMode === "fit"
+                      aria-pressed={effectiveDesktopViewMode === "fit"}
+                      aria-label="Fit the preview to the window"
+                      data-testid="preview-zoom-fit"
+                      className={`min-h-11 rounded-md px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 motion-reduce:transition-none ${
+                        effectiveDesktopViewMode === "fit"
                           ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-600 dark:text-zinc-100"
                           : "text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100"
                       }`}
                     >
                       Fit
-                      {desktopScale < 1 && (
-                        <span className="ml-1 font-semibold tabular-nums text-violet-700 dark:text-violet-200">
-                          {Math.round(desktopScale * 100)}%
-                        </span>
-                      )}
                     </button>
                     <button
                       type="button"
-                      onClick={() => setDesktopViewMode("actual")}
+                      onClick={() => {
+                        setDesktopZoom(1);
+                        setDesktopViewMode("actual");
+                      }}
                       title="Show the 1366px canvas at its original size"
-                      aria-pressed={desktopViewMode === "actual"}
+                      aria-pressed={effectiveDesktopViewMode === "actual"}
                       aria-label="Show the preview at 100 percent"
-                      className={`min-h-11 rounded-md px-3 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
-                        desktopViewMode === "actual"
+                      data-testid="preview-zoom-actual"
+                      className={`min-h-11 rounded-md px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 motion-reduce:transition-none ${
+                        effectiveDesktopViewMode === "actual"
                           ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-600 dark:text-zinc-100"
                           : "text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100"
                       }`}
@@ -707,6 +774,7 @@ function PreviewPane({
                 device="desktop"
                 onScaleChange={setDesktopScale}
                 viewMode={effectiveDesktopViewMode}
+                customScale={desktopZoom}
                 refreshToken={previewRefreshToken}
               />
             </>

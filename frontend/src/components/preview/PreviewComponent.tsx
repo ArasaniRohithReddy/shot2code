@@ -10,13 +10,15 @@ import {
   parsePreviewToHostMessage,
   PREVIEW_SANDBOX,
 } from "../../lib/preview-bridge";
-import { computePreviewCanvasLayout } from "./preview-layout";
+import { computePreviewCanvasLayout, type PreviewViewMode } from "./preview-layout";
 
 interface Props {
   code: string;
   device: "mobile" | "desktop";
   onScaleChange?: (scale: number) => void;
-  viewMode?: "fit" | "actual";
+  viewMode?: PreviewViewMode;
+  /** Explicit zoom ratio, honoured only while `viewMode` is `"custom"`. */
+  customScale?: number;
   refreshToken?: number;
 }
 
@@ -25,6 +27,7 @@ function PreviewComponent({
   device,
   onScaleChange,
   viewMode,
+  customScale,
   refreshToken = 0,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -128,6 +131,7 @@ function PreviewComponent({
       const layout = computePreviewCanvasLayout({
         device,
         viewMode: activeMode,
+        customScale,
         viewportWidth: viewport.clientWidth,
         viewportHeight: viewport.clientHeight,
       });
@@ -152,7 +156,7 @@ function PreviewComponent({
       window.removeEventListener("resize", updateScale);
       resizeObserver.disconnect();
     };
-  }, [activeMode, device, onScaleChange]);
+  }, [activeMode, customScale, device, onScaleChange]);
 
   return (
     <div
