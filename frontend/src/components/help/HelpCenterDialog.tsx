@@ -31,6 +31,7 @@ import {
   type HelpIconName,
   type HelpResourceLink,
 } from "../../lib/help-resources";
+import { FeedbackForm } from "./FeedbackForm";
 
 interface Props {
   open: boolean;
@@ -47,7 +48,12 @@ interface Props {
   openDiagnosticLogs?: (() => Promise<string>) | null;
 }
 
-export type HelpTabId = "get-started" | "guides" | "support" | "shortcuts";
+export type HelpTabId =
+  | "get-started"
+  | "guides"
+  | "support"
+  | "feedback"
+  | "shortcuts";
 
 const SHORTCUT_GROUPS = ["Project", "Workspace", "Help"] as const;
 
@@ -169,6 +175,9 @@ export function HelpCenterPanels({
           <TabsTrigger value="support" data-testid="help-tab-support">
             Support
           </TabsTrigger>
+          <TabsTrigger value="feedback" data-testid="help-tab-feedback">
+            Feedback
+          </TabsTrigger>
           <TabsTrigger value="shortcuts" data-testid="help-tab-shortcuts">
             Keyboard shortcuts
           </TabsTrigger>
@@ -239,6 +248,10 @@ export function HelpCenterPanels({
             )}
           </TabsContent>
         ))}
+
+        <TabsContent value="feedback">
+          <FeedbackForm />
+        </TabsContent>
 
         <TabsContent value="shortcuts">
           <p className="px-2 pt-1 text-sm text-gray-600 dark:text-zinc-400">
@@ -339,8 +352,8 @@ function HelpCenterDialog({
         <DialogHeader className="border-b border-gray-200 px-4 py-4 pr-14 dark:border-zinc-800 sm:px-6">
           <DialogTitle>Help</DialogTitle>
           <DialogDescription>
-            Set shot2code up, read the published guides, get support, or learn
-            the keyboard. Links open in your browser.
+            Set shot2code up, read the published guides, send feedback, get
+            support, or learn the keyboard. External links open in your browser.
           </DialogDescription>
         </DialogHeader>
 

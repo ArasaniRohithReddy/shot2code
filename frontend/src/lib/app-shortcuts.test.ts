@@ -82,6 +82,7 @@ describe("app shortcuts", () => {
         "retry-generation",
         "show-chat",
         "show-code",
+        "show-feedback",
         "show-help",
         "show-history",
         "show-keyboard-shortcuts",
@@ -90,6 +91,7 @@ describe("app shortcuts", () => {
         "toggle-chat-panel",
       ].sort()
     );
+    expect(isAppCommand("show-feedback")).toBe(true);
     expect(isAppCommand("show-keyboard-shortcuts")).toBe(true);
     expect(isAppCommand("toggle-chat-panel")).toBe(true);
     expect(isAppCommand("show-shortcuts")).toBe(false);

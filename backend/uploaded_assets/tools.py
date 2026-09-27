@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, cast
 
 from agent.state import ensure_str
-from agent.tools.local_assets import local_asset_url_to_bytes
+from asset_urls import local_asset_url_to_bytes
 from agent.tools.types import (
     CanonicalToolDefinition,
     ToolExecutionResult,

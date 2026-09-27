@@ -26,6 +26,7 @@ import {
   type CopilotSdkByokSettings,
 } from "./copilot-sdk-byok";
 import { createMcpServer, type McpServerConfig } from "./mcp-servers";
+import { DEFAULT_WEB_SEARCH_SETTINGS } from "./web-search";
 
 const OPENAI_BASE = "gpt-5.6-sol (high thinking)";
 const OTHER_BASE = "gpt-5.5 (high thinking)";
@@ -64,7 +65,12 @@ function server(overrides: Partial<McpServerConfig> = {}): McpServerConfig {
 function settings(
   overrides: Partial<IntegrationSettingsSlice> = {}
 ): IntegrationSettingsSlice {
-  return { copilotSdkByok: byok(), mcpServers: [server()], ...overrides };
+  return {
+    copilotSdkByok: byok(),
+    mcpServers: [server()],
+    webSearch: DEFAULT_WEB_SEARCH_SETTINGS,
+    ...overrides,
+  };
 }
 
 describe("defaults and backward compatibility", () => {
@@ -334,10 +340,14 @@ describe("the generation payload", () => {
     expect(withoutByok.modelSelections[0].runtime).toBe("native");
   });
 
-  test("validation and generation send the same configuration block", () => {
-    expect(buildIntegrationValidationPayload(settings())).toEqual(
-      buildIntegrationWirePayload(settings())
-    );
+  test("validation and generation agree on the BYOK and MCP blocks", () => {
+    // `/api/integrations/validate` covers BYOK and MCP only - web search has
+    // its own validator - so the shared part is what has to match.
+    const generation = buildIntegrationWirePayload(settings());
+    const { webSearch, ...shared } = generation;
+    void webSearch;
+
+    expect(buildIntegrationValidationPayload(settings())).toEqual(shared);
   });
 });
 

@@ -2,19 +2,38 @@ import type { Settings } from "../types";
 
 export type GenerationSettings = Omit<
   Settings,
-  "screenshotOneApiKey" | "figmaAccessToken" | "stitchApiKey"
+  | "screenshotOneApiKey"
+  | "figmaAccessToken"
+  | "stitchApiKey"
+  | "imageGeneration"
+  | "freeImageSearch"
 >;
 
-/** Remove credentials that belong only to input capture, never model runs. */
+/**
+ * Remove credentials that belong only to input capture, never model runs.
+ *
+ * `imageGeneration` is dropped here too, not because it is capture-only but
+ * because it must not ride along as a raw settings object: it is rebuilt as a
+ * wire payload by `toImageGenerationWirePayload`, which is the one place that
+ * decides whether a credential is included. Spreading the settings object
+ * would smuggle every provider's key into every request regardless.
+ *
+ * `freeImageSearch` holds no credential, but is rebuilt the same way so every
+ * feature block reaches the backend through exactly one code path.
+ */
 export function toGenerationSettings(settings: Settings): GenerationSettings {
   const {
     screenshotOneApiKey: _screenshotOneApiKey,
     figmaAccessToken: _figmaAccessToken,
     stitchApiKey: _stitchApiKey,
+    imageGeneration: _imageGeneration,
+    freeImageSearch: _freeImageSearch,
     ...generationSettings
   } = settings;
   void _screenshotOneApiKey;
   void _figmaAccessToken;
   void _stitchApiKey;
+  void _imageGeneration;
+  void _freeImageSearch;
   return generationSettings;
 }

@@ -12,6 +12,7 @@ from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from config import (
     ANTHROPIC_API_KEY,
     COPILOT_GITHUB_TOKEN,
+    EXA_API_KEY,
     GEMINI_API_KEY,
     IS_PROD,
     NUM_VARIANTS,
@@ -19,13 +20,32 @@ from config import (
     OPENAI_API_KEY,
     OPENAI_BASE_URL,
     REPLICATE_API_KEY,
+    TAVILY_API_KEY,
 )
 from custom_types import InputMode
+from image_generation.settings import (
+    ImageConfigError,
+    ImageGenerationSettings,
+    parse_image_settings,
+)
 from integrations.config import (
     ByokConnection,
     IntegrationConfigError,
     IntegrationSettings,
     parse_integration_settings,
+)
+from free_images.config import (
+    EMPTY_FREE_IMAGE_SEARCH,
+    FreeImageConfigError,
+    FreeImageSearchSettings,
+    parse_free_image_settings,
+)
+from web_search.config import (
+    EMPTY_WEB_SEARCH,
+    WebSearchConfigError,
+    WebSearchSettings,
+    merge_web_search_api_key,
+    parse_web_search_settings,
 )
 from llm import (
     COPILOT_MODELS,
@@ -424,6 +444,19 @@ class ExtractedParams:
     # Copilot SDK BYOK connection and MCP servers, already validated. Holds
     # secrets, so it is never echoed back to the client or written to history.
     integrations: IntegrationSettings = field(default_factory=IntegrationSettings)
+    # Provider-neutral web search. Holds the search provider's API key, so it
+    # is backend-only: never echoed to the client, never written to history.
+    web_search: WebSearchSettings = field(default_factory=WebSearchSettings)
+    # Keyless Openverse image search. Off unless the user opted in, holds no
+    # credential, and is independent of every image-generation provider.
+    free_image_search: FreeImageSearchSettings = field(
+        default_factory=FreeImageSearchSettings
+    )
+    # Which image backend the image tools run on, already validated. Holds the
+    # provider credentials, so it stays backend-only like the two above.
+    image_settings: ImageGenerationSettings = field(
+        default_factory=ImageGenerationSettings
+    )
     # What the user explicitly picked, in order. Native and BYOK runs of the
     # same base model are distinct specs with distinct identities.
     selected_specs: List[ModelRunSpec] = field(default_factory=_empty_specs)
@@ -506,6 +539,30 @@ class ParameterExtractionStage:
         for diagnostic in integrations.diagnostics:
             print(f"Integration notice ({diagnostic.code}): {diagnostic.message}")
 
+        # Provider-neutral web search. Off unless the user switched it on and
+        # either supplied a key or explicitly chose Tavily's keyless trial. A
+        # missing key falls back to backend/.env for the chosen provider only.
+        try:
+            web_search = parse_web_search_settings(params)
+        except WebSearchConfigError as error:
+            await self.throw_error(str(error))
+            raise
+        web_search = merge_web_search_api_key(
+            web_search,
+            TAVILY_API_KEY if web_search.provider == "tavily" else EXA_API_KEY,
+        )
+        if web_search.enabled and not web_search.is_usable:
+            print(f"Web search notice: {web_search.unusable_reason}")
+
+        # Keyless Openverse image search. Off unless the user opted in; there
+        # is no credential to merge, and no image-generation provider affects
+        # it either way.
+        try:
+            free_image_search = parse_free_image_settings(params)
+        except FreeImageConfigError as error:
+            await self.throw_error(str(error))
+            raise
+
         # What the user explicitly picked, in order. `modelSelections` carries
         # the run identity per pick; `selectedModels` (and the older
         # `copilotModels`) remain supported as plain id lists. Unknown ids are
@@ -538,12 +595,20 @@ class ParameterExtractionStage:
             print("Using official OpenAI URL")
 
         # Feature preferences default to enabled for older clients, but the
-        # Replicate-backed tool is only real when a Replicate credential is
-        # available. This effective value also shapes the prompt, so the model
+        # image tool is only real when the chosen image provider has a usable
+        # credential. This effective value also shapes the prompt, so the model
         # is never instructed to call a tool the runtime cannot offer.
-        should_generate_images = bool(
-            params.get("isImageGenerationEnabled", True)
-        ) and bool(replicate_api_key)
+        try:
+            image_settings = parse_image_settings(params)
+        except ImageConfigError as error:
+            await self.throw_error(str(error))
+            raise
+        should_generate_images = image_settings.generation_enabled
+        if image_settings.enabled and not should_generate_images:
+            print(
+                "Image generation notice: "
+                f"{image_settings.provider} has no usable credential"
+            )
         copilot_web_search_enabled = bool(
             params.get("copilotWebSearchEnabled", False)
         )
@@ -637,6 +702,9 @@ class ParameterExtractionStage:
             asset_base_url=self.asset_base_url,
             design_system=design_system,
             integrations=integrations,
+            web_search=web_search,
+            free_image_search=free_image_search,
+            image_settings=image_settings,
         )
 
     def _get_from_settings_dialog_or_env(
@@ -922,6 +990,9 @@ class AgenticGenerationStage:
         copilot_github_token: str | None = None,
         copilot_use_logged_in_user: bool = True,
         integrations: IntegrationSettings | None = None,
+        web_search: WebSearchSettings | None = None,
+        free_image_search: FreeImageSearchSettings | None = None,
+        image_settings: ImageGenerationSettings | None = None,
     ):
         self.send_message = send_message
         self.openai_api_key = openai_api_key
@@ -932,6 +1003,9 @@ class AgenticGenerationStage:
         self.copilot_github_token = copilot_github_token
         self.copilot_use_logged_in_user = copilot_use_logged_in_user
         self.integrations = integrations or IntegrationSettings()
+        self.web_search = web_search or EMPTY_WEB_SEARCH
+        self.free_image_search = free_image_search or EMPTY_FREE_IMAGE_SEARCH
+        self.image_settings = image_settings
         self.should_generate_images = should_generate_images
         self.copilot_web_search_enabled = copilot_web_search_enabled
         self.should_extract_assets = should_extract_assets
@@ -1077,6 +1151,9 @@ class AgenticGenerationStage:
                 recorder=recorder,
                 integrations=self.integrations,
                 copilot_web_search_enabled=self.copilot_web_search_enabled,
+                web_search=self.web_search,
+                free_image_search=self.free_image_search,
+                image_settings=self.image_settings,
             )
             completion = await runner.run(
                 model,
@@ -1321,6 +1398,9 @@ class CodeGenerationMiddleware(Middleware):
                 input_mode=str(context.extracted_params.input_mode),
                 generation_type=context.extracted_params.generation_type,
                 integrations=context.extracted_params.integrations,
+                web_search=context.extracted_params.web_search,
+                free_image_search=context.extracted_params.free_image_search,
+                image_settings=context.extracted_params.image_settings,
             )
 
             context.variant_completions = await generation_stage.process_variants(

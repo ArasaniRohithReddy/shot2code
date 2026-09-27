@@ -15,6 +15,9 @@ import { HTTP_BACKEND_URL } from "../../config";
 import ModelCatalogPicker from "./ModelCatalogPicker";
 import CopilotSdkByokSettings from "./CopilotSdkByokSettings";
 import McpServersSettings from "./McpServersSettings";
+import WebSearchSettings from "./WebSearchSettings";
+import ImageGenerationSettings from "./ImageGenerationSettings";
+import FreeImageSearchSettings from "./FreeImageSearchSettings";
 import SkillLibrary from "./SkillLibrary";
 import CopilotSignIn from "./CopilotSignIn";
 import ProviderConnectionChecks from "./ProviderConnectionChecks";
@@ -25,7 +28,16 @@ import {
   selectionProviderOf,
 } from "../../lib/model-selection";
 import { DEFAULT_COPILOT_SDK_BYOK_SETTINGS } from "../../lib/copilot-sdk-byok";
+import {
+  DEFAULT_WEB_SEARCH_SETTINGS,
+  isWebSearchUsable,
+} from "../../lib/web-search";
 import { describeMcpScope, mcpRuntimeScope } from "../../lib/integrations";
+import { normalizeImageGenerationSettings } from "../../lib/image-providers";
+import {
+  isImageGenerationUsable,
+} from "../../lib/image-providers";
+import { normalizeFreeImageSearchSettings } from "../../lib/free-image-search";
 import {
   describePreviewRemediation,
   isPackagedDesktopRuntime,
@@ -58,6 +70,23 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   const byokSettings =
     settings.copilotSdkByok ?? DEFAULT_COPILOT_SDK_BYOK_SETTINGS;
   const mcpServers = settings.mcpServers ?? [];
+  const webSearchSettings = settings.webSearch ?? DEFAULT_WEB_SEARCH_SETTINGS;
+  const imageGenerationSettings = normalizeImageGenerationSettings(
+    settings.imageGeneration
+  );
+  const freeImageSearchSettings = normalizeFreeImageSearchSettings(
+    settings.freeImageSearch
+  );
+  // Only used to word how the two relate; free image search is offered either
+  // way, and a paid provider never switches it off.
+  const hasPaidImageProvider = isImageGenerationUsable({
+    replicateApiKey: settings.replicateApiKey,
+    imageGeneration: imageGenerationSettings,
+  });
+  // When canonical search can run, the backend enables it *instead of*
+  // Copilot's built-in tool, so the Copilot card has to say so rather than
+  // leaving a switch that quietly does nothing.
+  const canonicalWebSearchActive = isWebSearchUsable(webSearchSettings);
   const desktopOAuthClient = window.__SHOT2CODE_APP__?.startGitHubOAuth
     ? {
         start: async () =>
@@ -715,9 +744,11 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   Figma personal access token
                 </p>
                 <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                  Optional local-tooling alternative to Figma MCP. Used only
-                  when importing a Figma design URL and never sent with model
-                  generation requests. Requires <code>file_content:read</code>.
+                  The supported local-tooling route for Figma imports. Used only
+                  when rendering a Figma design URL and never sent with model
+                  generation requests. Create a scoped PAT with{" "}
+                  <code>file_content:read</code>; Figma MCP only accepts clients
+                  in Figma's MCP Catalog.
                 </p>
                 <Input
                   id="figma-access-token"
@@ -848,6 +879,18 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
 
           <SkillLibrary />
 
+          {/* Provider-neutral web search — one canonical tool for every model */}
+          <WebSearchSettings
+            settings={webSearchSettings}
+            onChange={(update) =>
+              setSettings((s) => ({
+                ...s,
+                webSearch: update(s.webSearch ?? DEFAULT_WEB_SEARCH_SETTINGS),
+              }))
+            }
+            copilotBuiltInEnabled={settings.copilotWebSearchEnabled}
+          />
+
           <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
             <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
               <h2 className="text-sm font-medium text-gray-900 dark:text-white">
@@ -860,11 +903,22 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   Allow web search
                 </p>
                 <p className="mt-1 max-w-2xl text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                  Lets GitHub Copilot and Copilot SDK BYOK options search the
-                  public web when a prompt needs current documentation or
-                  examples. Search queries leave this device. Shell access and
-                  unrestricted computer files remain disabled.
+                  Lets GitHub Copilot and Copilot SDK BYOK options use Copilot's
+                  own built-in search, which needs a Copilot entitlement and is
+                  not available to OpenAI, Anthropic or Gemini options. Search
+                  queries leave this device. Shell access and unrestricted
+                  computer files remain disabled.
                 </p>
+                {canonicalWebSearchActive && (
+                  <p
+                    data-testid="copilot-web-search-superseded"
+                    className="mt-1 max-w-2xl text-xs leading-5 text-amber-700 dark:text-amber-300"
+                  >
+                    Web search (all models) is configured above, so that
+                    canonical tool is used instead of this one. Only one search
+                    tool is enabled per session.
+                  </p>
+                )}
               </div>
               <Switch
                 id="copilot-web-search"
@@ -878,41 +932,68 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                 aria-label="Allow Copilot web search"
               />
             </div>
+
+            {/* Copilot also ships a built-in `web_fetch`. It is deliberately
+                not offered, and saying so here is better than leaving a user
+                to wonder why the model cannot open a link. */}
+            <div
+              data-testid="copilot-web-fetch-unavailable"
+              className="mt-4 border-t border-gray-100 pt-4 dark:border-zinc-700"
+            >
+              <p className="text-sm text-gray-700 dark:text-zinc-300">
+                Page fetching is not available
+              </p>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                Copilot's runtime also has a built-in{" "}
+                <code className="font-mono">web_fetch</code> tool that opens a
+                URL and returns the whole page. shot2code does not offer it:
+                the Copilot SDK hands a built-in's result straight to the model
+                and only tells the app afterwards, so there is no point at
+                which shot2code could cap that text, mark it as untrusted, or
+                count it against a budget. An entire third-party page would
+                enter the model's context unchecked.
+              </p>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                Web search (all models) above is the supported way to bring in
+                outside information. shot2code runs that search itself, so each
+                result is capped, labelled as untrusted and counted against a
+                per-turn and per-generation budget. Any URL the Copilot runtime
+                asks to open during a run is denied.
+              </p>
+            </div>
           </div>
 
           {/* Image Generation */}
-          <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-            <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-              <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-                Image Generation
-              </h2>
-            </div>
-            <div className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-700 dark:text-zinc-300">
-                    Placeholder Images
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                    Uses Replicate and is billed by Replicate per generated or
-                    edited image. A key may be saved here or configured in
-                    backend/.env; generation reports an actionable error when
-                    neither is available.
-                  </p>
-                </div>
-                <Switch
-                  id="image-generation"
-                  checked={settings.isImageGenerationEnabled}
-                  onCheckedChange={(checked) =>
-                    setSettings((s) => ({
-                      ...s,
-                      isImageGenerationEnabled: checked,
-                    }))
-                  }
-                />
-              </div>
-            </div>
-          </div>
+          <ImageGenerationSettings
+            settings={imageGenerationSettings}
+            enabled={settings.isImageGenerationEnabled}
+            replicateApiKey={settings.replicateApiKey ?? ""}
+            onEnabledChange={(checked) =>
+              setSettings((s) => ({ ...s, isImageGenerationEnabled: checked }))
+            }
+            onChange={(update) =>
+              setSettings((current) => ({
+                ...current,
+                imageGeneration: update(
+                  normalizeImageGenerationSettings(current.imageGeneration)
+                ),
+              }))
+            }
+          />
+
+          {/* Free image search — keyless, and independent of the block above */}
+          <FreeImageSearchSettings
+            settings={freeImageSearchSettings}
+            hasPaidImageProvider={hasPaidImageProvider}
+            onChange={(update) =>
+              setSettings((current) => ({
+                ...current,
+                freeImageSearch: update(
+                  normalizeFreeImageSearchSettings(current.freeImageSearch)
+                ),
+              }))
+            }
+          />
 
           {/* Screenshot Preview (agent self-verification) */}
           <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">

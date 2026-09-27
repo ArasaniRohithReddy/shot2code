@@ -102,6 +102,19 @@ export interface RecentHistoryProject {
   versionCount: number;
 }
 
+const GENERIC_PROJECT_TITLE_RE =
+  /^(?:imported|screenshot|video|text) project$|^\d+ screenshot project$/i;
+const GENERIC_SOURCE_TITLES = new Set([
+  "app",
+  "document",
+  "home",
+  "index",
+  "page",
+  "shot2code preview",
+  "untitled",
+  "website",
+]);
+
 interface AssetRegistry {
   assetsById: Record<string, PromptAsset>;
   idForDataUrl: (type: PromptAssetType, dataUrl: string) => string;
@@ -127,6 +140,123 @@ function stringArray(value: unknown): string[] {
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function compactTitle(value: string): string {
+  const candidate = value.replace(/\s+/g, " ").trim();
+  return candidate.length > 72
+    ? `${candidate.slice(0, 69).trimEnd()}...`
+    : candidate;
+}
+
+function decodeTitleEntities(value: string): string {
+  const entities: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: '"',
+  };
+  return value.replace(
+    /&(#(?:x[0-9a-f]+|\d+)|[a-z]+);/gi,
+    (match, entity: string) => {
+      if (entity.startsWith("#x")) {
+        const codePoint = Number.parseInt(entity.slice(2), 16);
+        return Number.isFinite(codePoint)
+          ? String.fromCodePoint(codePoint)
+          : match;
+      }
+      if (entity.startsWith("#")) {
+        const codePoint = Number.parseInt(entity.slice(1), 10);
+        return Number.isFinite(codePoint)
+          ? String.fromCodePoint(codePoint)
+          : match;
+      }
+      return entities[entity.toLowerCase()] ?? match;
+    }
+  );
+}
+
+function meaningfulSourceTitle(sourceCode: string | undefined): string {
+  if (!sourceCode?.trim()) return "";
+  const candidates = [
+    /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i,
+    /<h1\b[^>]*>([\s\S]*?)<\/h1\s*>/i,
+  ];
+  for (const pattern of candidates) {
+    const match = pattern.exec(sourceCode);
+    if (!match) continue;
+    const title = compactTitle(
+      decodeTitleEntities(match[1].replace(/<[^>]*>/g, " "))
+    );
+    if (title && !GENERIC_SOURCE_TITLES.has(title.toLowerCase())) return title;
+  }
+  return "";
+}
+
+function stackTitle(stack: string | undefined): string {
+  if (!stack) return "";
+  return stack
+    .split("_")
+    .map((part) =>
+      ["css", "html", "htmx"].includes(part)
+        ? part.toUpperCase()
+        : part.charAt(0).toUpperCase() + part.slice(1)
+    )
+    .join(" ");
+}
+
+export function isGenericProjectTitle(title: string): boolean {
+  return GENERIC_PROJECT_TITLE_RE.test(title.trim());
+}
+
+function promptText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!isRecord(value)) return "";
+  return stringValue(value.text) ?? stringValue(value.full_text) ?? "";
+}
+
+function variantSource(variant: HistoryVariant | undefined): string {
+  if (!variant) return "";
+  if (variant.projectData) {
+    const entry = variant.projectData.files[variant.projectData.entryPoint];
+    if (entry?.content) return entry.content;
+  }
+  return variant.currentContent ?? variant.code ?? "";
+}
+
+export function deriveHistoryProjectTitle(project: HistoryProject): string {
+  if (!isGenericProjectTitle(project.title)) return project.title;
+  const commits = [...project.commits].sort(
+    (left, right) => left.createdAt.getTime() - right.createdAt.getTime()
+  );
+  const firstPrompt = commits
+    .flatMap((commit) => commit.prompts)
+    .map((prompt) => promptText(prompt.content))
+    .find((text) => text.trim());
+  const selectedCommit =
+    commits.find((commit) => commit.id === project.selectedCommitId) ??
+    commits.find((commit) => commit.id === project.headCommitId) ??
+    commits.at(-1);
+  const selectedVariant =
+    selectedCommit?.variants[
+      project.selectedVariantIndex ?? 0
+    ] ?? selectedCommit?.variants[0];
+  return deriveProjectTitle({
+    prompt: firstPrompt,
+    inputMode:
+      project.inputMode === "text" ||
+      project.inputMode === "video" ||
+      project.inputMode === "image"
+        ? project.inputMode
+        : "import",
+    referenceCount: stringArray(
+      appMetadata(project).reference_asset_ids
+    ).length,
+    sourceCode: variantSource(selectedVariant),
+    stack: project.stack ?? undefined,
+  });
 }
 
 function serializeGenerationContext(
@@ -1121,7 +1251,7 @@ export function restoreHistoryProject(
 
   return {
     projectId: project.id,
-    projectTitle: project.title,
+    projectTitle: deriveHistoryProjectTitle(project),
     projectCreatedAt: project.createdAt,
     projectStack,
     inputMode,
@@ -1148,11 +1278,12 @@ function hasDraft(summary: HistoryProjectSummary): boolean {
 }
 
 export function toRecentHistoryProject(
-  project: HistoryProjectSummary
+  project: HistoryProjectSummary | HistoryProject
 ): RecentHistoryProject {
   return {
     id: project.id,
-    title: project.title,
+    title:
+      "commits" in project ? deriveHistoryProjectTitle(project) : project.title,
     stack: project.stack,
     inputMode: project.inputMode,
     createdAt: project.createdAt,
@@ -1210,29 +1341,77 @@ export function buildHistorySelectionUpdate(
   };
 }
 
+/** The only project data kept in `localStorage`: which project id was last
+ *  open, or the sentinel meaning "the user deliberately started fresh". The
+ *  project itself lives in SQLite and is never duplicated here. */
+export const ACTIVE_HISTORY_PROJECT_STORAGE_KEY =
+  "shot2code-active-history-project";
+export const NEW_HISTORY_PROJECT_VALUE = "__new__";
+
+/**
+ * Picks the project to reopen on start-up.
+ *
+ * Pure so the restore rule can be asserted without a browser: the remembered
+ * id wins when it still exists, the "new project" sentinel wins over
+ * everything, and only the packaged app falls back to the most recent project
+ * when nothing was remembered — a browser tab that has never opened a project
+ * should stay on the start pane.
+ */
+export function resolveProjectToRestore({
+  remembered,
+  projects,
+  isDesktopApp = false,
+}: {
+  remembered: string | null;
+  projects: readonly RecentHistoryProject[];
+  isDesktopApp?: boolean;
+}): RecentHistoryProject | null {
+  if (remembered === NEW_HISTORY_PROJECT_VALUE) return null;
+
+  const rememberedProject = remembered
+    ? projects.find((project) => project.id === remembered)
+    : undefined;
+  if (rememberedProject) return rememberedProject;
+
+  return isDesktopApp ? projects[0] ?? null : null;
+}
+
 export function deriveProjectTitle({
   prompt,
   inputMode,
   referenceCount = 0,
   importedName,
+  sourceCode,
+  stack,
 }: {
   prompt?: string;
   inputMode: InputMode | "import";
   referenceCount?: number;
   importedName?: string;
+  sourceCode?: string;
+  stack?: string;
 }): string {
-  const candidate = (importedName ?? prompt ?? "").replace(/\s+/g, " ").trim();
+  const importedCandidate = compactTitle(importedName ?? "");
+  const candidate = compactTitle(
+    (!isGenericProjectTitle(importedCandidate) && importedCandidate) ||
+      prompt ||
+      meaningfulSourceTitle(sourceCode) ||
+      ""
+  );
   if (candidate) {
-    return candidate.length > 72
-      ? `${candidate.slice(0, 69).trimEnd()}...`
-      : candidate;
+    return candidate;
   }
-  if (inputMode === "import") return "Imported project";
-  if (inputMode === "video") return "Video project";
+  const stackName = stackTitle(stack);
+  if (inputMode === "import") {
+    return stackName ? `Imported ${stackName} page` : "Imported page";
+  }
+  if (inputMode === "video") {
+    return stackName ? `Screen recording · ${stackName}` : "Screen recording";
+  }
   if (inputMode === "image") {
-    return referenceCount > 1
-      ? `${referenceCount} screenshot project`
-      : "Screenshot project";
+    const referenceLabel =
+      referenceCount > 1 ? `${referenceCount} screenshots` : "Screenshot";
+    return stackName ? `${referenceLabel} · ${stackName}` : referenceLabel;
   }
-  return "Text project";
+  return stackName ? `Text prompt · ${stackName}` : "Text prompt";
 }

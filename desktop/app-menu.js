@@ -52,6 +52,7 @@ const MENU_COMMANDS = Object.freeze([
   "toggle-chat-panel",
   "show-help",
   "show-keyboard-shortcuts",
+  "show-feedback",
 ]);
 
 /** The three zoom commands understood by zoom-controls.js. */
@@ -409,6 +410,12 @@ function buildAppMenuTemplate({
       id: "keyboard-shortcuts",
       label: "Keyboard shortcuts",
       command: "show-keyboard-shortcuts",
+      send,
+    }),
+    commandItem({
+      id: "send-feedback",
+      label: "Send feedback…",
+      command: "show-feedback",
       send,
     }),
     separator(),

@@ -21,6 +21,11 @@ from agent.tools import (
 from config import GENERATION_MAX_COST_USD
 from fs_logging.agent_runs import AgentRunRecorder
 from integrations.config import EMPTY_INTEGRATIONS, ByokConnection, IntegrationSettings
+from web_search.config import EMPTY_WEB_SEARCH, WebSearchSettings
+from web_search.tool import WebSearchRuntime
+from free_images.config import EMPTY_FREE_IMAGE_SEARCH, FreeImageSearchSettings
+from free_images.tool import FreeImageSearchRuntime
+from image_generation.settings import ImageGenerationSettings
 
 
 class EmptyOutputError(Exception):
@@ -72,6 +77,9 @@ class AgentEngine:
         copilot_github_token: Optional[str] = None,
         copilot_use_logged_in_user: bool = True,
         integrations: Optional[IntegrationSettings] = None,
+        web_search: Optional[WebSearchSettings] = None,
+        image_settings: Optional[ImageGenerationSettings] = None,
+        free_image_search: Optional[FreeImageSearchSettings] = None,
     ):
         self.send_message = send_message
         self.variant_index = variant_index
@@ -84,6 +92,9 @@ class AgentEngine:
         self.copilot_github_token = copilot_github_token
         self.copilot_use_logged_in_user = copilot_use_logged_in_user
         self.integrations = integrations or EMPTY_INTEGRATIONS
+        self.web_search_settings = web_search or EMPTY_WEB_SEARCH
+        self.free_image_settings = free_image_search or EMPTY_FREE_IMAGE_SEARCH
+        self.image_settings = image_settings
         self.should_generate_images = should_generate_images
         self.copilot_web_search_enabled = copilot_web_search_enabled
         self.should_extract_assets = should_extract_assets
@@ -102,6 +113,20 @@ class AgentEngine:
             replicate_api_key=replicate_api_key,
             asset_base_url=asset_base_url,
             option_codes=option_codes,
+            image_settings=image_settings,
+            # One budget per engine, so every variant gets its own allowance
+            # and a retry starts from a clean count.
+            web_search=(
+                WebSearchRuntime(settings=self.web_search_settings)
+                if self.web_search_settings.is_usable
+                else None
+            ),
+            # One budget per engine here too, and no credential to carry.
+            free_image_search=(
+                FreeImageSearchRuntime(settings=self.free_image_settings)
+                if self.free_image_settings.is_usable
+                else None
+            ),
         )
         self._tool_preview_lengths: Dict[str, int] = {}
 
@@ -275,6 +300,12 @@ class AgentEngine:
             thinking_event_id = self._next_event_id("thinking")
             started_tool_ids: set[str] = set()
             streamed_lengths: Dict[str, int] = {}
+            # Each model turn gets its own search allowance; the
+            # per-generation ceiling keeps accumulating across them.
+            if self.tool_runtime.web_search is not None:
+                self.tool_runtime.web_search.start_turn()
+            if self.tool_runtime.free_image_search is not None:
+                self.tool_runtime.free_image_search.start_turn()
 
             async def on_event(event: StreamEvent) -> None:
                 if self.recorder is not None:
@@ -415,6 +446,9 @@ class AgentEngine:
             recorder=self.recorder,
             integrations=self.integrations,
             copilot_web_search_enabled=self.copilot_web_search_enabled,
+            web_search=self.web_search_settings,
+            free_image_search=self.free_image_settings,
+            image_settings=self.image_settings,
             # Only ever set when the selection itself asked for the BYOK runtime.
             byok_connection=byok_connection,
             # The endpoint's own model name, when the selection named one.

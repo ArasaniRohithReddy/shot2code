@@ -2,14 +2,18 @@ import type { Commit } from "../components/commits/types";
 import { createProjectFile } from "./project-files";
 import { Stack } from "./stacks";
 import {
+  ACTIVE_HISTORY_PROJECT_STORAGE_KEY,
   buildHistoryProjectSnapshot,
   buildHistorySelectionUpdate,
   commitToHistoryVersion,
   deriveProjectTitle,
   INTERRUPTED_GENERATION_MESSAGE,
+  NEW_HISTORY_PROJECT_VALUE,
+  resolveProjectToRestore,
   restoreHistoryProject,
   toRecentHistoryProject,
   type ProjectHistorySnapshotState,
+  type RecentHistoryProject,
 } from "./project-history";
 import type {
   HistoryCommit,
@@ -457,7 +461,193 @@ describe("project history adapters", () => {
       })
     ).toBe("Build a focused dashboard");
     expect(
-      deriveProjectTitle({ inputMode: "image", referenceCount: 3 })
-    ).toBe("3 screenshot project");
+      deriveProjectTitle({
+        inputMode: "image",
+        referenceCount: 3,
+        stack: Stack.REACT_TAILWIND,
+      })
+    ).toBe("3 screenshots · React Tailwind");
+  });
+
+  it("derives imported and screenshot titles from generated page content", () => {
+    expect(
+      deriveProjectTitle({
+        inputMode: "import",
+        importedName: "Imported project",
+        sourceCode:
+          "<!doctype html><html><head><title>Northwind Revenue Dashboard</title></head></html>",
+        stack: Stack.HTML_CSS,
+      })
+    ).toBe("Northwind Revenue Dashboard");
+    expect(
+      deriveProjectTitle({
+        inputMode: "image",
+        sourceCode: "<main><h1>Eco-friendly skincare</h1></main>",
+        stack: Stack.HTML_TAILWIND,
+      })
+    ).toBe("Eco-friendly skincare");
+  });
+
+  it("improves generic titles in existing persisted projects", () => {
+    const state = stateFixture();
+    state.projectTitle = "Screenshot project";
+    state.initialPrompt = "";
+    if (state.commits.root.type !== "code_create") {
+      state.commits.root.inputs.text = "";
+    }
+    state.commits.root.variants[0].code =
+      "<!doctype html><main><h1>Quarterly sales overview</h1></main>";
+    state.commits.root.variants[0].files = {
+      ...(state.commits.root.variants[0].files ?? {}),
+      "index.html": createProjectFile(
+        "index.html",
+        "<!doctype html><main><h1>Quarterly sales overview</h1></main>"
+      ),
+    };
+    const project = projectFromSnapshot(
+      buildHistoryProjectSnapshot(state, state.commits.root)
+    );
+    project.title = "Screenshot project";
+
+    expect(toRecentHistoryProject(project).title).toBe(
+      "Quarterly sales overview"
+    );
+    expect(restoreHistoryProject(project).projectTitle).toBe(
+      "Quarterly sales overview"
+    );
+  });
+});
+
+describe("restoring the last active project", () => {
+  function recent(id: string, minutesAgo: number): RecentHistoryProject {
+    return {
+      id,
+      title: `Project ${id}`,
+      stack: Stack.REACT_TAILWIND,
+      inputMode: "image",
+      createdAt,
+      updatedAt: new Date(createdAt.getTime() - minutesAgo * 60_000),
+      versionCount: 1,
+    };
+  }
+
+  const projects = [recent("newest", 1), recent("older", 30)];
+
+  it("keeps only a project id in local storage, never the project", () => {
+    expect(ACTIVE_HISTORY_PROJECT_STORAGE_KEY).toBe(
+      "shot2code-active-history-project"
+    );
+    // The value written is the bare id; commits, files and assets stay in
+    // SQLite and are never duplicated into the browser store.
+    expect(typeof NEW_HISTORY_PROJECT_VALUE).toBe("string");
+  });
+
+  it("reopens the remembered project rather than the most recent one", () => {
+    expect(
+      resolveProjectToRestore({
+        remembered: "older",
+        projects,
+        isDesktopApp: true,
+      })?.id
+    ).toBe("older");
+  });
+
+  it("honours a deliberate new project over any recent work", () => {
+    expect(
+      resolveProjectToRestore({
+        remembered: NEW_HISTORY_PROJECT_VALUE,
+        projects,
+        isDesktopApp: true,
+      })
+    ).toBeNull();
+  });
+
+  it("falls back to the most recent project only in the desktop app", () => {
+    expect(
+      resolveProjectToRestore({ remembered: null, projects, isDesktopApp: true })
+        ?.id
+    ).toBe("newest");
+    expect(
+      resolveProjectToRestore({ remembered: null, projects })
+    ).toBeNull();
+  });
+
+  it("ignores a remembered project that has since been deleted", () => {
+    expect(
+      resolveProjectToRestore({
+        remembered: "deleted",
+        projects,
+        isDesktopApp: false,
+      })
+    ).toBeNull();
+    expect(
+      resolveProjectToRestore({
+        remembered: "deleted",
+        projects,
+        isDesktopApp: true,
+      })?.id
+    ).toBe("newest");
+  });
+
+  it("restores nothing when there is no history at all", () => {
+    expect(
+      resolveProjectToRestore({
+        remembered: "anything",
+        projects: [],
+        isDesktopApp: true,
+      })
+    ).toBeNull();
+  });
+
+  it("restores the remembered version, variant and file of that project", () => {
+    const state = stateFixture();
+    state.head = "root";
+    state.commits.root.selectedVariantIndex = 0;
+    const snapshot = buildHistoryProjectSnapshot(state, state.commits.root);
+    const project = projectFromSnapshot(snapshot);
+    project.selectedCommitId = "root";
+    project.selectedVariantIndex = 0;
+
+    const restored = restoreHistoryProject(project, { restoredAt });
+
+    expect(restored.head).toBe("root");
+    expect(restored.commits.root.selectedVariantIndex).toBe(0);
+    expect(restored.commits.root.variants[0].activeFilePath).toBe(
+      "styles/site.css"
+    );
+  });
+
+  it("cancels a generation that was still running when the app stopped", () => {
+    const state = stateFixture();
+    const snapshot = buildHistoryProjectSnapshot(state, state.commits.root);
+    const restored = restoreHistoryProject(projectFromSnapshot(snapshot), {
+      restoredAt,
+    });
+
+    expect(restored.interruptedGeneration).toBe(true);
+    expect(restored.commits.draft.variants[0].status).toBe("cancelled");
+    expect(restored.commits.draft.variants[0].errorMessage).toBe(
+      INTERRUPTED_GENERATION_MESSAGE
+    );
+    // A variant that had already failed keeps its own reason.
+    expect(restored.commits.draft.variants[1].status).toBe("error");
+    expect(restored.commits.draft.variants[1].errorMessage).toBe("Model failed");
+  });
+
+  it("reports no interruption for a project that finished cleanly", () => {
+    const state = stateFixture();
+    state.commits.draft.variants = state.commits.draft.variants.map(
+      (variant) =>
+        variant.status === "generating"
+          ? { ...variant, status: "complete", completedAt: restoredAt }
+          : variant
+    );
+    const snapshot = buildHistoryProjectSnapshot(state, state.commits.root);
+    const restored = restoreHistoryProject(projectFromSnapshot(snapshot), {
+      restoredAt,
+    });
+
+    expect(restored.interruptedGeneration).toBe(false);
+    expect(restored.commits.draft.variants[0].status).toBe("complete");
   });
 });

@@ -20,7 +20,12 @@ interface Props {
   screenshotOneApiKey: string | null;
   figmaAccessToken: string | null;
   stitchApiKey: string | null;
-  importFromCode: (code: string, stack: Stack, instruction?: string) => void;
+  importFromCode: (
+    code: string,
+    stack: Stack,
+    instruction?: string,
+    titleHint?: string
+  ) => void;
   doCreate: (
     urls: string[],
     inputMode: "image" | "video",
@@ -66,17 +71,6 @@ function UrlTab({
   const figmaUrl = isFigmaUrl(referenceUrl);
   const stitchUrl = isStitchUrl(referenceUrl);
   const designToolUrl = figmaUrl || stitchUrl;
-  const hasActiveFigmaMcp = mcpServers.some(
-    (server) =>
-      server.enabled &&
-      server.trusted &&
-      server.transport !== "stdio" &&
-      Boolean(
-        server.url?.includes("mcp.figma.com/mcp") ||
-          server.url?.includes("127.0.0.1:3845/mcp") ||
-          server.url?.includes("localhost:3845/mcp")
-      )
-  );
   const hasCopilotRuntime = (modelSelector?.selectedModels ?? []).some(
     (modelId) =>
       modelId.startsWith("copilot/") || isByokSelectionId(modelId)
@@ -131,8 +125,6 @@ function UrlTab({
 
     if (isFigmaUrl(trimmedReferenceUrl) || isStitchUrl(trimmedReferenceUrl)) {
       const source = isFigmaUrl(trimmedReferenceUrl) ? "Figma" : "Google Stitch";
-      const hasActiveMcp =
-        source === "Figma" ? hasActiveFigmaMcp : hasActiveStitchMcp;
       if (
         source === "Google Stitch" &&
         stitchApiKey?.trim() &&
@@ -144,7 +136,12 @@ function UrlTab({
             apiKey: stitchApiKey,
             url: trimmedReferenceUrl,
           });
-          importFromCode(result.html, Stack.HTML_CSS, textPrompt);
+          importFromCode(
+            result.html,
+            Stack.HTML_CSS,
+            textPrompt,
+            textPrompt || "Google Stitch screen"
+          );
         } catch (caught) {
           toast.error(
             caught instanceof Error
@@ -156,7 +153,7 @@ function UrlTab({
         }
         return;
       }
-      if (source === "Figma" && !hasActiveMcp && figmaAccessToken?.trim()) {
+      if (source === "Figma" && figmaAccessToken?.trim()) {
         try {
           setIsLoading(true);
           const response = await fetch(`${HTTP_BACKEND_URL}/api/figma/import`, {
@@ -193,11 +190,15 @@ function UrlTab({
         }
         return;
       }
-      if (!hasActiveMcp) {
+      if (source === "Figma") {
         toast.error(
-          source === "Figma"
-            ? "Add and trust Figma MCP, or save a Figma personal access token in Settings."
-            : `Add ${source} from the MCP Registry, then enable and trust it.`
+          "Save a scoped Figma personal access token in Settings, or export the frame and use Upload. Figma MCP is limited to clients in Figma's MCP Catalog."
+        );
+        return;
+      }
+      if (!hasActiveStitchMcp) {
+        toast.error(
+          `Add ${source} from the MCP Registry, then enable and trust it.`
         );
         return;
       }
@@ -343,21 +344,19 @@ function UrlTab({
                 {figmaUrl ? "Figma design link" : "Google Stitch project link"}
               </p>
               <p className="mt-1">
-                {(figmaUrl ? hasActiveFigmaMcp : hasActiveStitchMcp)
-                  ? `An enabled and trusted ${
-                      figmaUrl ? "Figma" : "Google Stitch"
-                    } MCP is configured.`
-                  : figmaUrl && figmaAccessToken?.trim()
+                {figmaUrl && figmaAccessToken?.trim()
                     ? "A Figma personal access token is configured; shot2code will render the selected frame through Figma's REST API."
+                  : figmaUrl
+                    ? "Add a scoped Figma personal access token in Settings, or export the frame and use Upload. Figma MCP is restricted to catalog clients."
+                  : hasActiveStitchMcp
+                    ? "An enabled and trusted Google Stitch MCP is configured."
                   : stitchUrl &&
                       stitchApiKey?.trim() &&
                       window.__SHOT2CODE_APP__?.importStitch
                     ? "The bundled Stitch SDK will import this screen's HTML and screenshot."
-                  : `Add ${
-                      figmaUrl ? "Figma Desktop or Figma Remote" : "Google Stitch"
-                    } from Settings → MCP Registry, then enable and trust it.`}
+                  : "Add Google Stitch from Settings → MCP Registry, then enable and trust it."}
                 {!hasCopilotRuntime &&
-                  !(figmaUrl && figmaAccessToken?.trim()) &&
+                  !figmaUrl &&
                   !(
                     stitchUrl &&
                     stitchApiKey?.trim() &&

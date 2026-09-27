@@ -400,6 +400,37 @@ class TestMcpValidation:
         )
         assert settings.mcp_servers[0].url == "http://localhost:9000/mcp"
 
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://mcp.figma.com/mcp",
+            "http://127.0.0.1:3845/mcp",
+            "http://localhost:3845/mcp",
+        ],
+    )
+    def test_active_figma_mcp_is_refused_because_the_client_is_not_catalogued(
+        self, url: str
+    ) -> None:
+        with pytest.raises(IntegrationConfigError) as excinfo:
+            parse_integration_settings({"mcpServers": [http_server(url=url)]})
+
+        assert "MCP Catalog" in str(excinfo.value)
+
+    def test_disabled_figma_mcp_may_remain_as_inert_migrated_settings(self) -> None:
+        settings = parse_integration_settings(
+            {
+                "mcpServers": [
+                    http_server(
+                        url="https://mcp.figma.com/mcp",
+                        enabled=False,
+                        trusted=False,
+                    )
+                ]
+            }
+        )
+
+        assert settings.active_mcp_servers == ()
+
     def test_remote_urls_may_not_carry_credentials(self) -> None:
         with pytest.raises(IntegrationConfigError):
             parse_integration_settings(

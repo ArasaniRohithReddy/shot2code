@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from image_generation import generation
+from image_generation.assets import NormalizedImage
 from agent.tools.runtime import AgentToolRuntime
 from agent.tools.types import ToolCall
 from agent.state import AgentFileState
@@ -18,15 +19,17 @@ async def test_process_tasks_batches_replicate_calls(
     concurrent = 0
     max_concurrent = 0
 
-    async def tracking_generate(prompt: str, api_key: str) -> str:
+    async def tracking_generate(
+        prompt: str, settings: object, asset_base_url: str
+    ) -> NormalizedImage:
         nonlocal concurrent, max_concurrent
         concurrent += 1
         max_concurrent = max(max_concurrent, concurrent)
         await asyncio.sleep(0.01)
         concurrent -= 1
-        return f"url-for-{prompt}"
+        return NormalizedImage(url=f"url-for-{prompt}", mime_type="image/png")
 
-    monkeypatch.setattr(generation, "generate_image_replicate", tracking_generate)
+    monkeypatch.setattr(generation, "generate_one", tracking_generate)
 
     prompts = [f"prompt-{i}" for i in range(7)]
     results = await generation.process_tasks(prompts, "key", None, "flux")
@@ -51,7 +54,7 @@ async def test_remove_backgrounds_batches_calls(
         max_concurrent = max(max_concurrent, concurrent)
         await asyncio.sleep(0.01)
         concurrent -= 1
-        return f"nobg-{image_url}"
+        return image_url.replace("img-", "nobg-")
 
     monkeypatch.setattr("agent.tools.runtime.remove_background_once", tracking_remove_bg)
 
@@ -111,7 +114,7 @@ async def test_remove_backgrounds_converts_localhost_asset_url_to_data_url(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr("agent.tools.runtime.REPLICATE_API_KEY", "fake-key")
-    monkeypatch.setattr("agent.tools.local_assets.LOCAL_ASSET_DIR", str(tmp_path))
+    monkeypatch.setattr("asset_urls.LOCAL_ASSET_DIR", str(tmp_path))
     (tmp_path / "asset_123.png").write_bytes(b"image")
     captured: list[str] = []
 

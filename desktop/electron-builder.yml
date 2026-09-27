@@ -14,8 +14,10 @@ files:
   - backend-auth-restart.js
   - update-lifecycle.js
   - zoom-controls.js
+  - window-state.js
   - stitch-sdk.js
   - github-oauth.js
+  - feedback.js
   - preload.js
   - untrusted-preload.js
   - renderer/**/*

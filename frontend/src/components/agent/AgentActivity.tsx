@@ -19,6 +19,7 @@ import {
   BsFileEarmarkPlus,
   BsPencilSquare,
   BsImage,
+  BsImages,
   BsScissors,
   BsFiles,
   BsBookmarkCheck,
@@ -35,6 +36,10 @@ import {
 import html from "react-syntax-highlighter/dist/esm/languages/hljs/xml";
 import { vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import WorkingPulse from "../core/WorkingPulse";
+import ImageFailureTile from "./ImageFailureTile";
+import FreeImageResults from "./FreeImageResults";
+import { imageEventTitle, readImageItem } from "./image-results";
+import { FREE_IMAGE_SEARCH_TOOL_NAME } from "../../lib/free-image-search";
 import { groupCompletedAgentEvents } from "./activity-order";
 import {
   formatDurationBetween,
@@ -197,6 +202,10 @@ function getEventIcon(type: AgentEventType, toolName?: string) {
   if (toolName === "edit_file") {
     return <BsPencilSquare className="text-purple-500" />;
   }
+  if (toolName === FREE_IMAGE_SEARCH_TOOL_NAME) {
+    // A distinct icon from generate_images: found, not invented.
+    return <BsImages className="text-emerald-500" />;
+  }
   if (toolName === "generate_images") {
     return <BsImage className="text-pink-500" />;
   }
@@ -242,40 +251,10 @@ function getEventTitle(event: AgentEvent): string {
     if (event.toolName === "edit_file") {
       return event.status === "running" ? "Editing file" : "Edited file";
     }
-    if (event.toolName === "generate_images") {
-      const count =
-        getArrayField(event.output, "images")?.length ||
-        getNumberField(event.input, "count") ||
-        0;
-      if (event.status === "running") {
-        return count ? `Generating ${count} image${count !== 1 ? "s" : ""}` : "Generating images";
-      }
-      return count ? `Generated ${count} image${count !== 1 ? "s" : ""}` : "Generated images";
-    }
-    if (event.toolName === "remove_backgrounds") {
-      const rbCount =
-        getArrayField(event.output, "images")?.length ||
-        getArrayField(event.input, "image_urls")?.length ||
-        0;
-      if (event.status === "running") {
-        return rbCount > 1 ? `Removing ${rbCount} backgrounds` : "Removing background";
-      }
-      return rbCount > 1 ? `Removed ${rbCount} backgrounds` : "Background removed";
-    }
-    if (event.toolName === "edit_images") {
-      const editInput = event.input as { edits?: unknown[] } | null;
-      const editOutput = event.output as { images?: unknown[] } | null;
-      const editCount =
-        editOutput?.images?.length || editInput?.edits?.length || 0;
-      if (event.status === "running") {
-        return editCount
-          ? `Editing ${editCount} image${editCount !== 1 ? "s" : ""}`
-          : "Editing images";
-      }
-      return editCount
-        ? `Edited ${editCount} image${editCount !== 1 ? "s" : ""}`
-        : "Edited images";
-    }
+    // Image tools count successes, not tiles: a batch where every prompt
+    // failed must not read as a batch that produced images.
+    const imageTitle = imageEventTitle(event);
+    if (imageTitle) return imageTitle;
     if (event.toolName === "retrieve_option") {
       return event.status === "running"
         ? "Retrieving option"
@@ -362,6 +341,10 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
   const error = getStringField(output, "error");
   const hasError = Boolean(error);
   const images = getArrayField(output, "images");
+  // An image batch now reports a per-item reason even when the whole call
+  // failed, so the item list stays visible instead of collapsing to one
+  // top-level message that says nothing about which prompt went wrong.
+  const hideImageItems = hasError && !(images && images.length > 0);
   const edits = getArrayField(output, "edits");
   const extractedAssets = getArrayField(output, "assets");
   const successfulExtractedAssets =
@@ -442,8 +425,22 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
         </div>
       )}
 
-      {event.toolName === "generate_images" && !hasError && (
+      {event.toolName === FREE_IMAGE_SEARCH_TOOL_NAME && (
         <div>
+          {event.status === "running" ? (
+            <div className="text-xs text-gray-600 dark:text-gray-400">
+              Searching Openverse for public-domain images…
+            </div>
+          ) : images ? (
+            <FreeImageResults
+              items={images}
+              rejected={getArrayField(output, "rejected") ?? []}
+            />
+          ) : null}
+        </div>
+      )}
+
+      {event.toolName === "generate_images" && !hideImageItems && (        <div>
           {/* While running: show prompts with dividers */}
           {event.status === "running" && prompts && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -460,21 +457,22 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
               {images.map((rawItem, index) => {
                 const item = getRecord(rawItem);
                 const prompt = getStringField(item, "prompt") ?? "";
-                const url = getStringField(item, "url");
+                const outcome = readImageItem(rawItem, "url");
                 return (
                   <div key={`${prompt}-${index}`} className="flex gap-3 py-2">
                     <div className="w-1/2 shrink-0">
-                      {url ? (
+                      {outcome.succeeded && outcome.url ? (
                         <img
-                          src={url}
+                          src={outcome.url}
                           alt={prompt || `Generated image ${index + 1}`}
                           className="w-full rounded object-cover"
                           loading="lazy"
                         />
                       ) : (
-                        <div className="aspect-square rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400">
-                          Failed
-                        </div>
+                        <ImageFailureTile
+                          outcome={outcome}
+                          label={`Image ${index + 1} failed`}
+                        />
                       )}
                     </div>
                     <div className="w-1/2 text-xs text-gray-600 dark:text-gray-400 self-center">
@@ -488,7 +486,7 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
         </div>
       )}
 
-      {event.toolName === "remove_backgrounds" && !hasError && (
+      {event.toolName === "remove_backgrounds" && !hideImageItems && (
         <div>
           {/* While running: show the source images */}
           {event.status === "running" && sourceImageUrls && (
@@ -511,7 +509,7 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
               {images.map((rawItem, index) => {
                 const item = getRecord(rawItem);
                 const imageUrl = getStringField(item, "image_url");
-                const resultUrl = getStringField(item, "result_url");
+                const outcome = readImageItem(rawItem, "result_url");
                 return (
                   <div key={`${imageUrl}-${index}`} className="flex gap-2 py-2">
                     <div className="w-1/2">
@@ -527,7 +525,7 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
                     </div>
                     <div className="w-1/2">
                       <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">After</div>
-                      {resultUrl ? (
+                      {outcome.succeeded && outcome.url ? (
                         <div className="relative">
                           <div
                             className="absolute inset-0 rounded"
@@ -539,16 +537,17 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
                             }}
                           />
                           <img
-                            src={resultUrl}
+                            src={outcome.url}
                             alt="Background removed"
                             className="relative w-full rounded"
                             loading="lazy"
                           />
                         </div>
                       ) : (
-                        <div className="aspect-square rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400">
-                          Failed
-                        </div>
+                        <ImageFailureTile
+                          outcome={outcome}
+                          label={`Image ${index + 1} failed`}
+                        />
                       )}
                     </div>
                   </div>
@@ -559,7 +558,7 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
         </div>
       )}
 
-      {event.toolName === "edit_images" && !hasError && (
+      {event.toolName === "edit_images" && !hideImageItems && (
         <div>
           {event.status === "running" &&
             requestedEdits && (
@@ -623,13 +622,12 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
                 const imageUrls =
                   getStringArrayField(item, "image_urls") ?? [];
                 const prompt = getStringField(item, "prompt");
-                const status = getStringField(item, "status");
-                const resultUrl = getStringField(item, "result_url");
                 const aspectRatio =
                   getStringField(item, "aspect_ratio") ?? "match input";
-                const itemError = getStringField(item, "error");
-                const succeeded =
-                  status === "ok" && resultUrl !== null;
+                const outcome = readImageItem(rawItem, "result_url");
+                const itemError = outcome.error;
+                const resultUrl = outcome.url;
+                const succeeded = outcome.succeeded;
                 return (
                   <div key={`${prompt || "edit"}-${index}`} className="space-y-3 py-3">
                     <div className="flex items-center justify-between gap-2">
@@ -674,7 +672,7 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
                         <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">
                           After
                         </div>
-                        {succeeded ? (
+                        {succeeded && resultUrl ? (
                           <img
                             src={resultUrl}
                             alt={`Edited image ${index + 1}`}
@@ -682,9 +680,10 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
                             loading="lazy"
                           />
                         ) : (
-                          <div className="aspect-square rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400">
-                            Failed
-                          </div>
+                          <ImageFailureTile
+                            outcome={outcome}
+                            label={`Edit ${index + 1} failed`}
+                          />
                         )}
                       </div>
                     </div>
@@ -709,8 +708,16 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
                       </div>
                     )}
                     {itemError && (
-                      <div className="rounded bg-red-50 p-2 text-xs text-red-600 dark:bg-red-900/30 dark:text-red-200">
-                        {itemError}
+                      <div
+                        role="alert"
+                        data-testid="image-edit-error"
+                        data-category={outcome.category ?? "unknown"}
+                        className="rounded bg-red-50 p-2 text-xs text-red-600 dark:bg-red-900/30 dark:text-red-200"
+                      >
+                        <p>{itemError}</p>
+                        {outcome.action && !itemError.includes(outcome.action) && (
+                          <p className="mt-1">{outcome.action}</p>
+                        )}
                       </div>
                     )}
                     {succeeded && (

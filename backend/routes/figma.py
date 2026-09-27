@@ -16,6 +16,10 @@ FIGMA_API_BASE = "https://api.figma.com/v1"
 MAX_FIGMA_FRAMES = 5
 
 
+class FigmaRateLimitError(RuntimeError):
+    pass
+
+
 class FigmaImportRequest(BaseModel):
     url: str
     token: str
@@ -76,6 +80,30 @@ def _top_level_renderable_ids(payload: object) -> list[str]:
     return ids
 
 
+def _raise_for_figma_rate_limit(response: httpx.Response) -> None:
+    if response.status_code != 429:
+        return
+    retry_after = response.headers.get("Retry-After", "").strip()
+    plan = response.headers.get("X-Figma-Plan-Tier", "").strip()
+    limit_type = response.headers.get("X-Figma-Rate-Limit-Type", "").strip()
+    upgrade_url = response.headers.get("X-Figma-Upgrade-Link", "").strip()
+    details = ["Figma's REST API rate limit was reached."]
+    if retry_after:
+        details.append(f"Retry after {retry_after} seconds.")
+    if plan:
+        details.append(f"Plan: {plan}.")
+    if limit_type:
+        details.append(f"Limit type: {limit_type}.")
+    if upgrade_url.startswith("https://"):
+        details.append(f"Figma upgrade guidance: {upgrade_url}")
+    details.append(
+        "Figma applies particularly small Tier 1 quotas to file and image "
+        "rendering requests; wait before retrying or upload an exported frame "
+        "instead."
+    )
+    raise FigmaRateLimitError(" ".join(details))
+
+
 async def import_figma_frames(url: str, token: str) -> list[str]:
     file_key, requested_node = parse_figma_url(url)
     headers = {"X-Figma-Token": token}
@@ -87,6 +115,7 @@ async def import_figma_frames(url: str, token: str) -> list[str]:
                 headers=headers,
                 params={"depth": 2},
             )
+            _raise_for_figma_rate_limit(file_response)
             if file_response.status_code in {401, 403}:
                 raise PermissionError(
                     "Figma rejected the token or the file is not accessible."
@@ -107,6 +136,7 @@ async def import_figma_frames(url: str, token: str) -> list[str]:
                 "scale": 2,
             },
         )
+        _raise_for_figma_rate_limit(image_response)
         if image_response.status_code in {401, 403}:
             raise PermissionError(
                 "Figma rejected the token or the selected frame is not accessible."
@@ -150,6 +180,8 @@ async def import_figma(request: FigmaImportRequest) -> dict[str, Any]:
         raise HTTPException(status_code=403, detail=str(error)) from error
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    except FigmaRateLimitError as error:
+        raise HTTPException(status_code=429, detail=str(error)) from error
     except httpx.TimeoutException as error:
         raise HTTPException(
             status_code=504,

@@ -12,7 +12,13 @@ and the SDK's:
 * :func:`build_permission_handler` - a deny-by-default handler. MCP permissions
   are denied unless the request names a trusted server, and a write tool needs
   that server to have been marked ``allowWriteTools``. Every other permission
-  request the runtime can raise is rejected, and ``approve_all`` is never used.
+  request the runtime can raise is rejected - including the ``url`` request a
+  network-capable built-in raises - and ``approve_all`` is never used.
+
+The handler is installed on **every** Copilot session, not only sessions with
+MCP servers. Without it the runtime falls back to its own default policy, so a
+run that enables a network-capable built-in would have no shot2code-owned
+answer to "may this URL be fetched?".
 """
 
 from __future__ import annotations
@@ -25,6 +31,11 @@ from urllib.parse import urlsplit
 import copilot
 from copilot.rpc import PermissionDecisionApproveOnce, PermissionDecisionReject
 from copilot.session_events import PermissionRequestMcp
+
+try:  # pragma: no cover - depends on the installed SDK version
+    from copilot.session_events import PermissionRequestUrl
+except ImportError:  # pragma: no cover - older SDKs have no URL request type
+    PermissionRequestUrl = None  # type: ignore[assignment]
 
 from integrations.config import (
     ByokConnection,
@@ -42,6 +53,113 @@ MCP_DISPLAY_PREFIX = "MCP"
 # enough to recognise what happened.
 MAX_TOOL_OUTPUT_CHARS = 600
 MAX_PROGRESS_CHARS = 240
+
+# --------------------------------------------------------------------------- #
+# Copilot's network-capable built-ins
+# --------------------------------------------------------------------------- #
+
+# ``web_fetch`` is a real built-in in the bundled runtime: it appears in the
+# runtime's own tool vocabulary and in its ``SandboxDecision`` tool-kind enum
+# next to ``shell``, ``search``, ``mcp`` and ``lsp``, and
+# ``ToolSet().add_builtin("web_fetch")`` would therefore target it the same way
+# ``web_search`` and ``skill`` are targeted today.
+#
+# shot2code still does not offer it, for one reason that is not a matter of
+# taste: **its output cannot be bounded.**
+#
+# A built-in's result is produced inside the runtime and handed to the model by
+# the runtime. The SDK exposes it to a host only as a *notification*
+# (``tool.execution_complete``), which arrives after the model has already been
+# given the text - there is no hook to truncate it, cap it, or prefix it with
+# an untrusted-content warning. ``web_fetch`` returns the body of an arbitrary
+# page, so enabling it would put an unbounded, unlabelled, third-party document
+# straight into the model's context.
+#
+# That is exactly the route the canonical ``search_web`` tool exists to avoid:
+# shot2code owns that result, so it can enforce a result count, a snippet
+# length, a total size, per-turn and per-generation budgets, and an explicit
+# "this is untrusted" prefix. Offering an unbounded built-in beside it would
+# hand a model the way around all of them.
+#
+# Two further gaps, either of which would be enough on its own:
+#
+# * **No URL scoping.** The runtime protocol has a ``PermissionUrlsConfig``
+#   (``initial_allowed`` / ``unrestricted``), but the SDK's ``create_session``
+#   takes no parameter for it, so a session cannot be created with an allowed
+#   URL list. The only control is per-request approval (below), which is
+#   all-or-nothing per URL and cannot express "this run may read docs.foo.com".
+# * **No cost or rate budget.** A built-in call is not counted by shot2code, so
+#   the per-turn and per-generation ceilings that bound ``search_web`` do not
+#   apply to it.
+#
+# What would change this: an SDK that either lets a host post-process a
+# built-in result before the model sees it, or accepts a URL allowlist at
+# session creation. Until then the honest answer is "not offered", said in the
+# UI rather than discovered by a user whose run quietly fetched a page.
+COPILOT_BUILTIN_WEB_FETCH_SUPPORTED = False
+
+COPILOT_WEB_FETCH_DISABLED_REASON = (
+    "Copilot's built-in web_fetch returns the full contents of a page straight "
+    "to the model, and the SDK gives shot2code no way to bound, label or "
+    "budget that text before the model reads it. Use web search (all models), "
+    "whose results are capped and marked as untrusted."
+)
+
+# Built-in tools shot2code will never add to a session's ToolSet, whatever the
+# settings say. Kept as data so the guard is testable and so adding a built-in
+# is a deliberate edit rather than a forgotten branch.
+BLOCKED_BUILTIN_TOOLS: frozenset[str] = frozenset({"web_fetch"})
+
+
+def builtin_tool_blocked_reason(name: str) -> str | None:
+    """Why this built-in is not offered, or ``None`` when it may be."""
+    if name == "web_fetch":
+        return COPILOT_WEB_FETCH_DISABLED_REASON
+    if name in BLOCKED_BUILTIN_TOOLS:
+        return f"shot2code does not offer the built-in '{name}'."
+    return None
+
+
+def blocked_builtins_in(tool_set: Any) -> list[str]:
+    """Blocked built-in names a ToolSet would send on the wire.
+
+    ``ToolSet`` accumulates ``builtin:<name>`` strings, so the check reads the
+    entries it will actually transmit rather than trusting the call sites that
+    built it.
+    """
+    try:
+        entries = list(tool_set.to_list())
+    except AttributeError:
+        entries = list(tool_set or [])
+    found: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, str) or not entry.startswith("builtin:"):
+            continue
+        name = entry.removeprefix("builtin:")
+        if name == "*":
+            # A wildcard would pull in every built-in, blocked ones included.
+            found.extend(sorted(BLOCKED_BUILTIN_TOOLS))
+        elif name in BLOCKED_BUILTIN_TOOLS:
+            found.append(name)
+    return found
+
+
+def assert_no_blocked_builtins(tool_set: Any) -> Any:
+    """Return ``tool_set`` unchanged, or refuse to build the session.
+
+    A blocked built-in reaching the wire is a decision this code has documented
+    it cannot honour, so it fails loudly here rather than silently granting a
+    capability whose output shot2code cannot bound.
+    """
+    blocked = blocked_builtins_in(tool_set)
+    if blocked:
+        reasons = "; ".join(
+            builtin_tool_blocked_reason(name) or name for name in blocked
+        )
+        raise ValueError(
+            f"Refusing to enable Copilot built-in(s) {', '.join(blocked)}: {reasons}"
+        )
+    return tool_set
 
 
 def mcp_tool_display_name(server_name: str, tool_name: str) -> str:
@@ -155,6 +273,41 @@ def build_mcp_servers(
 
 PermissionOutcome = Literal["approved", "rejected"]
 
+# A URL in a denial reason is echoed back to the model and into the run log, so
+# it is bounded and stripped of anything credential-shaped first.
+MAX_DENIED_URL_CHARS = 120
+
+
+def describe_permission_url(url: object) -> str:
+    """A denial-safe rendering of the URL a request wanted to reach."""
+    if not isinstance(url, str) or not url.strip():
+        return "an unnamed URL"
+    candidate = url.strip()
+    parts = urlsplit(candidate)
+    if parts.scheme and parts.hostname:
+        # Scheme and host are what a user needs to judge egress; a query string
+        # can carry a token, so the path is kept only up to the bound.
+        rendered = f"{parts.scheme}://{parts.hostname}{parts.path or ''}"
+    else:
+        rendered = candidate
+    if len(rendered) > MAX_DENIED_URL_CHARS:
+        return rendered[:MAX_DENIED_URL_CHARS] + "…"
+    return rendered
+
+
+def _is_url_request(request: Any) -> bool:
+    """Whether this is the runtime's "may I fetch this URL?" request.
+
+    Matched by type when the SDK exposes one, and by shape otherwise, so an
+    SDK upgrade that renames the class cannot quietly turn a URL request into
+    the generic branch.
+    """
+    if PermissionRequestUrl is not None and isinstance(request, PermissionRequestUrl):
+        return True
+    return getattr(request, "kind", None) == "url" or (
+        hasattr(request, "url") and hasattr(request, "intention")
+    )
+
 
 def decide_mcp_permission(
     request: Any,
@@ -166,6 +319,16 @@ def decide_mcp_permission(
     session. Deny by default: anything that is not an MCP request for a
     configured, trusted server is rejected.
     """
+    # A network-capable built-in asks for a URL rather than a tool. It is named
+    # explicitly so the denial says *which* address was refused and why,
+    # instead of the generic "'url' requests are denied" a user cannot act on.
+    if _is_url_request(request):
+        target = describe_permission_url(getattr(request, "url", None))
+        return "rejected", (
+            f"shot2code does not fetch URLs through Copilot's built-in tools, "
+            f"so {target} was not requested. {COPILOT_WEB_FETCH_DISABLED_REASON}"
+        )
+
     is_mcp = isinstance(request, PermissionRequestMcp) or (
         getattr(request, "kind", None) == "mcp"
         and hasattr(request, "server_name")
@@ -205,7 +368,13 @@ def decide_mcp_permission(
 def build_permission_handler(
     servers: tuple[McpServerSettings, ...] | list[McpServerSettings],
 ):
-    """A deny-by-default permission handler for one Copilot SDK session."""
+    """A deny-by-default permission handler for one Copilot SDK session.
+
+    Installed on every Copilot session, including one with no MCP servers:
+    without a handler the runtime applies its own default policy, and a run
+    that enables a network-capable built-in would have no shot2code-owned
+    answer to "may this URL be fetched?".
+    """
     trusted = {server.key: server for server in servers if server.is_active}
 
     def handle(request: Any, invocation: Any) -> Any:

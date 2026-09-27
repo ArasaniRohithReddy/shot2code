@@ -29,6 +29,17 @@ import { Stack } from "./lib/stacks";
 import { CodeGenerationModel } from "./lib/models";
 import { withMigratedModelSelection } from "./lib/model-selection";
 import { DEFAULT_COPILOT_SDK_BYOK_SETTINGS } from "./lib/copilot-sdk-byok";
+import { DEFAULT_WEB_SEARCH_SETTINGS } from "./lib/web-search";
+import {
+  DEFAULT_FREE_IMAGE_SEARCH_SETTINGS,
+  toFreeImageSearchWirePayload,
+  normalizeFreeImageSearchSettings,
+} from "./lib/free-image-search";
+import {
+  DEFAULT_IMAGE_GENERATION_SETTINGS,
+  normalizeImageGenerationSettings,
+  toImageGenerationWirePayload,
+} from "./lib/image-providers";
 import {
   buildGenerationIntegrationPayload,
   buildModelSelections,
@@ -59,6 +70,10 @@ import HistoryDisplay from "./components/history/HistoryDisplay";
 import PreviewPane, {
   type PreviewTab,
 } from "./components/preview/PreviewPane";
+import {
+  normalizePreviewTab,
+  PREVIEW_TAB_STORAGE_KEY,
+} from "./components/preview/preview-preferences";
 import StartPane from "./components/start-pane/StartPane";
 import SettingsTab from "./components/settings/SettingsTab";
 import DesignSystemsModal from "./components/settings/DesignSystemsModal";
@@ -88,7 +103,10 @@ import {
   setActiveProjectFile,
   updateProjectFileContent,
 } from "./lib/project-files";
-import { deriveProjectTitle } from "./lib/project-history";
+import {
+  deriveProjectTitle,
+  isGenericProjectTitle,
+} from "./lib/project-history";
 import {
   buildRetryGenerationPlan,
   shouldRetainGenerationAttempt,
@@ -178,6 +196,9 @@ function App() {
       projectContext: null,
       copilotSdkByok: DEFAULT_COPILOT_SDK_BYOK_SETTINGS,
       mcpServers: [],
+      webSearch: DEFAULT_WEB_SEARCH_SETTINGS,
+      imageGeneration: DEFAULT_IMAGE_GENERATION_SETTINGS,
+      freeImageSearch: DEFAULT_FREE_IMAGE_SEARCH_SETTINGS,
     },
     "setting"
   );
@@ -187,10 +208,11 @@ function App() {
     setSettings((current) => withMigratedModelSelection(current));
   }, [setSettings]);
 
-  // The BYOK profile and MCP list are nested objects, which `usePersistedState`
-  // only fills in at the top level. Normalising them on load keeps a blob saved
-  // by an older build (or hand-edited) on the current shape. Nothing else is
-  // read or rewritten: absent means "off" and "no servers".
+  // The BYOK profile, the MCP list and the web-search block are nested
+  // objects, which `usePersistedState` only fills in at the top level.
+  // Normalising them on load keeps a blob saved by an older build (or
+  // hand-edited) on the current shape. Nothing else is read or rewritten:
+  // absent means "off", "no servers" and "no web search".
   useEffect(() => {
     setSettings((current) =>
       needsIntegrationNormalization(current)
@@ -215,6 +237,9 @@ function App() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<"preview" | "chat">("preview");
+  // Deliberately not persisted: opening a project always lands on "preview"
+  // (see `onProjectOpened` below), so a stored "chat" would be overwritten on
+  // every restore and would hide the restored project behind the conversation.
   // Desktop-only: the conversation is a fixed column next to the 64px rail, so
   // collapsing it is what gives a single-file project the full width back.
   // Mobile keeps the Preview/Chat switcher and ignores this flag entirely.
@@ -243,8 +268,13 @@ function App() {
   const isConversationCollapsedOnDesktop =
     isDesktopLayout && isConversationCollapsed;
   const [activeInputTab, setActiveInputTab] = useState<InputTab>("upload");
-  const [activePreviewTab, setActivePreviewTab] =
-    useState<PreviewTab>("desktop");
+  // The workspace view survives a restart, validated on read so an unknown tab
+  // from another build lands on Desktop instead of rendering nothing.
+  const [storedPreviewTab, setActivePreviewTab] = usePersistedState<PreviewTab>(
+    "desktop",
+    PREVIEW_TAB_STORAGE_KEY
+  );
+  const activePreviewTab = normalizePreviewTab(storedPreviewTab);
   const [isExportRequested, setIsExportRequested] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [helpTab, setHelpTab] = useState<HelpTabId>("get-started");
@@ -536,6 +566,7 @@ function App() {
         copilotSdkByok:
           settings.copilotSdkByok ?? DEFAULT_COPILOT_SDK_BYOK_SETTINGS,
         mcpServers: settings.mcpServers ?? [],
+        webSearch: settings.webSearch ?? DEFAULT_WEB_SEARCH_SETTINGS,
       },
       generationContext.selectedModels
     );
@@ -558,6 +589,16 @@ function App() {
         : {}),
       copilotSdkByok: integrations.copilotSdkByok,
       mcpServers: integrations.mcpServers,
+      webSearch: integrations.webSearch,
+      // Rebuilt rather than spread: this is the one place that decides which
+      // image credential travels, so only the chosen provider's is sent.
+      imageGeneration: toImageGenerationWirePayload(
+        normalizeImageGenerationSettings(settings.imageGeneration)
+      ),
+      // No credential in this one, so there is nothing to strip from it.
+      freeImageSearch: toFreeImageSearchWirePayload(
+        normalizeFreeImageSearchSettings(settings.freeImageSearch)
+      ),
       ...(generationContext.isAssetExtractionEnabled === undefined
         ? {}
         : {
@@ -717,6 +758,21 @@ function App() {
         const currentCode = completedVariant
           ? getProjectGenerationContent(completedVariant)
           : "";
+        const currentProject = useProjectStore.getState();
+        if (
+          currentCode.trim() &&
+          isGenericProjectTitle(currentProject.projectTitle)
+        ) {
+          const improvedTitle = deriveProjectTitle({
+            inputMode: currentProject.inputMode,
+            referenceCount: currentProject.referenceImages.length,
+            sourceCode: currentCode,
+            stack: currentProject.projectStack,
+          });
+          if (improvedTitle !== currentProject.projectTitle) {
+            currentProject.setProjectTitle(improvedTitle);
+          }
+        }
         if (currentCode.trim().length > 0) {
           appendVariantHistoryMessage(
             commit.hash,
@@ -1058,13 +1114,19 @@ function App() {
   function importFromCode(
     code: string,
     stack: Stack,
-    instruction: string = ""
+    instruction: string = "",
+    titleHint: string = ""
   ) {
     reset();
     setStack(stack);
     setInputMode("text");
     projectHistory.startProject({
-      title: deriveProjectTitle({ inputMode: "import" }),
+      title: deriveProjectTitle({
+        inputMode: "import",
+        prompt: titleHint,
+        sourceCode: code,
+        stack,
+      }),
       stack,
     });
 
@@ -1098,6 +1160,10 @@ function App() {
       title: deriveProjectTitle({
         inputMode: "import",
         importedName: project.name,
+        sourceCode:
+          project.files.find((file) => file.path === project.entry_path)
+            ?.content ?? "",
+        stack,
       }),
       stack,
     });
@@ -1283,6 +1349,9 @@ function App() {
         case "show-help":
           openHelp("get-started");
           break;
+        case "show-feedback":
+          openHelp("feedback");
+          break;
         case "show-keyboard-shortcuts":
           openHelp("shortcuts");
           break;
@@ -1298,6 +1367,7 @@ function App() {
       isSettingsOpen,
       openConversation,
       openHelp,
+      setActivePreviewTab,
       setIsConversationCollapsed,
     ]
   );

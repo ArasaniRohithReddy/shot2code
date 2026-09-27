@@ -476,6 +476,22 @@ describe("project persistence state", () => {
       .toContain("navy");
   });
 
+  it("updates a generic project title without resetting project state", () => {
+    const store = useProjectStore.getState();
+    store.startProject({
+      id: "title-project",
+      title: "Screenshot project",
+      createdAt: new Date(10_000),
+      stack: Stack.HTML_CSS,
+    });
+    store.setProjectTitle("Quarterly sales overview");
+
+    const updated = useProjectStore.getState();
+    expect(updated.projectId).toBe("title-project");
+    expect(updated.projectTitle).toBe("Quarterly sales overview");
+    expect(updated.projectStack).toBe(Stack.HTML_CSS);
+  });
+
   it("freezes and cancels unfinished variants when a newer version is added", () => {
     const now = jest.spyOn(Date, "now").mockReturnValue(50_000);
     const store = useProjectStore.getState();

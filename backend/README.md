@@ -105,6 +105,87 @@ endpoint instead. Responses never contain a credential.
   API; a connection without one defaults to `responses`. An explicit `wireApi`
   always wins.
 
+## Image model API
+
+`GET /api/image-models` returns the curated image catalog: the providers
+(`replicate`, `cloudflare`, `openai-compatible`), their default model, whether
+each supports background removal, editing and custom models, and a `costNote`
+per model. It is a pure read — no credential goes in and none comes out — and
+it never states a price figure, only who bills and where to check.
+
+`POST /api/image-models/validate` is the **only** way a Replicate model outside
+the catalog becomes usable. It reads that model's own OpenAPI schema from
+`GET /v1/models/{owner}/{name}` and accepts it only if the schema declares a
+string `prompt` input and an image-shaped output, and requires no other input
+shot2code does not send. Non-Replicate providers are refused, because they do
+not publish a per-model schema to check. Answers are
+`{ok, provider, model, category, message}` and never echo the key.
+
+A generation request may carry an optional `imageGeneration` block
+(`provider`, `model`, `cloudflareAccountId`, `cloudflareApiToken`,
+`openAiImageBaseUrl`, `openAiImageApiKey`). It is additive: when absent the run
+behaves exactly as before — Replicate, `prunaai/z-image-turbo`, the key from
+the request or `REPLICATE_API_KEY`. A non-loopback image endpoint must supply
+its own key; a loopback one may omit it. Endpoint URLs are held to the same
+rules as a BYOK endpoint.
+
+Optional environment variables: `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN` supply Workers AI credentials to headless runs. Their
+absence never affects Replicate.
+
+## Free image search
+
+A request may carry `freeImageSearch: {enabled: bool}`. Absent means off, so an
+older client behaves exactly as before. There is **no credential**: Openverse's
+image search is public, so this tool works with no image-generation provider
+configured, and configuring one never disables it.
+
+When enabled, the canonical `search_free_images` tool is serialized for every
+runtime. It takes `query`, `count` (1-4) and `orientation`
+(`any`/`landscape`/`portrait`/`square`, translated to Openverse's own
+`wide`/`tall`/`square`). One call is one request to the fixed endpoint
+`https://api.openverse.org/v1/images/`, always with `license=cc0,pdm`, bounded
+by three searches per turn and ten per generation. A `429` is reported with its
+`Retry-After` as advice; a timeout and a 4xx/5xx are classified separately.
+
+Results are filtered again locally rather than trusting the server's filter,
+and any result missing a source page or licence URL is dropped. Selected images
+are downloaded through `free_images.download`, which refuses non-`http(s)`
+schemes, DNS-resolves and rejects private/loopback/metadata addresses, does not
+follow redirects (each `Location` is re-validated), requires the declared MIME
+and the sniffed bytes to agree within an image allowlist, and enforces byte and
+pixel ceilings. Bytes are persisted with `persist_image_bytes`, so the model
+and the page get a local `/local-assets/` URL and nothing external is
+hotlinked.
+
+Streamed tool arguments are `query`, `count` and `orientation` only. Nothing
+here touches history or commit snapshots, because there is no credential to
+carry.
+
+## Copilot built-in tools
+
+A Copilot session is built with `ToolSet().add_custom("*")` — shot2code's own
+tools — plus, one at a time and never by a loop: `builtin:web_search` when the
+user opted in and the canonical `search_web` is not usable, `builtin:skill`
+when skills are enabled, and `mcp:*` when trusted servers exist. Copilot's file
+and shell built-ins are never added.
+
+`builtin:web_fetch` is refused. It is a genuine runtime built-in, but a
+built-in's result is handed to the model by the runtime and reaches the host
+only as a `tool.execution_complete` notification, so its text cannot be
+truncated, labelled untrusted or budgeted before the model reads it — and
+`web_fetch` returns a whole page. `assert_no_blocked_builtins` inspects the
+`builtin:` entries a `ToolSet` would transmit (a `builtin:*` wildcard included)
+and raises instead of creating the session.
+
+`build_permission_handler` is installed on **every** Copilot session,
+subscription and BYOK, with or without MCP servers; without it the runtime
+applies its own default policy. It denies every `url` permission request with a
+reason naming the scheme, host and path — the query string is dropped, because
+it can carry a token — and approves an MCP call only for a configured, trusted
+server, with write tools requiring `allowWriteTools`. `approve_all` is never
+used.
+
 ## Copilot sign-in API
 
 `POST`/`GET`/`DELETE /api/copilot/login` drive an in-app sign-in that delegates

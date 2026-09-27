@@ -194,6 +194,31 @@ untrusted input.
 - Disabled, untrusted or incomplete server drafts are skipped with diagnostics
   and cannot block an otherwise valid direct-provider generation.
 
+## Web search
+
+- Off by default. No query leaves the device, and no search-provider key is
+  read, until web search is explicitly switched on in Settings.
+- Queries go only to the selected provider's fixed HTTPS endpoint
+  (`api.tavily.com/search` or `api.exa.ai/search`). The endpoint is not
+  user-configurable, so a query cannot be redirected to an arbitrary host.
+- Each request carries an explicit timeout, does not follow redirects, and asks
+  for ranked snippets only. Raw page content, generated answers and page
+  fetching are never requested.
+- Results are treated as untrusted third-party text. Every successful response
+  is prefixed with a warning telling the model that results are reference
+  material and never instructions, and each search is bounded to five results
+  with capped titles, snippets and total size.
+- Searches are budgeted at three per model turn and ten per generation,
+  counted by shot2code rather than by the provider.
+- A domain allowlist supplied by the model is validated, passed to the
+  provider, **and** re-applied locally, so a provider that ignores the filter
+  cannot widen what the model reads.
+- The search-provider API key is backend-only. It never appears in a validation
+  response, a diagnostic, a log line, a tool argument, project History or a
+  commit snapshot.
+- Copilot's built-in `web_search` and the canonical `search_web` are never
+  enabled together: exactly one search tool is offered per session.
+
 ## Out of scope
 
 - Missing Authenticode signatures / SmartScreen warnings on the published

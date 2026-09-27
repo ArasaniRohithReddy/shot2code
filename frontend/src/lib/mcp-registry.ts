@@ -1,6 +1,7 @@
 import { HTTP_BACKEND_URL } from "../config";
 import {
   createMcpServer,
+  isFigmaCatalogRestrictedMcpUrl,
   type McpServerConfig,
   type McpTransport,
 } from "./mcp-servers";
@@ -26,6 +27,7 @@ function parseEntry(raw: unknown): McpRegistryEntry | null {
   const name = text(item.name);
   const url = text(item.url);
   if (!name || !url) return null;
+  if (isFigmaCatalogRestrictedMcpUrl(url)) return null;
 
   return {
     name,
@@ -39,6 +41,8 @@ function parseEntry(raw: unknown): McpRegistryEntry | null {
     isLatest: item.is_latest === true,
   };
 }
+
+export { isFigmaCatalogRestrictedMcpUrl };
 
 export async function searchMcpRegistry(
   query: string,
@@ -90,34 +94,6 @@ export interface FeaturedMcpTemplate {
 }
 
 export const FEATURED_MCP_TEMPLATES: FeaturedMcpTemplate[] = [
-  {
-    id: "figma-desktop",
-    title: "Figma Desktop",
-    description:
-      "Read design context from the file open in the Figma desktop app.",
-    note:
-      "Requires a paid Full or Dev seat and the local MCP server enabled in Figma Dev Mode.",
-    server: () =>
-      createMcpServer({
-        name: "Figma Desktop",
-        transport: "http",
-        url: "http://127.0.0.1:3845/mcp",
-      }),
-  },
-  {
-    id: "figma-remote",
-    title: "Figma Remote",
-    description:
-      "Use Figma's hosted MCP service for design context and supported canvas workflows.",
-    note:
-      "Figma currently limits the remote service to clients in its MCP Catalog; authentication is handled by Figma OAuth.",
-    server: () =>
-      createMcpServer({
-        name: "Figma",
-        transport: "http",
-        url: "https://mcp.figma.com/mcp",
-      }),
-  },
   {
     id: "google-stitch",
     title: "Google Stitch",

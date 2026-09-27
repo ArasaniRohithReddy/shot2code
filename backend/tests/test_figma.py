@@ -3,7 +3,11 @@ import base64
 import httpx
 import pytest
 
-from routes.figma import import_figma_frames, parse_figma_url
+from routes.figma import (
+    FigmaRateLimitError,
+    import_figma_frames,
+    parse_figma_url,
+)
 
 
 def test_parse_figma_url_extracts_file_and_node() -> None:
@@ -50,3 +54,38 @@ async def test_import_figma_frames_renders_the_requested_node(
         "data:image/png;base64,"
         + base64.b64encode(b"png-bytes").decode("ascii")
     ]
+
+
+@pytest.mark.asyncio
+async def test_import_figma_frames_preserves_actionable_rate_limit_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_get(
+        _self: httpx.AsyncClient,
+        url: str,
+        **_kwargs: object,
+    ) -> httpx.Response:
+        return httpx.Response(
+            429,
+            headers={
+                "Retry-After": "60",
+                "X-Figma-Plan-Tier": "starter",
+                "X-Figma-Rate-Limit-Type": "low",
+                "X-Figma-Upgrade-Link": "https://www.figma.com/pricing/",
+            },
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    with pytest.raises(FigmaRateLimitError) as caught:
+        await import_figma_frames(
+            "https://www.figma.com/design/abc123/Product",
+            "figma-token",
+        )
+
+    message = str(caught.value)
+    assert "Retry after 60 seconds" in message
+    assert "Plan: starter" in message
+    assert "Limit type: low" in message
+    assert "https://www.figma.com/pricing/" in message

@@ -18,6 +18,8 @@ from agent.providers.openai import OpenAIProviderSession, serialize_openai_tools
 from agent.tools import CanonicalToolDefinition, canonical_tool_definitions
 from config import COPILOT_GITHUB_TOKEN, REPLICATE_API_KEY
 from fs_logging.agent_runs import AgentRunRecorder
+from free_images.config import EMPTY_FREE_IMAGE_SEARCH, FreeImageSearchSettings
+from image_generation.settings import ImageGenerationSettings
 from integrations.config import (
     EMPTY_INTEGRATIONS,
     ByokConnection,
@@ -40,6 +42,7 @@ from llm import (
 from model_catalog import PROVIDER_CREDENTIAL_LABELS, PROVIDER_LABELS
 from preview_screenshot import is_screenshot_preview_available
 from skills.store import enabled_skill_directories
+from web_search.config import EMPTY_WEB_SEARCH, WebSearchSettings
 
 
 class MissingProviderCredentialError(Exception):
@@ -93,24 +96,57 @@ def create_provider_session(
     copilot_web_search_enabled: bool = False,
     canonical_tools_override: Optional[list[CanonicalToolDefinition]] = None,
     copilot_skills_enabled: bool = True,
+    web_search: Optional[WebSearchSettings] = None,
+    image_settings: Optional[ImageGenerationSettings] = None,
+    free_image_search: Optional[FreeImageSearchSettings] = None,
 ) -> ProviderSession:
     settings = integrations or EMPTY_INTEGRATIONS
-    effective_image_generation = should_generate_images and bool(
-        replicate_api_key or REPLICATE_API_KEY
+    search_settings = web_search or EMPTY_WEB_SEARCH
+    # Keyless and independent of every image-generation credential: a run with
+    # no Replicate/Cloudflare/endpoint configuration can still find real
+    # public-domain photographs, and configuring one does not switch this off.
+    free_images = free_image_search or EMPTY_FREE_IMAGE_SEARCH
+    # The canonical `search_web` tool is only advertised when a provider is
+    # actually configured and usable, so a model is never told about a tool
+    # this run cannot execute.
+    canonical_web_search = search_settings.is_usable
+    # One web-search tool per session. Copilot's built-in `web_search` and
+    # shot2code's canonical `search_web` do the same job under different rules
+    # (budgets, domain allowlist, snippet bounds), and offering both lets a
+    # model take the unbounded route. The canonical tool wins because it is the
+    # one every provider can use; the built-in stays available for people who
+    # prefer it and simply leave canonical search switched off.
+    use_copilot_builtin_search = (
+        copilot_web_search_enabled and not canonical_web_search
     )
+    # Whether the image tools can really run. The chosen image provider decides
+    # this, not Replicate alone: a Cloudflare or OpenAI-compatible run has no
+    # Replicate key and still generates images. Editing and background removal
+    # are narrower - see ImageGenerationSettings - and are asked separately so
+    # a model is never offered a tool this run cannot execute.
+    images = image_settings or ImageGenerationSettings(
+        enabled=should_generate_images,
+        replicate_api_key=replicate_api_key or REPLICATE_API_KEY,
+    )
+    effective_image_generation = should_generate_images and images.has_generation_credential
+    effective_image_editing = images.editing_enabled
     canonical_tools = (
         list(canonical_tools_override)
         if canonical_tools_override is not None
         else canonical_tool_definitions(
-            # generate_images is Replicate-backed. Never tell a model that the tool
-            # exists when the request cannot execute it.
+            # Never tell a model that the tool exists when the request cannot
+            # execute it.
             image_generation_enabled=effective_image_generation,
-            # The edit_images tool calls Replicate, so don't offer it without a key.
-            image_editing_enabled=bool(replicate_api_key or REPLICATE_API_KEY),
+            image_editing_enabled=effective_image_editing,
+            # remove_backgrounds is Replicate-only; no other provider has an
+            # equivalent and none is substituted.
+            background_removal_enabled=images.background_removal_enabled,
             # The extract_assets tool calls Gemini, so don't offer it without a key.
             asset_extraction_enabled=should_extract_assets and bool(gemini_api_key),
             # screenshot_preview needs headless Chromium; skip it if it can't launch.
             screenshot_enabled=is_screenshot_preview_available(),
+            web_search_enabled=canonical_web_search,
+            free_image_search_enabled=free_images.is_usable,
         )
     )
     skill_directories = (
@@ -130,7 +166,7 @@ def create_provider_session(
             canonical_tools=canonical_tools,
             recorder=recorder,
             wire_model=byok_wire_model,
-            copilot_web_search_enabled=copilot_web_search_enabled,
+            copilot_web_search_enabled=use_copilot_builtin_search,
             skill_directories=skill_directories,
         )
 
@@ -183,9 +219,12 @@ def create_provider_session(
         if _contains_video(prompt_messages):
             canonical_tools = canonical_tool_definitions(
                 image_generation_enabled=effective_image_generation,
-                image_editing_enabled=bool(replicate_api_key or REPLICATE_API_KEY),
+                image_editing_enabled=effective_image_editing,
+                background_removal_enabled=images.background_removal_enabled,
                 asset_extraction_enabled=should_extract_assets and bool(gemini_api_key),
                 screenshot_enabled=False,
+                web_search_enabled=canonical_web_search,
+                free_image_search_enabled=free_images.is_usable,
             )
 
         # No key check: an explicit token is optional. Without one the SDK
@@ -210,12 +249,12 @@ def create_provider_session(
             tools=serialize_copilot_tools(canonical_tools),
             recorder=recorder,
             mcp_servers=mcp_servers,
-            permission_handler=(
-                build_permission_handler(settings.active_mcp_servers)
-                if mcp_servers
-                else None
-            ),
-            allow_web_search=copilot_web_search_enabled,
+            # Always installed, not only when MCP servers exist: without a
+            # handler the runtime applies its own default policy, and a
+            # network-capable built-in would then have no shot2code-owned
+            # answer to "may this URL be fetched?".
+            permission_handler=build_permission_handler(settings.active_mcp_servers),
+            allow_web_search=use_copilot_builtin_search,
             skill_directories=skill_directories,
         )
 
@@ -267,11 +306,9 @@ def _create_byok_session(
         tools=serialize_copilot_tools(canonical_tools),
         recorder=recorder,
         mcp_servers=mcp_servers,
-        permission_handler=(
-            build_permission_handler(settings.active_mcp_servers)
-            if mcp_servers
-            else None
-        ),
+        # Same reason as the subscription path: the deny-by-default handler is
+        # what makes "shot2code does not fetch URLs" true rather than assumed.
+        permission_handler=build_permission_handler(settings.active_mcp_servers),
         provider_config=provider_config,
         model_api_name=base_model_api_name(model),
         reasoning_effort=(

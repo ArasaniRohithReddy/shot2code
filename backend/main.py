@@ -19,11 +19,13 @@ from routes import (
     figma,
     history,
     home,
+    image_models,
     integrations,
     mcp_registry,
     models,
     providers,
     skills,
+    web_search,
 )
 from uploaded_assets import configure_uploaded_asset_routes
 
@@ -134,7 +136,9 @@ app.add_middleware(
 app.include_router(home.router)
 app.include_router(capabilities.router)
 app.include_router(models.router)
+app.include_router(image_models.router)
 app.include_router(integrations.router)
+app.include_router(web_search.router)
 app.include_router(mcp_registry.router)
 app.include_router(providers.router)
 app.include_router(skills.router)

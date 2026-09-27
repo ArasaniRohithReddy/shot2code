@@ -16,13 +16,25 @@ import {
 } from "./stitch-generation-status";
 
 interface Props {
+  doCreate: (
+    images: string[],
+    inputMode: "image" | "video",
+    textPrompt?: string,
+    isAssetExtractionEnabled?: boolean
+  ) => void;
   doCreateFromText: (text: string) => void;
-  importFromCode: (code: string, stack: Stack, instruction?: string) => void;
+  importFromCode: (
+    code: string,
+    stack: Stack,
+    instruction?: string,
+    titleHint?: string
+  ) => void;
   stitchApiKey: string | null;
   stack: Stack;
   setStack: (stack: Stack) => void;
   designSystem: DesignSystemSelectorProps;
   modelSelector?: ModelSelectorProps;
+  stitchOnly?: boolean;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -33,6 +45,7 @@ const EXAMPLE_PROMPTS = [
 ];
 
 function TextTab({
+  doCreate,
   doCreateFromText,
   importFromCode,
   stitchApiKey,
@@ -40,6 +53,7 @@ function TextTab({
   setStack,
   designSystem,
   modelSelector,
+  stitchOnly = false,
 }: Props) {
   const [text, setText] = useState("");
   const [isGeneratingWithStitch, setIsGeneratingWithStitch] = useState(false);
@@ -112,6 +126,7 @@ function TextTab({
           apiKey: stitchApiKey,
           prompt: text.trim(),
           deviceType: "DESKTOP",
+          stack,
         },
         (progress) =>
           setStitchProgress({
@@ -121,10 +136,26 @@ function TextTab({
       );
       setStitchProgress({
         phase: "importing-code",
-        message: "Opening the generated files in shot2code…",
+        message:
+          stack === Stack.HTML_CSS
+            ? "Opening the generated files in shot2code…"
+            : "Applying the selected stack with your chosen models…",
       });
-      importFromCode(result.html, Stack.HTML_CSS);
-      toast.success("Stitch screen generated and imported.");
+      if (stack === Stack.HTML_CSS) {
+        importFromCode(result.html, Stack.HTML_CSS, "", text.trim());
+        toast.success("Stitch screen generated and imported.");
+      } else {
+        const stackLabel = stack.replace(/_/g, " ");
+        doCreate(
+          [result.image],
+          "image",
+          `Recreate this Google Stitch design in the selected ${stackLabel} stack. Preserve the layout, content, visual hierarchy, spacing, colors, and responsive behavior from the supplied Stitch preview.`,
+          false
+        );
+        toast.success(
+          "Stitch design generated. shot2code is now applying the selected stack."
+        );
+      }
     } catch (caught) {
       const message =
         caught instanceof Error
@@ -162,7 +193,15 @@ function TextTab({
             </div>
 
             <div className="text-center">
-              <h3 className="text-gray-700 dark:text-zinc-200 font-medium">Generate from Text</h3>
+              <h3 className="text-gray-700 dark:text-zinc-200 font-medium">
+                {stitchOnly ? "Generate with Google Stitch" : "Generate from Text"}
+              </h3>
+              {stitchOnly && (
+                <p className="mt-1 max-w-md text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                  Stitch creates the visual design first. shot2code then applies
+                  the selected stack and model choices when conversion is needed.
+                </p>
+              )}
             </div>
           </div>
 
@@ -170,7 +209,11 @@ function TextTab({
             <Textarea
               ref={textareaRef}
               rows={4}
-              placeholder="Describe the UI you want to create..."
+              placeholder={
+                stitchOnly
+                  ? "Describe the screen you want Stitch to design..."
+                  : "Describe the UI you want to create..."
+              }
               className="w-full resize-none"
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -179,22 +222,28 @@ function TextTab({
               data-testid="text-input"
             />
 
-            <div className="flex flex-col gap-2">
-              <p className="text-xs text-gray-500 dark:text-zinc-400">Try an example:</p>
-              <div className="flex flex-wrap gap-2">
-                {EXAMPLE_PROMPTS.map((example, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleExampleClick(example)}
-                    disabled={isGeneratingWithStitch}
-                    className="text-xs px-2.5 py-1.5 rounded-full bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors truncate max-w-[200px]"
-                    title={example}
-                  >
-                    {example.length > 30 ? example.slice(0, 30) + "..." : example}
-                  </button>
-                ))}
+            {!stitchOnly && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-gray-500 dark:text-zinc-400">
+                  Try an example:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {EXAMPLE_PROMPTS.map((example, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleExampleClick(example)}
+                      disabled={isGeneratingWithStitch}
+                      className="max-w-[200px] truncate rounded-full bg-gray-100 px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                      title={example}
+                    >
+                      {example.length > 30
+                        ? example.slice(0, 30) + "..."
+                        : example}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             <OutputSettingsSection
               stack={stack}
@@ -203,38 +252,47 @@ function TextTab({
             />
             {modelSelector && <ModelSelector {...modelSelector} />}
 
-            <Button
-              onClick={handleGenerate}
-              disabled={isGeneratingWithStitch}
-              className="w-full"
-              size="lg"
-              data-testid="text-generate"
-            >
-              Generate
-            </Button>
-
-            {window.__SHOT2CODE_APP__?.generateStitch && (
+            {!stitchOnly && (
               <Button
-                type="button"
-                variant="outline"
-                onClick={() => void handleStitchGenerate()}
-                disabled={isGeneratingWithStitch || !stitchApiKey?.trim()}
+                onClick={handleGenerate}
+                disabled={isGeneratingWithStitch}
                 className="w-full"
                 size="lg"
-                data-testid="stitch-generate"
+                data-testid="text-generate"
               >
-                {isGeneratingWithStitch ? (
-                  <>
-                    <LuLoader2
-                      className="h-4 w-4 motion-safe:animate-spin"
-                      aria-hidden="true"
-                    />
-                    Stitch is working…
-                  </>
-                ) : (
-                  "Generate with Google Stitch SDK"
-                )}
+                Generate
               </Button>
+            )}
+
+            {window.__SHOT2CODE_APP__?.generateStitch && (
+              <div className="space-y-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleStitchGenerate()}
+                  disabled={isGeneratingWithStitch || !stitchApiKey?.trim()}
+                  className="w-full"
+                  size="lg"
+                  data-testid="stitch-generate"
+                >
+                  {isGeneratingWithStitch ? (
+                    <>
+                      <LuLoader2
+                        className="h-4 w-4 motion-safe:animate-spin"
+                        aria-hidden="true"
+                      />
+                      Stitch is working…
+                    </>
+                  ) : (
+                    "Generate with Google Stitch SDK"
+                  )}
+                </Button>
+                <p className="text-center text-[11px] leading-4 text-gray-500 dark:text-zinc-400">
+                  Stitch creates the visual design first. HTML + CSS opens
+                  directly; other stacks continue through your selected
+                  shot2code models, so provider quota may apply.
+                </p>
+              </div>
             )}
 
             {isGeneratingWithStitch && stitchProgress && (

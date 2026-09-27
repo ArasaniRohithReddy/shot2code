@@ -9,6 +9,18 @@ import type {
   McpServerConfig,
   McpServerWirePayload,
 } from "./lib/mcp-servers";
+import type {
+  WebSearchSettings,
+  WebSearchWirePayload,
+} from "./lib/web-search";
+import type {
+  ImageGenerationSettings,
+  ImageGenerationWirePayload,
+} from "./lib/image-providers";
+import type {
+  FreeImageSearchSettings,
+  FreeImageSearchWirePayload,
+} from "./lib/free-image-search";
 
 export enum EditorTheme {
   ESPRESSO = "espresso",
@@ -29,7 +41,12 @@ export interface Settings {
   figmaAccessToken: string | null;
   stitchApiKey: string | null;
   isImageGenerationEnabled: boolean;
-  /** Allow Copilot SDK variants to use the built-in web_search tool. */
+  /**
+   * Allow Copilot SDK variants to use the built-in web_search tool.
+   *
+   * Superseded at run time by `webSearch` when that is usable: shot2code
+   * enables one search tool per session, never both.
+   */
   copilotWebSearchEnabled: boolean;
   editorTheme: EditorTheme;
   generatedCodeConfig: Stack;
@@ -70,6 +87,32 @@ export interface Settings {
   copilotSdkByok: CopilotSdkByokSettings;
   /** MCP servers offered to Copilot and Copilot SDK BYOK runs. */
   mcpServers: McpServerConfig[];
+  /**
+   * The provider-neutral web search behind the canonical `search_web` tool.
+   *
+   * Off by default. Its API key is backend-only: it is read here at send time
+   * and never written to history, a commit snapshot or a generation context.
+   */
+  webSearch: WebSearchSettings;
+  /**
+   * Which backend generates placeholder images.
+   *
+   * Additive: Replicate is the default and stays exactly as it was. Picking
+   * Cloudflare Workers AI or an OpenAI-compatible endpoint brings its own
+   * credentials and never reads, replaces or re-routes `replicateApiKey` -
+   * which also remains the only background-removal backend. Those credentials
+   * are backend-only: read here at send time, never written to history, a
+   * commit snapshot or a generation context.
+   */
+  imageGeneration: ImageGenerationSettings;
+  /**
+   * Keyless, licence-aware free image search (Openverse).
+   *
+   * Additive and credential-free: it works with no image-generation provider
+   * configured, and configuring one never switches it off or re-routes it. Off
+   * by default, because it sends the model's query to a third party.
+   */
+  freeImageSearch: FreeImageSearchSettings;
 }
 
 export interface DesignSystem {
@@ -161,6 +204,9 @@ export type FullGenerationSettings = CodeGenerationParams &
     Settings,
     | "copilotSdkByok"
     | "mcpServers"
+    | "webSearch"
+    | "imageGeneration"
+    | "freeImageSearch"
     | "screenshotOneApiKey"
     | "figmaAccessToken"
     | "stitchApiKey"
@@ -184,4 +230,20 @@ export type FullGenerationSettings = CodeGenerationParams &
      */
     copilotSdkByok: CopilotSdkByokWirePayload;
     mcpServers: McpServerWirePayload[];
+    /**
+     * Web-search configuration for this run.
+     *
+     * Carries the search provider's key at send time only. Like the other
+     * integration blocks it is never persisted into a commit or a snapshot.
+     */
+    webSearch: WebSearchWirePayload;
+    /**
+     * Image-provider configuration for this run.
+     *
+     * Carries the chosen provider's credentials at send time only, and never
+     * the other providers'. Like the blocks above it is never persisted.
+     */
+    imageGeneration: ImageGenerationWirePayload;
+    /** No credential, so this block is identical everywhere it appears. */
+    freeImageSearch: FreeImageSearchWirePayload;
   };

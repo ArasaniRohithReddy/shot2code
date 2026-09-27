@@ -1,6 +1,7 @@
 import pytest
 
 from image_generation import replicate
+from image_generation.errors import ImageProviderFailure
 
 
 def test_extract_output_url_from_string() -> None:
@@ -34,7 +35,7 @@ def test_extract_output_url_from_list_item_dict() -> None:
 
 
 def test_extract_output_url_invalid_raises() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ImageProviderFailure):
         replicate._extract_output_url([], "test")
 
 

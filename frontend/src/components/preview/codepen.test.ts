@@ -193,7 +193,7 @@ describe("CodePen stack serialization", () => {
       kind: "unsupported",
       reason: "fallback-preview",
       message:
-        "CodePen is unavailable because src/App.tsx needs a build runtime. Download the Project folder to keep every source file.",
+        "CodePen is unavailable because src/App.tsx needs a build runtime. Download the Project folder to keep every source file. This only affects CodePen sharing; Preview and Project download still work.",
       paths: ["src/App.tsx"],
     });
   });

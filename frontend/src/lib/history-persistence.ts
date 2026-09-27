@@ -2,6 +2,7 @@ import {
   buildHistoryProjectSnapshot,
   buildHistorySelectionUpdate,
   getUnpersistedCommittedCommits,
+  isGenericProjectTitle,
   restoreHistoryProject,
   toRecentHistoryProject,
   type ProjectHistorySnapshotState,
@@ -237,7 +238,18 @@ export function createProjectHistoryPersistence({
       try {
         const result = await client.listProjects({ limit: 12 });
         markRecovered();
-        return result.projects.map(toRecentHistoryProject);
+        return Promise.all(
+          result.projects.map(async (summary) => {
+            if (!isGenericProjectTitle(summary.title)) {
+              return toRecentHistoryProject(summary);
+            }
+            try {
+              return toRecentHistoryProject(await client.getProject(summary.id));
+            } catch {
+              return toRecentHistoryProject(summary);
+            }
+          })
+        );
       } catch (error) {
         reportError("list", error);
         throw error;

@@ -45,6 +45,35 @@ interface Shot2CodeStitchProgress {
   elapsedMs: number;
 }
 
+type Shot2CodeFeedbackType = "bug" | "feature" | "feedback";
+
+interface Shot2CodeFeedbackPayload {
+  type: Shot2CodeFeedbackType;
+  title: string;
+  details: string;
+  steps?: string;
+  expected?: string;
+  actual?: string;
+  includeSystemDetails: boolean;
+}
+
+type Shot2CodeFeedbackResult =
+  | {
+      kind: "submitted";
+      message: string;
+      url: string;
+      title: string;
+      body: string;
+      issueUrl: string;
+    }
+  | {
+      kind: "fallback";
+      reason: string;
+      title: string;
+      body: string;
+      issueUrl: string;
+    };
+
 interface Window {
   __SHOT2CODE_BACKEND__?: {
     http?: string;
@@ -68,6 +97,7 @@ interface Window {
         apiKey: string;
         prompt: string;
         deviceType?: "MOBILE" | "DESKTOP" | "TABLET" | "AGNOSTIC";
+        stack?: string;
       },
       onProgress?: (progress: Shot2CodeStitchProgress) => void
     ) => Promise<Shot2CodeStitchResult>;
@@ -78,6 +108,9 @@ interface Window {
       },
       onProgress?: (progress: Shot2CodeStitchProgress) => void
     ) => Promise<Shot2CodeStitchResult>;
+    submitFeedback: (
+      payload: Shot2CodeFeedbackPayload
+    ) => Promise<Shot2CodeFeedbackResult>;
     startGitHubOAuth: () => Promise<unknown>;
     getGitHubOAuthStatus: () => Promise<unknown>;
     cancelGitHubOAuth: () => Promise<unknown>;

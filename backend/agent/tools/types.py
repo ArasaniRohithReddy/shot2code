@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from agent.tools.local_assets import is_local_host_url
+from asset_urls import is_local_host_url
 
 
 @dataclass(frozen=True)

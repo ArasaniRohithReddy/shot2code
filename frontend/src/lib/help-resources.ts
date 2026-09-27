@@ -236,7 +236,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     id: "support",
     label: "Support",
     intro:
-      "Check the common answers first; if the problem is still there, the issue tracker is the fastest route.",
+      "Check the common answers first. Use the Feedback tab to prepare a report inside shot2code, or open the public tracker directly.",
     links: [
       {
         id: "faq",
@@ -256,9 +256,9 @@ export const HELP_SECTIONS: HelpSection[] = [
       },
       {
         id: "report-issue",
-        title: "Report a bug or request a feature",
+        title: "Open the issue tracker",
         description:
-          "Opens a new issue in the release hub. Never post secrets or keys in an issue.",
+          "The traditional browser route for a new public issue. Never post secrets or keys.",
         href: HELP_NEW_ISSUE_URL,
         icon: "bug",
       },

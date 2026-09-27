@@ -18,7 +18,7 @@ deliberately not kept in sync**:
 
 | File | Field | Meaning |
 |---|---|---|
-| `desktop/package.json` | `0.4.0` | **The release version.** Bump this. |
+| `desktop/package.json` | current release | **The release version.** Bump this. |
 | `package.json` (root) | `0.1.0` | Private workspace root; never shipped |
 | `frontend/package.json` | `0.0.0` | Private Vite app; never published to npm |
 | `backend/pyproject.toml` | `0.1.0` | Private package; frozen by PyInstaller |
@@ -27,7 +27,7 @@ Do not "fix" the others to match. Changing them implies a versioning contract
 that does not exist, and `frontend`/`backend` are `private` packages that are
 never published.
 
-The git tag (`v0.4.0`) and the GitHub release name mirror
+The git tag (`v<version>`) and the GitHub release name mirror
 `desktop/package.json`. Never reuse or move a tag that has been published.
 
 ## 1. Pre-flight

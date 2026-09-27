@@ -352,7 +352,56 @@ class TestMcpSessionConfiguration:
         session = self.copilot_session([])
 
         assert session._available_tools().to_list() == ["custom:*"]  # pyright: ignore[reportPrivateUsage]
-        assert session._permission_handler is None  # pyright: ignore[reportPrivateUsage]
+
+    def test_every_copilot_session_carries_a_permission_handler(self) -> None:
+        """Even with no MCP servers, which is the point.
+
+        Without a handler the runtime applies its own default policy, so a run
+        that enabled a network-capable built-in would have no shot2code-owned
+        answer to "may this URL be fetched?". The handler is what makes the
+        deny-by-default rule true rather than assumed.
+        """
+        session = self.copilot_session([])
+        handler = session._permission_handler  # pyright: ignore[reportPrivateUsage]
+
+        assert handler is not None
+
+        class _UrlRequest:
+            kind = "url"
+            url = "https://example.com/page"
+            intention = "fetch page"
+
+        decision = handler(_UrlRequest(), None)
+        assert type(decision).__name__ == "PermissionDecisionReject"
+        assert "example.com" in getattr(decision, "feedback", "")
+
+    def test_a_byok_session_also_carries_a_permission_handler(self) -> None:
+        settings = settings_for(byok=byok_block())
+
+        session = session_for(
+            OPENAI_BASE,
+            integrations=settings,
+            byok_connection=connection_of(settings),
+        )
+
+        assert isinstance(session, CopilotProviderSession)
+        assert session._permission_handler is not None  # pyright: ignore[reportPrivateUsage]
+
+    def test_no_copilot_session_ever_offers_web_fetch(self) -> None:
+        """Its output cannot be bounded, so it is never put on the wire."""
+        for session in (
+            self.copilot_session([]),
+            self.copilot_session([trusted_server()]),
+            session_for(
+                Llm.COPILOT_GPT_5_6_SOL,
+                copilot_github_token="github_pat_test",
+                integrations=settings_for(),
+                copilot_web_search_enabled=True,
+            ),
+        ):
+            assert isinstance(session, CopilotProviderSession)
+            entries = session._available_tools().to_list()  # pyright: ignore[reportPrivateUsage]
+            assert "builtin:web_fetch" not in entries
 
     def test_web_search_can_be_enabled_without_file_or_shell_tools(self) -> None:
         session = session_for(

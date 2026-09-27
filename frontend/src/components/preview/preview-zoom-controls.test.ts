@@ -15,6 +15,10 @@ const previewComponentSource = fs.readFileSync(
   path.join(PREVIEW_DIR, "PreviewComponent.tsx"),
   "utf8"
 );
+const appSource = fs.readFileSync(
+  path.resolve(process.cwd(), "src/App.tsx"),
+  "utf8"
+);
 
 /** Returns the opening JSX tag carrying `data-testid`, skipping over `=>` and
  *  other `>` characters that live inside expressions or template literals. */
@@ -134,5 +138,115 @@ describe("preview zoom controls markup", () => {
     // Nothing may sit over the iframe: select-to-edit runs inside the sandbox.
     expect(previewComponentSource).not.toContain("pointer-events-none");
     expect(previewComponentSource).not.toContain("absolute inset-0");
+  });
+});
+
+describe("preview canvas resize lifecycle", () => {
+  it("coalesces observer callbacks into one frame", () => {
+    expect(previewComponentSource).toContain("window.requestAnimationFrame");
+    expect(previewComponentSource).toContain(
+      "if (layoutFrameRef.current !== null) return;"
+    );
+    expect(previewComponentSource).toContain("new ResizeObserver(scheduleLayout)");
+  });
+
+  it("observes the viewport instead of doubling up on window resize", () => {
+    expect(previewComponentSource).not.toContain('addEventListener("resize"');
+    expect(previewComponentSource).not.toContain('removeEventListener("resize"');
+    expect(previewComponentSource).toContain("observer?.observe(viewport)");
+  });
+
+  it("cancels the frame and disconnects the observer on cleanup", () => {
+    expect(previewComponentSource).toContain("window.cancelAnimationFrame");
+    expect(previewComponentSource).toContain("observer?.disconnect()");
+  });
+
+  it("decides through the pure resolver rather than measuring inline", () => {
+    expect(previewComponentSource).toContain("resolvePreviewLayoutUpdate({");
+    expect(previewComponentSource).toContain("viewport.getBoundingClientRect()");
+    expect(previewComponentSource).toContain('if (update.action === "skip") return;');
+    expect(previewComponentSource).toContain("appliedLayoutRef.current = layout;");
+    // The scale is reported only for geometry that really changed.
+    expect(
+      previewComponentSource.indexOf("appliedLayoutRef.current = layout;")
+    ).toBeLessThan(previewComponentSource.indexOf("onScaleChange?.(layout.scale)"));
+  });
+
+  it("keeps the sandboxed document out of the resize path", () => {
+    // A resize must not mint a new nonce: that would reload the iframe and
+    // drop the current select-to-edit selection.
+    expect(previewComponentSource).toContain(
+      "[refreshToken, throttledCode]"
+    );
+    expect(previewComponentSource).toContain(
+      "srcDoc={sandboxedDocument.html}"
+    );
+
+    const layoutEffectStart = previewComponentSource.indexOf(
+      "const applyLayout = () => {"
+    );
+    const layoutEffectEnd = previewComponentSource.indexOf(
+      "}, [activeMode, customScale, device, onScaleChange]);"
+    );
+    expect(layoutEffectStart).toBeGreaterThan(-1);
+    expect(layoutEffectEnd).toBeGreaterThan(layoutEffectStart);
+
+    const layoutEffect = previewComponentSource.slice(
+      layoutEffectStart,
+      layoutEffectEnd
+    );
+    for (const forbidden of [
+      "srcDoc",
+      "sandboxedDocument",
+      "setSelectedElement",
+      "nanoid",
+      "refreshToken",
+    ]) {
+      expect(layoutEffect).not.toContain(forbidden);
+    }
+  });
+});
+
+describe("preview workspace preferences", () => {
+  it("persists only the inert view state", () => {
+    for (const key of [
+      "PREVIEW_SOURCE_STORAGE_KEY",
+      "PREVIEW_DESKTOP_VIEW_MODE_STORAGE_KEY",
+      "PREVIEW_DESKTOP_ZOOM_STORAGE_KEY",
+    ]) {
+      expect(previewPaneSource).toContain(key);
+    }
+    expect(previewPaneSource).toContain(
+      "const [previewRefreshToken, setPreviewRefreshToken] = useState(0)"
+    );
+    // The transient pieces must stay in plain component state.
+    for (const transient of [
+      "usePersistedState<ExportPreview",
+      "usePersistedState<boolean>(false, \"export-preview-loading\"",
+    ]) {
+      expect(previewPaneSource).not.toContain(transient);
+    }
+  });
+
+  it("validates every restored preference on read", () => {
+    expect(previewPaneSource).toContain(
+      "normalizePreviewViewMode(storedDesktopViewMode)"
+    );
+    expect(previewPaneSource).toContain("normalizePreviewZoom(storedDesktopZoom)");
+    expect(previewPaneSource).toContain(
+      "normalizePreviewSource(storedPreviewSource)"
+    );
+    expect(appSource).toContain("normalizePreviewTab(storedPreviewTab)");
+    expect(appSource).toContain("PREVIEW_TAB_STORAGE_KEY");
+  });
+
+  it("rebuilds a remembered stack preview once and falls back to HTML", () => {
+    expect(previewPaneSource).toContain("pendingStackRestoreRef");
+    expect(previewPaneSource).toContain(
+      "void ensureExportPreview().then((rebuilt) => {"
+    );
+    expect(previewPaneSource).toContain('if (!rebuilt) setPreviewSource("html");');
+    // The restoration attempt happens at most once per mount.
+    expect(previewPaneSource).toContain("pendingStackRestoreRef.current = false;");
   });
 });

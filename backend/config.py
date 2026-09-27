@@ -19,8 +19,18 @@ COPILOT_GITHUB_TOKEN = (
     or None
 )
 
-# Image generation (optional)
+# Image generation (optional). Replicate stays the default backend; the
+# Cloudflare values are only read when a request selects Workers AI, and their
+# absence never affects Replicate.
 REPLICATE_API_KEY = os.environ.get("REPLICATE_API_KEY", None)
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", None)
+CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", None)
+
+# Web search (optional, provider-neutral). Only consulted for the provider the
+# request actually selected, and only when that request carries no key of its
+# own. Tavily additionally offers a keyless trial that needs no value here.
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", None)
+EXA_API_KEY = os.environ.get("EXA_API_KEY", None)
 
 # Debugging-related
 IS_DEBUG_ENABLED = bool(os.environ.get("IS_DEBUG_ENABLED", False))

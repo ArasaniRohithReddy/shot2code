@@ -3,9 +3,45 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const STITCH_PROJECT_TIMEOUT_MS = 120_000;
 const STITCH_GENERATION_TIMEOUT_MS = 600_000;
 const STITCH_DOWNLOAD_TIMEOUT_MS = 120_000;
+const STITCH_STACK_GUIDANCE = Object.freeze({
+  html_tailwind:
+    "Use semantic HTML and Tailwind CSS with a browser-runnable CDN setup.",
+  html_css:
+    "Use semantic HTML, plain CSS, and browser JavaScript without a framework.",
+  react_tailwind:
+    "Design for a React and Tailwind CSS implementation.",
+  bootstrap:
+    "Use Bootstrap components and utilities in a browser-runnable implementation.",
+  vue_tailwind:
+    "Design for a Vue 3 and Tailwind CSS implementation.",
+  ionic_tailwind:
+    "Design for Ionic web components and Tailwind CSS.",
+  alpine_tailwind:
+    "Use Alpine.js interactions and Tailwind CSS.",
+  preact_tailwind:
+    "Design for a Preact and Tailwind CSS implementation.",
+  tailwind_daisyui:
+    "Use Tailwind CSS and daisyUI component conventions.",
+  bulma: "Use Bulma classes and browser JavaScript.",
+  material_web:
+    "Use Material Web components and Material Design typography.",
+  htmx_tailwind:
+    "Use htmx interactions and Tailwind CSS in a browser-runnable implementation.",
+});
 
 function emitProgress(onProgress, phase, message) {
   if (typeof onProgress === "function") onProgress({ phase, message });
+}
+
+function buildStitchInstruction(prompt, stack) {
+  const stackGuidance = STITCH_STACK_GUIDANCE[stack];
+  if (!stackGuidance) return prompt;
+  return `${prompt}
+
+Implementation direction from shot2code:
+- ${stackGuidance}
+- Return a complete responsive screen with no explanatory prose.
+- Preserve a clear semantic structure so shot2code can translate the rendered design into the selected stack.`;
 }
 
 async function withTimeout(operation, timeoutMs, message) {
@@ -131,7 +167,12 @@ async function screenResult(screen, client, onProgress) {
 async function createClient(apiKey) {
   const key = cleanText(apiKey, "Stitch API key");
   const { Stitch, StitchToolClient } = await import("@google/stitch-sdk");
-  const client = new StitchToolClient({ apiKey: key });
+  // The published 0.3.5 SDK otherwise enforces its own five-minute default
+  // before shot2code's honest ten-minute generation budget can elapse.
+  const client = new StitchToolClient({
+    apiKey: key,
+    timeout: STITCH_GENERATION_TIMEOUT_MS,
+  });
   return { client, sdk: new Stitch(client) };
 }
 
@@ -150,11 +191,15 @@ async function testStitchKey({ apiKey }) {
 }
 
 async function generateStitchScreen(
-  { apiKey, prompt, deviceType = "DESKTOP" },
+  { apiKey, prompt, deviceType = "DESKTOP", stack = "html_css" },
   onProgress,
   createClientImpl = createClient
 ) {
-  const instruction = cleanText(prompt, "Stitch prompt", 20_000);
+  const instruction = cleanText(
+    buildStitchInstruction(prompt, stack),
+    "Stitch prompt",
+    20_000
+  );
   const allowedDevices = new Set(["MOBILE", "DESKTOP", "TABLET", "AGNOSTIC"]);
   const device = allowedDevices.has(deviceType) ? deviceType : "DESKTOP";
   emitProgress(onProgress, "connecting", "Connecting to Google Stitch…");
@@ -215,6 +260,8 @@ async function importStitchScreen(
 
 module.exports = {
   STITCH_GENERATION_TIMEOUT_MS,
+  STITCH_STACK_GUIDANCE,
+  buildStitchInstruction,
   generateStitchScreen,
   importStitchScreen,
   parseStitchReference,

@@ -8,8 +8,9 @@ import TextTab from "./tabs/TextTab";
 import ImportTab from "./tabs/ImportTab";
 import { DesignSystemSelectorProps } from "../settings/DesignSystemSelector";
 import { ModelSelectorProps } from "../settings/ModelSelector";
-import { LuFolderOpen, LuX } from "react-icons/lu";
+import { LuFigma, LuFolderOpen, LuSparkles, LuX } from "react-icons/lu";
 import type { EditableProjectImportHandler } from "../../lib/project-import";
+import FigmaTab from "./tabs/FigmaTab";
 
 interface Props {
   activeTab: InputTab;
@@ -22,7 +23,12 @@ interface Props {
     multiScreenshotMode?: MultiScreenshotMode
   ) => void;
   doCreateFromText: (text: string) => void;
-  importFromCode: (code: string, stack: Stack, instruction?: string) => void;
+  importFromCode: (
+    code: string,
+    stack: Stack,
+    instruction?: string,
+    titleHint?: string
+  ) => void;
   importProject?: (
     selection: Parameters<EditableProjectImportHandler>[0],
     instruction?: string
@@ -34,7 +40,13 @@ interface Props {
   onManageDesignSystems: () => void;
 }
 
-export type InputTab = "upload" | "url" | "text" | "import";
+export type InputTab =
+  | "upload"
+  | "url"
+  | "text"
+  | "import"
+  | "figma"
+  | "stitch";
 
 function UnifiedInputPane({
   activeTab,
@@ -83,7 +95,8 @@ function UnifiedInputPane({
     mcpServers: settings.mcpServers,
     planContext: {
       generationType: "create",
-      inputMode: activeTab === "text" ? "text" : "image",
+      inputMode:
+        activeTab === "text" || activeTab === "stitch" ? "text" : "image",
     },
   };
 
@@ -124,7 +137,7 @@ function UnifiedInputPane({
           </div>
         )}
 
-        <TabsList className="grid w-full grid-cols-4 mb-6">
+        <TabsList className="mb-6 grid h-auto w-full grid-cols-3 gap-1 sm:grid-cols-6">
           <TabsTrigger
             value="upload"
             className="flex items-center gap-2"
@@ -157,6 +170,22 @@ function UnifiedInputPane({
             <ImportIcon />
             <span className="hidden sm:inline">Import</span>
           </TabsTrigger>
+          <TabsTrigger
+            value="figma"
+            className="flex items-center gap-2"
+            data-testid="tab-figma"
+          >
+            <LuFigma className="h-4 w-4" aria-hidden="true" />
+            <span>Figma</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="stitch"
+            className="flex items-center gap-2"
+            data-testid="tab-stitch"
+          >
+            <LuSparkles className="h-4 w-4" aria-hidden="true" />
+            <span>Stitch</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="upload" className="mt-0">
@@ -187,6 +216,7 @@ function UnifiedInputPane({
 
         <TabsContent value="text" className="mt-0">
           <TextTab
+            doCreate={doCreate}
             doCreateFromText={doCreateFromText}
             importFromCode={importFromCode}
             stitchApiKey={settings.stitchApiKey}
@@ -206,6 +236,31 @@ function UnifiedInputPane({
             setProjectContext={(projectContext) =>
               setSettings((previous) => ({ ...previous, projectContext }))
             }
+          />
+        </TabsContent>
+
+        <TabsContent value="figma" className="mt-0">
+          <FigmaTab
+            doCreate={doCreate}
+            figmaAccessToken={settings.figmaAccessToken}
+            stack={settings.generatedCodeConfig}
+            setStack={setStack}
+            designSystem={designSystemSelectorProps}
+            modelSelector={modelSelectorProps}
+          />
+        </TabsContent>
+
+        <TabsContent value="stitch" className="mt-0">
+          <TextTab
+            doCreate={doCreate}
+            doCreateFromText={doCreateFromText}
+            importFromCode={importFromCode}
+            stitchApiKey={settings.stitchApiKey}
+            stack={settings.generatedCodeConfig}
+            setStack={setStack}
+            designSystem={designSystemSelectorProps}
+            modelSelector={modelSelectorProps}
+            stitchOnly
           />
         </TabsContent>
       </Tabs>

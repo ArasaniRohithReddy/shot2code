@@ -40,6 +40,7 @@ interface ProjectStore {
   projectTitle: string;
   projectCreatedAt: Date | null;
   projectStack: Stack;
+  setProjectTitle: (title: string) => void;
   startProject: (project: {
     id: string;
     title: string;
@@ -157,6 +158,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       projectCreatedAt: createdAt,
       projectStack: stack,
     }),
+  setProjectTitle: (title) => set({ projectTitle: title }),
   restoreProject: (project) => {
     useAppStore.getState().disableInSelectAndEditMode();
     const commits = Object.fromEntries(

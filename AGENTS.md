@@ -122,6 +122,238 @@ set as well. `env` and `headers` may hold tokens: they are masked in the list,
 masked and read-only in the editor until revealed, and excluded from
 `stripIntegrationSecrets`.
 
+## Provider-neutral web search
+
+`backend/web_search/` owns one canonical tool, **`search_web`**, and every
+runtime reaches the same implementation: native OpenAI, Anthropic and Gemini
+get it through their existing canonical tool serializers, and both Copilot
+runtimes get it as a custom tool. There is no per-provider search path.
+
+The package must not import `agent`. `web_search.tool` returns plain
+`WebSearchToolDefinition` / `WebSearchToolOutcome` records and
+`agent/tools/definitions.py` and `agent/tools/runtime.py` wrap them into
+`CanonicalToolDefinition` / `ToolExecutionResult`. Importing `agent.tools.types`
+from here is a circular import, because it runs `agent/tools/__init__.py`.
+
+**One search tool per session.** `create_provider_session` enables Copilot's
+built-in `web_search` only when the canonical tool is *not* usable. Offering
+both would let a model take the unbounded route past the budgets, the domain
+allowlist and the snippet bounds. The built-in stays available for people who
+prefer it and have the entitlement — they simply leave canonical search off.
+
+**`web_fetch` is deliberately off, and that is a decision, not a gap.** It *is*
+a real runtime built-in — it appears in the bundled runtime's tool vocabulary
+and in its `SandboxDecision` tool-kind enum beside `shell`, `search`, `mcp` and
+`lsp` — so `ToolSet().add_builtin("web_fetch")` would work. It is still not
+offered because **a built-in's output cannot be bounded**: the runtime hands
+the result to the model and the SDK only notifies the host afterwards
+(`tool.execution_complete`), so there is no hook to truncate it, label it
+untrusted, or budget it. `web_fetch` returns a whole page, so enabling it would
+put an unbounded third-party document into the model's context — the exact
+thing `search_web` exists to prevent. Two further gaps: the SDK's
+`create_session` accepts no URL allowlist even though the protocol defines
+`PermissionUrlsConfig`, and a built-in call is not counted against the per-turn
+or per-generation ceilings.
+
+The refusal is enforced in three places, not assumed:
+
+- `BLOCKED_BUILTIN_TOOLS` in `integrations/copilot_sdk.py`, checked by
+  `assert_no_blocked_builtins`, which reads the `builtin:` entries a `ToolSet`
+  would actually transmit (including a `builtin:*` wildcard) and raises rather
+  than building the session.
+- `decide_mcp_permission` denies every `url` permission request with a reason
+  that names the host and path — never the query string, which can carry a
+  token.
+- `build_permission_handler` is installed on **every** Copilot session,
+  subscription and BYOK, with or without MCP servers. Without a handler the
+  runtime applies its own default policy, which would make "shot2code does not
+  fetch URLs" an assumption instead of a rule.
+
+Do not add a built-in whose result shot2code cannot inspect before the model
+does. If a future SDK allows post-processing a built-in result, or accepts a
+URL allowlist at session creation, revisit
+`COPILOT_BUILTIN_WEB_FETCH_SUPPORTED` — and add the opt-in setting separately
+from web search, because one capability must never imply the other.
+
+`config.py` mirrors `integrations/config.py`: it validates the request block,
+holds the only credential in the package, and keeps it out of
+`WebSearchSummary`, which is what the route, the logs and diagnostics are built
+from. Limits are constants there and are mirrored in
+`frontend/src/lib/web-search.ts`; change both or the UI starts promising
+something the backend refuses.
+
+Endpoints are fixed per provider and are never user-configurable — the query is
+the sensitive part of this feature. Requests carry an explicit timeout, set
+`follow_redirects=False` (a redirect would move the `Authorization` header to
+an unconfigured host), and never ask for raw page content or a generated
+answer. `include_domains` is passed to the provider **and** re-applied locally,
+because a provider that ignores the filter must not decide what the model
+reads.
+
+Budgets live on `WebSearchRuntime`, one per `AgentEngine`, so each variant gets
+its own allowance and a retry starts clean. `AgentEngine._run_with_session`
+calls `start_turn()` at the top of each model turn; the per-generation ceiling
+keeps accumulating across them. A failed search still spends its allowance,
+because the request left the machine either way.
+
+Every successful response is prefixed with `UNTRUSTED_CONTENT_WARNING`. Search
+results are attacker-controlled text, so they are context, never instructions.
+
+Tavily is primary and is the only provider with a documented keyless trial
+(`X-Tavily-Access-Mode: keyless`). Keyless is an explicit choice, never a
+fallback when a key is missing, and it clears any saved key. Exa is optional
+and always keyed. Do not add a provider whose terms restrict storing or
+displaying results without first encoding that restriction in the adapter.
+
+`summarize_web_search_input` is a closed allowlist, so anything a model
+hallucinated into the arguments — including a credential — never reaches the
+activity feed or the run log.
+
+### Free-allowance claims
+
+This applies to **every** third-party allowance shot2code mentions — search
+providers, image backends, anything added later.
+
+- Never write "free", "permanently free", "always free" or "unlimited" without
+  qualification. A provider can change its plan the day after we ship, and the
+  user pays that bill, not us.
+- Attribute the allowance to the provider, scope it (per day / per month), and
+  say it depends on their account and can change. `ALLOWANCE_CAVEAT` in
+  `frontend/src/lib/web-search.ts` is the sentence the search card uses;
+  `CLOUDFLARE_ALLOCATION_NOTE` in `backend/image_generation/catalog.py` is the
+  image equivalent.
+- Cite the provider's official pricing page next to the claim, both in the UI
+  and in the docs, so a reader can check it.
+- Tests must assert the hedging, not just the number. `web-search.test.ts` and
+  `WebSearchSettings.test.tsx` fail if a permanent-free phrasing reappears.
+
+Verified against official sources on 2026-09-27:
+
+| Provider | Published terms | Source |
+| --- | --- | --- |
+| Tavily | 1,000 API credits/month, reset on the 1st, no credit card; basic search 1 credit, advanced 2. Separate keyless trial, rate-limited and shared. | [api-credits](https://docs.tavily.com/documentation/api-credits), [keyless](https://docs.tavily.com/documentation/keyless) |
+| Exa | Pay-as-you-go, no subscription. $10 credits at sign-up, resets to $10 monthly, no payment method required. `/search` $7/1k requests for up to 10 results. | [pricing](https://exa.ai/docs/admin/pricing) |
+| Cloudflare Workers AI | Daily allocation of 10,000 Neurons at no charge on **both** Workers Free and Workers Paid, resetting 00:00 UTC; beyond it needs Workers Paid at $0.011/1,000 Neurons. Some models require a paid billing method. FLUX.1 Schnell is 4.8 neurons per 512x512 tile + 9.6 neurons/step. | [pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) (updated 2026-09-17) |
+| Replicate | Pay only for what you use; public-model cost varies by run time, output and model page. **No permanent free API tier** may be claimed. | [pricing](https://replicate.com/pricing) |
+| Hugging Face | Free users get only ~$0.10 of monthly credits, subject to change. Not a meaningful primary free backend. | [pricing](https://huggingface.co/pricing) |
+| Gemini (unpaid tier) | Unpaid-tier content may be used to improve Google's products and may be human-reviewed; EEA/Switzerland/UK API clients may use only the paid services. Must never be a silent or default free provider. | [terms](https://ai.google.dev/gemini-api/terms) |
+| Pollinations | No verifiable recurring quota or pricing published. Must not be labelled guaranteed free. | — |
+
+## Image generation
+
+The image subsystem lives in `backend/image_generation/` and is layered on
+purpose. `catalog.py` says what may be picked, `settings.py` validates what a
+request asked for, one module per provider makes the call, `assets.py`
+normalizes whatever came back, `errors.py` classifies whatever went wrong, and
+`generation.py` fans out and keeps one outcome per prompt. Nothing in there
+imports from `agent/` — the shared local-asset helpers live in
+`backend/asset_urls.py` for exactly that reason, and
+`agent/tools/local_assets.py` is a re-export shim kept for compatibility.
+
+**Replicate is the default and must stay default-compatible.** A request with
+no `imageGeneration` block behaves exactly as it always did: Replicate,
+`prunaai/z-image-turbo`, the key from the request or `REPLICATE_API_KEY`.
+Cloudflare Workers AI and the OpenAI-compatible endpoint are *additive*: they
+carry their own credentials and never read, replace or re-route
+`replicateApiKey`, `openAiApiKey`, `anthropicApiKey` or `geminiApiKey`.
+
+**Do not claim a model is compatible.** `prunaai/z-image-turbo` and
+`black-forest-labs/flux-2-klein-4b` take different inputs (`width`/`height`/
+`num_inference_steps` vs `aspect_ratio`), which is why an arbitrary Replicate
+model cannot be assumed to work. A custom model must pass
+`replicate.check_model_schema`, which reads the model's own published OpenAPI
+schema and accepts it only if it declares a string `prompt` input and an
+image-shaped output and needs nothing else. Only `prompt` is ever sent to one.
+
+**Do not fabricate a capability.** Background removal is Replicate-only; no
+other provider has an equivalent endpoint and none is substituted. Editing runs
+on Replicate, or on an OpenAI-compatible endpoint that actually implements
+`/images/edits` — a `404`/`405`/`501` there is reported as a missing capability,
+not as a failure the user can fix with a key.
+
+**Cost wording is attributed, dated and hedged.** A bare number ages into a
+lie, but so does an unqualified "free". Each catalog entry names who bills,
+quotes the provider's own published figure with the date it was read, links
+that provider's pricing page, and says the terms can change. **No provider may
+be described as permanently free**; an allowance is always attributed, scoped
+to a period, and marked subject to account and model availability.
+Cloudflare's is 10,000 Neurons a day on **both** the Workers Free and Workers
+Paid plans, resetting at 00:00 UTC — not Free-plan-only, which an earlier
+version of this copy got wrong. `CLOUDFLARE_ALLOCATION_NOTE` is shared by the
+backend and the UI so the two cannot drift, and tests on both sides assert the
+exact clauses.
+
+Hugging Face, Gemini's unpaid tier and Pollinations are deliberately **not**
+offered as free backends: a nominal monthly credit, terms that permit training
+on unpaid content plus paid-only regions, and no published quota at all,
+respectively. Adding one would need an explicit opt-in and its own disclosure.
+
+**Failures are per prompt.** `generate_images` returns one `ImageResult` per
+prompt, each either a `NormalizedImage` or a classified
+`ImageProviderFailure` (429 quota, 402 billing, 401 credentials, timeout
+network, and so on). A partial batch reports "Generated X of N"; a batch that
+produced nothing returns `ToolExecutionResult(ok=False)` with the reason. Never
+return a success-shaped item with an empty URL, and never count tiles instead
+of successes — `frontend/src/components/agent/image-results.ts` mirrors those
+counting rules for the activity feed.
+
+**Everything a provider returns goes through `normalize_image_result`.** It
+keeps a public `http(s)` URL, writes bytes/base64/`data:` payloads to the
+served asset directory, and refuses anything else (`file:`, loopback that is
+not one of our own assets, private ranges, oversized payloads). A local asset
+URL is not model-reachable, so the bytes travel on the result and the runtime
+builds a `ToolMultimodalPart` from `data` rather than `image_url`.
+
+`frontend/src/lib/image-providers.ts` mirrors the catalog and the validation
+rules; `image-models-client.ts` is the only I/O. Image credentials are read
+from the current Settings at send time: `toGenerationSettings` deliberately
+drops the raw `imageGeneration` block so it cannot be spread into a request,
+and `toImageGenerationWirePayload` is the single place that decides which
+credential travels.
+
+## Free image search
+
+`backend/free_images/` owns one canonical tool, **`search_free_images`**,
+reaching every runtime through the same serialization `search_web` uses. It is
+**keyless** - Openverse's search API needs no credential - which makes it the
+only image path that works with no Replicate, Cloudflare or OpenAI-compatible
+configuration. It is additive: configuring one of those never switches it off.
+
+**It is a separate tool, never a fallback inside `generate_images`.** One
+invents a picture, the other finds a real photograph somebody released. Quietly
+swapping them would give a user stock photography where they asked for an
+illustration. The model chooses, and the activity feed says which happened
+("Found 3 free images", not "Generated").
+
+**CC0 and Public Domain Mark only, and it is re-checked locally.** Every other
+Creative Commons licence carries an obligation an exported project would
+inherit - BY needs attribution wherever the image appears, SA spreads to the
+combined work, NC forbids shipping, ND forbids cropping - and shot2code cannot
+enforce any of that in someone else's codebase. `normalize_result` re-checks
+the licence itself rather than trusting the server's `license=` filter, and
+drops any result missing a source page or licence URL, because the user could
+not verify it. `VERIFY_METADATA_WARNING` travels with every response: Openverse
+aggregates other people's metadata and can be wrong.
+
+The package must not import `agent`, for the same reason `web_search` must not.
+
+**`download.py` is the hostile-input boundary** and the part to be careful
+with. Every URL came from a third-party index describing a fourth party's
+server, so: DNS resolution with *every* returned address checked against
+private, loopback, link-local, reserved, multicast and cloud-metadata ranges
+(a mixed answer is refused outright as a rebinding attempt); redirects
+disabled and each `Location` re-validated from scratch with a hop limit;
+content type checked against an allowlist *and* against sniffed magic bytes,
+which must agree; byte and decoded-pixel ceilings; and a filename derived from
+the title rather than the attacker-controlled path. Bytes then go through
+`persist_image_bytes`, so a free image becomes a local `/local-assets/` URL
+exactly like a generated one. **Never hotlink an external image into generated
+or exported markup.**
+
+Web search is deliberately not involved. A web image result grants no reuse
+right, and `test_free_image_search.py` asserts by AST that this package imports
+and calls nothing from `web_search`, Tavily or Exa.
+
 ## Imported project context
 
 The Import tab can analyse a folder, ZIP, or selected source files through
@@ -240,7 +472,8 @@ Services (see `README.md` for the canonical commands):
 - Frontend talks to the backend over a WebSocket (`VITE_WS_BACKEND_URL`, default `ws://127.0.0.1:7001`); generation streams over that socket, other routes are plain HTTP.
 
 Non-obvious caveats:
-- Generation needs either GitHub Copilot credentials (`gh auth login` or a stored `copilot` login) **or** an LLM key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) in `backend/.env` or the Settings dialog. With none of these, generation fails fast. `REPLICATE_API_KEY` only works via `backend/.env`, not the UI.
+- Generation needs either GitHub Copilot credentials (`gh auth login` or a stored `copilot` login) **or** an LLM key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) in `backend/.env` or the Settings dialog. With none of these, generation fails fast. Image generation is separate: `REPLICATE_API_KEY` (the default backend, settable in `backend/.env` *or* the Settings dialog), or the optional `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN`, or an OpenAI-compatible image endpoint configured in Settings.
 - Playwright Chromium powers the optional "Screenshot preview" tool; Settings shows whether it is available. The backend `Dockerfile` accepts `--build-arg INSTALL_CHROMIUM=false` to skip it.
+- Web search is off by default and needs no key to try: Tavily's keyless trial is an explicit opt-in in Settings. `TAVILY_API_KEY` / `EXA_API_KEY` in `backend/.env` are consulted only for the provider the request selected, and only when that request carries no key of its own.
 - `pnpm install` prints an "Ignored build scripts (esbuild, puppeteer)" warning — harmless.
 - `cd frontend && pnpm lint` reports pre-existing errors (e.g. `@typescript-eslint/no-explicit-any` in `generateCode.ts`) because lint runs with `--max-warnings 0`; these are baseline issues, not regressions.

@@ -39,6 +39,14 @@ import {
   type McpServerConfig,
   type McpServerWirePayload,
 } from "./mcp-servers";
+import {
+  DEFAULT_WEB_SEARCH_SETTINGS,
+  isWebSearchUsable,
+  normalizeWebSearchSettings,
+  toWebSearchWirePayload,
+  type WebSearchSettings,
+  type WebSearchWirePayload,
+} from "./web-search";
 
 export interface IntegrationDiagnostic {
   scope: "byok" | "mcp";
@@ -47,16 +55,37 @@ export interface IntegrationDiagnostic {
   target?: string;
 }
 
-/** The two fields this feature adds to Settings, and nothing else. */
+/** The fields this feature adds to Settings, and nothing else. */
 export interface IntegrationSettingsSlice {
   copilotSdkByok: CopilotSdkByokSettings;
   mcpServers: McpServerConfig[];
+  /**
+   * Provider-neutral web search.
+   *
+   * Additive and independent: it does not read a model provider's key, does
+   * not change which model runs, and is off until the user switches it on.
+   */
+  webSearch: WebSearchSettings;
 }
 
 export const DEFAULT_INTEGRATION_SETTINGS: IntegrationSettingsSlice = {
   copilotSdkByok: DEFAULT_COPILOT_SDK_BYOK_SETTINGS,
   mcpServers: [],
+  webSearch: DEFAULT_WEB_SEARCH_SETTINGS,
 };
+
+/**
+ * The part of the slice the BYOK/MCP surface works with.
+ *
+ * Web search is a separate feature with its own endpoint and its own
+ * validator, so the BYOK card, the MCP card and the model picker keep taking
+ * exactly what they need rather than a whole settings object they would have
+ * to invent a web-search block for.
+ */
+export type ByokMcpSettingsSlice = Pick<
+  IntegrationSettingsSlice,
+  "copilotSdkByok" | "mcpServers"
+>;
 
 /**
  * Fill in both fields from a settings blob of any age.
@@ -72,6 +101,7 @@ export function withIntegrationDefaults<T extends object>(
     ...settings,
     copilotSdkByok: normalizeCopilotSdkByokSettings(stored.copilotSdkByok),
     mcpServers: normalizeMcpServers(stored.mcpServers),
+    webSearch: normalizeWebSearchSettings(stored.webSearch),
   };
 }
 
@@ -82,7 +112,8 @@ export function needsIntegrationNormalization(settings: object): boolean {
   return (
     JSON.stringify(normalized.copilotSdkByok) !==
       JSON.stringify(stored.copilotSdkByok) ||
-    JSON.stringify(normalized.mcpServers) !== JSON.stringify(stored.mcpServers)
+    JSON.stringify(normalized.mcpServers) !== JSON.stringify(stored.mcpServers) ||
+    JSON.stringify(normalized.webSearch) !== JSON.stringify(stored.webSearch)
   );
 }
 
@@ -285,7 +316,7 @@ export function byokSelectionIdsIn(selection: readonly string[]): string[] {
  */
 export function unavailableByokSelections(
   selection: readonly string[],
-  settings: IntegrationSettingsSlice
+  settings: ByokMcpSettingsSlice
 ): string[] {
   const connection = settings.copilotSdkByok;
   return byokSelectionIdsIn(selection).filter((id) => {
@@ -311,6 +342,7 @@ export function unavailableByokSelections(
 export interface IntegrationWirePayload {
   copilotSdkByok: CopilotSdkByokWirePayload;
   mcpServers: McpServerWirePayload[];
+  webSearch: WebSearchWirePayload;
 }
 
 /**
@@ -325,18 +357,32 @@ export function buildIntegrationWirePayload(
   return {
     copilotSdkByok: toByokWirePayload(settings.copilotSdkByok),
     mcpServers: toMcpWirePayload(settings.mcpServers),
+    webSearch: toWebSearchWirePayload(settings.webSearch),
   };
 }
 
-/** Same payload, for `/api/integrations/validate`. */
-export const buildIntegrationValidationPayload = buildIntegrationWirePayload;
+/**
+ * Same payload, for `/api/integrations/validate`.
+ *
+ * That endpoint checks the BYOK connection and the MCP list only; web search
+ * has its own validator at `/api/web-search/validate`, so the block is left
+ * out rather than sent and ignored.
+ */
+export function buildIntegrationValidationPayload(
+  settings: ByokMcpSettingsSlice
+): Omit<IntegrationWirePayload, "webSearch"> {
+  return {
+    copilotSdkByok: toByokWirePayload(settings.copilotSdkByok),
+    mcpServers: toMcpWirePayload(settings.mcpServers),
+  };
+}
 
 /**
  * A copy with every credential removed, for anything that is written down.
  *
  * Commit snapshots, project history and generation context must never carry a
- * key, a bearer token, an MCP env value or a request header. The shape is kept
- * so a snapshot can still say *what* was configured.
+ * key, a bearer token, a search-provider key, an MCP env value or a request
+ * header. The shape is kept so a snapshot can still say *what* was configured.
  */
 export function stripIntegrationSecrets(
   settings: IntegrationSettingsSlice
@@ -346,6 +392,9 @@ export function stripIntegrationSecrets(
       includeSecrets: false,
     }),
     mcpServers: toMcpWirePayload(settings.mcpServers, { includeSecrets: false }),
+    webSearch: toWebSearchWirePayload(settings.webSearch, {
+      includeSecrets: false,
+    }),
   };
 }
 
@@ -403,7 +452,7 @@ export interface McpRuntimeScope {
  * than leaving people to infer it from an empty activity list.
  */
 export function mcpRuntimeScope(
-  settings: IntegrationSettingsSlice,
+  settings: ByokMcpSettingsSlice,
   selection: readonly string[],
   providerOf: (modelId: string) => string | undefined
 ): McpRuntimeScope {
@@ -423,6 +472,34 @@ export function mcpRuntimeScope(
     appliesToCopilot: active.length > 0,
     appliesToByok: active.length > 0 && byokIds.size > 0,
     excludedModelIds,
+  };
+}
+
+/**
+ * Whether this run's canonical web search is active, and what that means for
+ * Copilot's built-in search.
+ *
+ * Unlike MCP, `search_web` is runtime-neutral: it is a shot2code tool, so
+ * every selected model sees it. The only interaction worth stating is that it
+ * replaces Copilot's built-in `web_search` rather than running beside it.
+ */
+export function webSearchRuntimeScope(
+  settings: IntegrationSettingsSlice,
+  copilotBuiltInEnabled: boolean
+): {
+  canonicalActive: boolean;
+  copilotBuiltInActive: boolean;
+  reason: string | null;
+} {
+  const canonicalActive = isWebSearchUsable(settings.webSearch);
+  return {
+    canonicalActive,
+    copilotBuiltInActive: copilotBuiltInEnabled && !canonicalActive,
+    reason: canonicalActive
+      ? null
+      : (settings.webSearch.enabled
+          ? "Web search is enabled but not usable yet."
+          : null),
   };
 }
 
@@ -452,7 +529,7 @@ export function describeSelectionEntry(entry: string): string {
 
 /** The BYOK identity for a base model on the configured connection. */
 export function byokIdForBaseModel(
-  settings: IntegrationSettingsSlice,
+  settings: ByokMcpSettingsSlice,
   baseModelId: string
 ): string {
   return byokSelectionId(settings.copilotSdkByok.provider, baseModelId);

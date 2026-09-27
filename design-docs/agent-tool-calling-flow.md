@@ -64,6 +64,8 @@ Supported tools:
 - `edit_images`
 - `extract_assets`
 - `screenshot_preview`
+- `search_web` (only when a web-search provider is configured and usable; see
+  `backend/web_search/`)
 - `save_assets`
 - `retrieve_option`
 

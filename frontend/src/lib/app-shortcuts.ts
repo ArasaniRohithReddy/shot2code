@@ -18,7 +18,10 @@ export type AppShortcutCommand =
  * their own; both routes end in the same dispatcher, so a command can never
  * behave differently depending on how it was triggered.
  */
-export type AppCommand = AppShortcutCommand | "show-keyboard-shortcuts";
+export type AppCommand =
+  | AppShortcutCommand
+  | "show-keyboard-shortcuts"
+  | "show-feedback";
 
 export const APP_COMMANDS = [
   "new-project",
@@ -34,6 +37,7 @@ export const APP_COMMANDS = [
   "retry-generation",
   "show-help",
   "show-keyboard-shortcuts",
+  "show-feedback",
 ] as const satisfies readonly AppCommand[];
 
 /** Runtime guard for a command that crossed a process boundary. */

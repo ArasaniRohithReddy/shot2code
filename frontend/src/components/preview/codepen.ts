@@ -325,7 +325,12 @@ function unsupported(
   message: string,
   paths: string[] = []
 ): CodePenShareResult {
-  return { kind: "unsupported", reason, message, paths };
+  return {
+    kind: "unsupported",
+    reason,
+    message: `${message} This only affects CodePen sharing; Preview and Project download still work.`,
+    paths,
+  };
 }
 
 function validateStack(

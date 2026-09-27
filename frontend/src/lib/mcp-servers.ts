@@ -14,7 +14,8 @@
  * `env` and `headers` can hold tokens. Nothing in this module logs them, and
  * `maskSecretValue` exists so the UI can display a row without echoing one.
  */
-
+
+
 import { containsControlCharacters } from "./utils";
 
 export type McpTransport = "stdio" | "http" | "sse";
@@ -153,6 +154,21 @@ export function createMcpServer(
   };
 }
 
+export function isFigmaCatalogRestrictedMcpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      (parsed.hostname === "mcp.figma.com" && parsed.pathname === "/mcp") ||
+      ((parsed.hostname === "127.0.0.1" ||
+        parsed.hostname === "localhost") &&
+        parsed.port === "3845" &&
+        parsed.pathname === "/mcp")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function normalizeStringList(raw: unknown, limit: number, valueLimit: number) {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -183,7 +199,7 @@ export function normalizeMcpServer(raw: unknown): McpServerConfig {
       ? Math.round(raw.timeoutMs)
       : null;
 
-  return {
+  const normalized = {
     id: cleanText(raw.id, MCP_MAX_NAME_LENGTH) || createMcpServerId(),
     name: cleanText(raw.name, MCP_MAX_NAME_LENGTH),
     enabled: raw.enabled === true,
@@ -211,6 +227,14 @@ export function normalizeMcpServer(raw: unknown): McpServerConfig {
     timeoutMs: timeout,
     allowWriteTools: raw.allowWriteTools === true,
   };
+  if (
+    normalized.url &&
+    isFigmaCatalogRestrictedMcpUrl(normalized.url)
+  ) {
+    normalized.enabled = false;
+    normalized.trusted = false;
+  }
+  return normalized;
 }
 
 export function normalizeMcpServers(raw: unknown): McpServerConfig[] {
@@ -249,6 +273,9 @@ function endpointError(url: string): string | null {
     return "The URL must not embed a username or password.";
   }
   if (!parsed.hostname) return "The URL must include a host name.";
+  if (isFigmaCatalogRestrictedMcpUrl(url)) {
+    return "Figma only accepts MCP clients listed in its MCP Catalog. Use the Figma REST/PAT workflow instead.";
+  }
   if (
     parsed.protocol === "http:" &&
     !LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase())
@@ -392,7 +419,15 @@ export function validateMcpServers(
 export function activeMcpServers(
   servers: readonly McpServerConfig[]
 ): McpServerConfig[] {
-  return servers.filter((server) => server.enabled && server.trusted);
+  return servers.filter(
+    (server) =>
+      server.enabled &&
+      server.trusted &&
+      !(
+        server.url &&
+        isFigmaCatalogRestrictedMcpUrl(server.url)
+      )
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -525,11 +560,14 @@ export function toMcpWirePayload(
 ): McpServerWirePayload[] {
   const includeSecrets = options.includeSecrets !== false;
   return servers.slice(0, MAX_MCP_SERVERS).map((server) => {
+    const blockedByCatalog = Boolean(
+      server.url && isFigmaCatalogRestrictedMcpUrl(server.url)
+    );
     const payload: McpServerWirePayload = {
       id: server.id,
       name: server.name.trim(),
-      enabled: server.enabled,
-      trusted: server.trusted,
+      enabled: blockedByCatalog ? false : server.enabled,
+      trusted: blockedByCatalog ? false : server.trusted,
       transport: server.transport,
       allowWriteTools: server.allowWriteTools,
     };

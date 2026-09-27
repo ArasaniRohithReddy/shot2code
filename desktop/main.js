@@ -2,6 +2,7 @@ const {
   app,
   BrowserWindow,
   Menu,
+  screen,
   shell,
   dialog,
   ipcMain,
@@ -33,6 +34,13 @@ const {
 } = require("./app-menu");
 const { GitHubOAuthManager } = require("./github-oauth");
 const { createBackendAuthRestarter } = require("./backend-auth-restart");
+const { submitFeedback } = require("./feedback");
+const {
+  MIN_WINDOW_HEIGHT,
+  MIN_WINDOW_WIDTH,
+  WINDOW_STATE_FILE_NAME,
+  createWindowStateStore,
+} = require("./window-state");
 
 const untrustedPreloadPath = path.join(__dirname, "untrusted-preload.js");
 
@@ -47,6 +55,7 @@ const isManagedInstall =
 
 let backendProcess = null;
 let mainWindow = null;
+let windowStateStore = null;
 let splashWindow = null;
 let logStream = null;
 let desktopUpdater = null;
@@ -462,11 +471,24 @@ function initAutoUpdate() {
 }
 
 function createWindow() {
+  windowStateStore = createWindowStateStore({
+    filePath: path.join(app.getPath("userData"), WINDOW_STATE_FILE_NAME),
+    log,
+  });
+  // `screen` is only safe after `app.ready`, which is where this runs.
+  const restored = windowStateStore.load(
+    screen.getAllDisplays().map((display) => ({ workArea: display.workArea }))
+  );
+
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
+    width: restored.width,
+    height: restored.height,
+    // A null position means "no usable saved position"; Electron centres it.
+    ...(restored.x === null || restored.y === null
+      ? {}
+      : { x: restored.x, y: restored.y }),
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     backgroundColor: "#000000",
     show: false,
     webPreferences: {
@@ -478,7 +500,30 @@ function createWindow() {
 
   mainWindow.once("ready-to-show", () => {
     closeSplash();
+    // Maximize before showing: maximizing a visible window animates, and the
+    // renderer would lay out twice at two different sizes.
+    if (restored.maximized) mainWindow.maximize();
     mainWindow.show();
+  });
+
+  // `getNormalBounds()` is the restore box, so a maximized or snapped window
+  // still remembers the size to come back to.
+  const rememberWindowState = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    windowStateStore?.scheduleSave({
+      bounds: mainWindow.getNormalBounds(),
+      isMaximized: mainWindow.isMaximized(),
+      isMinimized: mainWindow.isMinimized(),
+      isFullScreen: mainWindow.isFullScreen(),
+    });
+  };
+  mainWindow.on("resize", rememberWindowState);
+  mainWindow.on("move", rememberWindowState);
+  mainWindow.on("maximize", rememberWindowState);
+  mainWindow.on("unmaximize", rememberWindowState);
+  mainWindow.on("close", () => {
+    rememberWindowState();
+    windowStateStore?.flush();
   });
 
   // Surface renderer failures in the log. Without these a blank window gives
@@ -547,6 +592,8 @@ function createWindow() {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+    windowStateStore?.dispose();
+    windowStateStore = null;
     // The next window starts with no project, so the menu must not keep
     // offering Export and the workspace views from the previous one.
     if (appMenu) appMenu.setState({ ...DEFAULT_MENU_STATE, hasProject: false });
@@ -663,6 +710,13 @@ if (!app.requestSingleInstanceLock()) {
           elapsedMs: Date.now() - startedAt,
         });
       });
+      ipcMain.handle("shot2code:submit-feedback", (_event, payload) =>
+        submitFeedback(payload || {}, {
+          appVersion: app.getVersion(),
+          platform: process.platform,
+          arch: process.arch,
+        })
+      );
     });
     ipcMain.handle("shot2code:github-oauth-start", () => githubOAuth.start());
     ipcMain.handle("shot2code:github-oauth-status", async () => {

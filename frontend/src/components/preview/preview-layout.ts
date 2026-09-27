@@ -119,3 +119,139 @@ export function computePreviewCanvasLayout({
     iframeHeight: scale > 0 ? height / scale : height,
   };
 }
+
+/**
+ * The raw numbers a DOM element reports about its box.
+ *
+ * `clientWidth`/`clientHeight` are *rounded* integers, while the real content
+ * box is fractional in any window that is not maximised (and on every
+ * non-integer Windows display scale). Writing the rounded-up value back as the
+ * canvas size overflows the real box by a fraction of a pixel, which summons a
+ * scrollbar, shrinks the viewport, changes the fit ratio and starts the loop
+ * again — the flicker this type exists to prevent.
+ */
+export interface PreviewViewportBox {
+  /** Fractional border-box size from `getBoundingClientRect()`. */
+  rectWidth: number;
+  rectHeight: number;
+  /** Rounded border-box size; only the gap to `client*` is used. */
+  offsetWidth: number;
+  offsetHeight: number;
+  /** Rounded content-box size, i.e. border-box minus borders and scrollbars. */
+  clientWidth: number;
+  clientHeight: number;
+}
+
+export interface PreviewViewportSize {
+  width: number;
+  height: number;
+}
+
+function finite(value: number) {
+  return Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Resolves the usable content box, floored to whole pixels.
+ *
+ * Flooring guarantees the canvas is never wider or taller than the box that
+ * holds it, so a sub-pixel overflow can never create the scrollbar that would
+ * feed back into the next measurement.
+ */
+export function resolvePreviewViewportSize(
+  box: PreviewViewportBox
+): PreviewViewportSize {
+  const gutterX = Math.max(0, finite(box.offsetWidth) - finite(box.clientWidth));
+  const gutterY = Math.max(
+    0,
+    finite(box.offsetHeight) - finite(box.clientHeight)
+  );
+
+  return {
+    width: Math.max(0, Math.floor(finite(box.rectWidth) - gutterX)),
+    height: Math.max(0, Math.floor(finite(box.rectHeight) - gutterY)),
+  };
+}
+
+const SCALE_PRECISION = 10_000;
+
+/**
+ * Snaps a layout to the precision that is actually written to the DOM, so two
+ * measurements that differ only in float noise compare equal and no style is
+ * rewritten.
+ */
+export function roundPreviewCanvasLayout(
+  layout: PreviewCanvasLayout
+): PreviewCanvasLayout {
+  const scale = Math.round(layout.scale * SCALE_PRECISION) / SCALE_PRECISION;
+
+  return {
+    scale,
+    canvasWidth: Math.round(layout.canvasWidth),
+    canvasHeight: Math.round(layout.canvasHeight),
+    iframeWidth: Math.round(layout.iframeWidth),
+    // The document must never be shorter than the canvas it fills; the canvas
+    // clips the overhang, so rounding up is free.
+    iframeHeight: Math.ceil(layout.iframeHeight),
+  };
+}
+
+export function isSamePreviewCanvasLayout(
+  left: PreviewCanvasLayout,
+  right: PreviewCanvasLayout
+): boolean {
+  return (
+    left.scale === right.scale &&
+    left.canvasWidth === right.canvasWidth &&
+    left.canvasHeight === right.canvasHeight &&
+    left.iframeWidth === right.iframeWidth &&
+    left.iframeHeight === right.iframeHeight
+  );
+}
+
+export type PreviewLayoutUpdate =
+  | { action: "skip"; reason: "hidden" | "unchanged" }
+  | { action: "apply"; layout: PreviewCanvasLayout };
+
+/**
+ * Decides what a single resize observation should do.
+ *
+ * Kept pure and separate from the component so the flicker cases — a hidden
+ * tab reporting nothing, a scrollbar appearing and disappearing, a fractional
+ * window height — can be driven deterministically in a test.
+ */
+export function resolvePreviewLayoutUpdate({
+  device,
+  viewMode,
+  customScale,
+  box,
+  applied,
+}: {
+  device: PreviewDevice;
+  viewMode: PreviewViewMode;
+  customScale?: number;
+  box: PreviewViewportBox;
+  applied: PreviewCanvasLayout | null;
+}): PreviewLayoutUpdate {
+  const { width, height } = resolvePreviewViewportSize(box);
+  // A hidden or not-yet-laid-out pane measures zero. Applying that would
+  // collapse the canvas to 0px, or fall back to an unscaled 100% canvas, and
+  // then visibly snap back when the pane appears.
+  if (width <= 0 || height <= 0) return { action: "skip", reason: "hidden" };
+
+  const layout = roundPreviewCanvasLayout(
+    computePreviewCanvasLayout({
+      device,
+      viewMode,
+      customScale,
+      viewportWidth: width,
+      viewportHeight: height,
+    })
+  );
+
+  if (applied && isSamePreviewCanvasLayout(applied, layout)) {
+    return { action: "skip", reason: "unchanged" };
+  }
+
+  return { action: "apply", layout };
+}

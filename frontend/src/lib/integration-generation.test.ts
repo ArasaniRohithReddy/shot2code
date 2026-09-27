@@ -30,6 +30,16 @@ import {
 } from "./integrations";
 import { toGenerationSettings } from "./generation-settings";
 import { createMcpServer } from "./mcp-servers";
+import { DEFAULT_WEB_SEARCH_SETTINGS } from "./web-search";
+import {
+  DEFAULT_FREE_IMAGE_SEARCH_SETTINGS,
+  toFreeImageSearchWirePayload,
+} from "./free-image-search";
+import {
+  DEFAULT_IMAGE_GENERATION_SETTINGS,
+  stripImageGenerationSecrets,
+  toImageGenerationWirePayload,
+} from "./image-providers";
 import {
   buildHistoryProjectSnapshot,
   commitToHistoryVersion,
@@ -42,12 +52,18 @@ const DIRECT_ANTHROPIC_KEY = "sk-direct-anthropic-value";
 const BYOK_KEY = "byok-dedicated-key-value";
 const MCP_ENV_SECRET = "mcp-env-token-value";
 const MCP_HEADER_SECRET = "mcp-header-token-value";
+const WEB_SEARCH_KEY = "tvly-web-search-key-value";
+const CLOUDFLARE_TOKEN = "cloudflare-image-token-value";
+const IMAGE_ENDPOINT_KEY = "image-endpoint-key-value";
 const SECRETS = [
   DIRECT_OPENAI_KEY,
   DIRECT_ANTHROPIC_KEY,
   BYOK_KEY,
   MCP_ENV_SECRET,
   MCP_HEADER_SECRET,
+  WEB_SEARCH_KEY,
+  CLOUDFLARE_TOKEN,
+  IMAGE_ENDPOINT_KEY,
 ];
 
 const OPENAI_BASE = "gpt-5.6-sol (high thinking)";
@@ -104,6 +120,23 @@ function settingsFixture(): Settings {
         headers: { Authorization: MCP_HEADER_SECRET },
       }),
     ],
+    webSearch: {
+      ...DEFAULT_WEB_SEARCH_SETTINGS,
+      enabled: true,
+      provider: "tavily",
+      accessMode: "api-key",
+      apiKey: WEB_SEARCH_KEY,
+    },
+    imageGeneration: {
+      ...DEFAULT_IMAGE_GENERATION_SETTINGS,
+      provider: "cloudflare",
+      model: "@cf/black-forest-labs/flux-1-schnell",
+      cloudflareAccountId: "0123456789abcdef0123456789abcdef",
+      cloudflareApiToken: CLOUDFLARE_TOKEN,
+      openAiImageBaseUrl: "https://images.example.com/v1",
+      openAiImageApiKey: IMAGE_ENDPOINT_KEY,
+    },
+    freeImageSearch: { ...DEFAULT_FREE_IMAGE_SEARCH_SETTINGS, enabled: true },
   };
 }
 
@@ -121,12 +154,23 @@ function generationParams(
     {
       copilotSdkByok: settings.copilotSdkByok,
       mcpServers: settings.mcpServers,
+      webSearch: settings.webSearch,
     },
     settings.selectedModels
   );
-  const { copilotSdkByok, mcpServers, ...directSettings } = settings;
+  const {
+    copilotSdkByok,
+    mcpServers,
+    webSearch,
+    imageGeneration,
+    freeImageSearch,
+    ...directSettings
+  } = settings;
   void copilotSdkByok;
   void mcpServers;
+  void webSearch;
+  void imageGeneration;
+  void freeImageSearch;
   return {
     ...directSettings,
     generationType: "create",
@@ -137,6 +181,9 @@ function generationParams(
     copilotModels: integrations.selectedModels,
     copilotSdkByok: integrations.copilotSdkByok,
     mcpServers: integrations.mcpServers,
+    webSearch: integrations.webSearch,
+    imageGeneration: toImageGenerationWirePayload(settings.imageGeneration),
+    freeImageSearch: toFreeImageSearchWirePayload(settings.freeImageSearch),
     ...(overrides.retryModels
       ? { retryModelSelections: buildModelSelections(overrides.retryModels) }
       : {}),
@@ -284,6 +331,48 @@ describe("the WebSocket generation payload", () => {
     expect(serialized).not.toContain("screenshotOneApiKey");
     expect(serialized).not.toContain("figmaAccessToken");
     expect(serialized).not.toContain("stitchApiKey");
+  });
+
+  test("image credentials travel only in the rebuilt image block", () => {
+    const settings = settingsFixture();
+    // Spreading the settings object would smuggle every image credential into
+    // every request; `toGenerationSettings` drops the raw block so the wire
+    // payload is the only path.
+    const spreadable = JSON.stringify(toGenerationSettings(settings));
+    expect(spreadable).not.toContain(CLOUDFLARE_TOKEN);
+    expect(spreadable).not.toContain(IMAGE_ENDPOINT_KEY);
+
+    const payload = sendAndCapture(generationParams(settings));
+    const image = payload.imageGeneration as Record<string, unknown>;
+    expect(image.provider).toBe("cloudflare");
+    expect(image.cloudflareApiToken).toBe(CLOUDFLARE_TOKEN);
+    expect(image.openAiImageApiKey).toBe(IMAGE_ENDPOINT_KEY);
+  });
+
+  test("choosing another image provider leaves the Replicate key alone", () => {
+    // Additive, not a re-route: Replicate still runs background removal.
+    const payload = sendAndCapture(generationParams(settingsFixture()));
+    expect(payload.replicateApiKey).toBe("replicate-value");
+    expect(
+      (payload.imageGeneration as Record<string, unknown>).provider
+    ).toBe("cloudflare");
+  });
+
+  test("a stripped image block keeps its shape and loses every credential", () => {
+    const stripped = stripImageGenerationSecrets(
+      settingsFixture().imageGeneration
+    );
+    const serialized = JSON.stringify(stripped);
+
+    expect(stripped.provider).toBe("cloudflare");
+    expect(stripped.model).toBe("@cf/black-forest-labs/flux-1-schnell");
+    expect(serialized).not.toContain(CLOUDFLARE_TOKEN);
+    expect(serialized).not.toContain(IMAGE_ENDPOINT_KEY);
+    // The account id is a credential half too, so it is dropped rather than
+    // blanked - the same rule the BYOK and web-search blocks follow.
+    expect(stripped.cloudflareAccountId).toBeUndefined();
+    expect(stripped.cloudflareApiToken).toBeUndefined();
+    expect(stripped.openAiImageApiKey).toBeUndefined();
   });
 
   test("a retry replays each identity with its own runtime", () => {

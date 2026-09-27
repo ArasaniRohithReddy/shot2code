@@ -5,10 +5,16 @@ import {
   computePreviewCanvasLayout,
   DESKTOP_VIEWPORT_WIDTH,
   formatPreviewZoomPercent,
+  isSamePreviewCanvasLayout,
   MAX_PREVIEW_ZOOM,
   MIN_PREVIEW_ZOOM,
   MOBILE_VIEWPORT_WIDTH,
+  resolvePreviewLayoutUpdate,
+  resolvePreviewViewportSize,
+  roundPreviewCanvasLayout,
   stepPreviewZoom,
+  type PreviewCanvasLayout,
+  type PreviewViewportBox,
 } from "./preview-layout";
 
 describe("preview canvas layout", () => {
@@ -228,5 +234,241 @@ describe("preview zoom stepping", () => {
     expect(formatPreviewZoomPercent(0.1)).toBe(10);
     expect(formatPreviewZoomPercent(0)).toBe(100);
     expect(formatPreviewZoomPercent(Number.NaN)).toBe(100);
+  });
+});
+
+/** A viewport with no scrollbars and no borders. */
+function box(
+  rectWidth: number,
+  rectHeight: number,
+  gutter: { x?: number; y?: number } = {}
+): PreviewViewportBox {
+  const gutterX = gutter.x ?? 0;
+  const gutterY = gutter.y ?? 0;
+  return {
+    rectWidth,
+    rectHeight,
+    offsetWidth: Math.round(rectWidth),
+    offsetHeight: Math.round(rectHeight),
+    // `client*` is the rounded content box, i.e. border box minus the gutter.
+    clientWidth: Math.round(rectWidth) - gutterX,
+    clientHeight: Math.round(rectHeight) - gutterY,
+  };
+}
+
+describe("preview viewport measurement", () => {
+  it("floors a fractional box so the canvas can never overflow it", () => {
+    // A non-maximised window at 125% display scale: the content box is 699.6px
+    // tall but `clientHeight` rounds up to 700. Writing 700 back would overflow
+    // by 0.4px, raise a scrollbar and change the next measurement.
+    expect(resolvePreviewViewportSize(box(1055.4, 699.6))).toEqual({
+      width: 1055,
+      height: 699,
+    });
+  });
+
+  it("subtracts the scrollbar gutter from the measured box", () => {
+    expect(
+      resolvePreviewViewportSize(box(1000, 700, { x: 15, y: 15 }))
+    ).toEqual({ width: 985, height: 685 });
+  });
+
+  it("reports nothing for a hidden pane or unusable numbers", () => {
+    expect(resolvePreviewViewportSize(box(0, 0))).toEqual({
+      width: 0,
+      height: 0,
+    });
+    expect(
+      resolvePreviewViewportSize({
+        rectWidth: Number.NaN,
+        rectHeight: Number.NaN,
+        offsetWidth: Number.NaN,
+        offsetHeight: Number.NaN,
+        clientWidth: Number.NaN,
+        clientHeight: Number.NaN,
+      })
+    ).toEqual({ width: 0, height: 0 });
+  });
+});
+
+describe("preview layout updates", () => {
+  const desktopFit = {
+    device: "desktop",
+    viewMode: "fit",
+  } as const;
+
+  function apply(
+    boxes: PreviewViewportBox[],
+    options: {
+      device?: "desktop" | "mobile";
+      viewMode?: "fit" | "actual" | "custom";
+      customScale?: number;
+    } = {}
+  ) {
+    let applied: PreviewCanvasLayout | null = null;
+    const writes: PreviewCanvasLayout[] = [];
+    const skips: string[] = [];
+
+    for (const nextBox of boxes) {
+      const update = resolvePreviewLayoutUpdate({
+        device: options.device ?? "desktop",
+        viewMode: options.viewMode ?? "fit",
+        customScale: options.customScale,
+        box: nextBox,
+        applied,
+      });
+      if (update.action === "skip") {
+        skips.push(update.reason);
+        continue;
+      }
+      applied = update.layout;
+      writes.push(update.layout);
+    }
+
+    return { applied, writes, skips };
+  }
+
+  it("skips a hidden pane instead of collapsing the canvas to zero", () => {
+    const update = resolvePreviewLayoutUpdate({
+      ...desktopFit,
+      box: box(0, 0),
+      applied: null,
+    });
+
+    expect(update).toEqual({ action: "skip", reason: "hidden" });
+  });
+
+  it("keeps the last good geometry while the pane is hidden", () => {
+    const { applied, writes, skips } = apply([
+      box(1200, 800),
+      box(0, 0),
+      box(0, 0),
+    ]);
+
+    expect(writes).toHaveLength(1);
+    expect(skips).toEqual(["hidden", "hidden"]);
+    expect(applied?.canvasHeight).toBe(800);
+  });
+
+  it("writes once for a repeated measurement", () => {
+    const { writes, skips } = apply([
+      box(1200, 800),
+      box(1200, 800),
+      box(1200, 800),
+    ]);
+
+    expect(writes).toHaveLength(1);
+    expect(skips).toEqual(["unchanged", "unchanged"]);
+  });
+
+  it("ignores sub-pixel jitter that rounds to the same geometry", () => {
+    const { writes } = apply([
+      box(1055.4, 699.6),
+      box(1055.49, 699.51),
+      box(1055.2, 699.9),
+    ]);
+
+    expect(writes).toHaveLength(1);
+  });
+
+  it("settles instead of oscillating when a scrollbar appears and goes", () => {
+    // The classic feedback loop: a scrollbar steals 15px, the fit ratio
+    // changes, the canvas shrinks, the scrollbar goes, and round it goes.
+    const withScrollbar = box(1200, 800, { y: 15 });
+    const withoutScrollbar = box(1200, 800);
+
+    const { writes } = apply([
+      withoutScrollbar,
+      withScrollbar,
+      withoutScrollbar,
+      withScrollbar,
+      withScrollbar,
+      withScrollbar,
+    ]);
+
+    // Each distinct measurement is applied once; a repeat of either is a skip,
+    // so the loop cannot run away.
+    expect(writes).toHaveLength(4);
+    expect(writes[1].canvasHeight).toBe(785);
+    expect(writes[2].canvasHeight).toBe(800);
+    expect(writes[3].canvasHeight).toBe(785);
+  });
+
+  it("never produces a canvas larger than the measured content box in fit mode", () => {
+    const measurements = [
+      box(1055.4, 699.6),
+      box(980.2, 651.7),
+      box(1366.9, 900.1),
+      box(644.5, 720.3),
+      box(1200, 800, { x: 15 }),
+    ];
+
+    for (const measurement of measurements) {
+      const size = resolvePreviewViewportSize(measurement);
+      const update = resolvePreviewLayoutUpdate({
+        ...desktopFit,
+        box: measurement,
+        applied: null,
+      });
+      if (update.action !== "apply") throw new Error("expected a layout");
+      expect(update.layout.canvasWidth).toBeLessThanOrEqual(size.width);
+      expect(update.layout.canvasHeight).toBeLessThanOrEqual(size.height);
+    }
+  });
+
+  it("still magnifies past the viewport for an explicit zoom", () => {
+    const update = resolvePreviewLayoutUpdate({
+      device: "desktop",
+      viewMode: "custom",
+      customScale: 2,
+      box: box(1200, 800),
+      applied: null,
+    });
+
+    if (update.action !== "apply") throw new Error("expected a layout");
+    expect(update.layout.canvasWidth).toBe(DESKTOP_VIEWPORT_WIDTH * 2);
+    expect(update.layout.iframeHeight).toBe(400);
+  });
+
+  it("re-applies when only the zoom changed, not the measurement", () => {
+    const measurement = box(1200, 800);
+    const fitted = resolvePreviewLayoutUpdate({
+      ...desktopFit,
+      box: measurement,
+      applied: null,
+    });
+    if (fitted.action !== "apply") throw new Error("expected a layout");
+
+    const zoomed = resolvePreviewLayoutUpdate({
+      device: "desktop",
+      viewMode: "custom",
+      customScale: 0.5,
+      box: measurement,
+      applied: fitted.layout,
+    });
+
+    expect(zoomed.action).toBe("apply");
+  });
+
+  it("rounds geometry to what the DOM actually receives", () => {
+    const rounded = roundPreviewCanvasLayout({
+      scale: 0.7723279648609077,
+      canvasWidth: 1054.99999999,
+      canvasHeight: 699.0000001,
+      iframeWidth: 1366,
+      iframeHeight: 905.0001,
+    });
+
+    expect(rounded).toEqual({
+      scale: 0.7723,
+      canvasWidth: 1055,
+      canvasHeight: 699,
+      iframeWidth: 1366,
+      iframeHeight: 906,
+    });
+    expect(isSamePreviewCanvasLayout(rounded, { ...rounded })).toBe(true);
+    expect(
+      isSamePreviewCanvasLayout(rounded, { ...rounded, canvasHeight: 700 })
+    ).toBe(false);
   });
 });

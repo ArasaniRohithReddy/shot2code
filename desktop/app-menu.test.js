@@ -280,6 +280,7 @@ test("Help reaches the app's own screens, the release hub and the log", () => {
   assert.deepEqual(submenuIds(template, "help"), [
     "help-center",
     "keyboard-shortcuts",
+    "send-feedback",
     "product-page",
     "user-guide",
     "releases",
@@ -289,8 +290,13 @@ test("Help reaches the app's own screens, the release hub and the log", () => {
   ]);
 
   findMenuItem(template, "help-center").click();
+  findMenuItem(template, "send-feedback").click();
   findMenuItem(template, "keyboard-shortcuts").click();
-  assert.deepEqual(send.calls, ["show-help", "show-keyboard-shortcuts"]);
+  assert.deepEqual(send.calls, [
+    "show-help",
+    "show-feedback",
+    "show-keyboard-shortcuts",
+  ]);
 
   for (const id of ["product-page", "user-guide", "releases", "report-issue"]) {
     findMenuItem(template, id).click();

@@ -50,6 +50,8 @@ for package in (
     "image_generation",
     "history",
     "skills",
+    "web_search",
+    "free_images",
 ):
     hiddenimports += collect_submodules(package)
 
@@ -68,6 +70,7 @@ hiddenimports += [
     "routes.project_context",
     "routes.mcp_registry",
     "routes.skills",
+    "routes.web_search",
 ]
 
 # Prompt templates and other non-Python assets live next to the source.

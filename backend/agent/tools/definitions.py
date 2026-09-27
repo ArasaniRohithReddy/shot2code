@@ -1,8 +1,10 @@
 from typing import Any, Dict, List
 
 from agent.tools.types import CanonicalToolDefinition
+from free_images.tool import free_image_search_tool_definition
 from image_generation.replicate import P_IMAGE_EDIT_ASPECT_RATIOS
 from uploaded_assets.tools import SAVE_ASSETS_TOOL_DEFINITION
+from web_search.tool import web_search_tool_definition
 
 
 def _create_schema() -> Dict[str, Any]:
@@ -190,6 +192,9 @@ def canonical_tool_definitions(
     image_editing_enabled: bool = True,
     asset_extraction_enabled: bool = True,
     screenshot_enabled: bool = True,
+    background_removal_enabled: bool = True,
+    web_search_enabled: bool = False,
+    free_image_search_enabled: bool = False,
 ) -> List[CanonicalToolDefinition]:
     tools: List[CanonicalToolDefinition] = [
         CanonicalToolDefinition(
@@ -215,25 +220,29 @@ def canonical_tool_definitions(
             CanonicalToolDefinition(
                 name="generate_images",
                 description=(
-                    "Generate image URLs from prompts using an image generation model. Prompt in detail, and when prompting for people, include details about their appearance such as their ethnicity, hair color, features, etc." +
-                    "You can pass multiple prompts at once."
+                    "Generate image URLs from prompts using an image generation "
+                    "model. Prompt in detail, and when prompting for people, "
+                    "include details about their appearance such as their "
+                    "ethnicity, hair color, features, etc. You can pass multiple "
+                    "prompts at once. Each prompt reports its own outcome: check "
+                    "every item's status, because some prompts can fail while "
+                    "others succeed."
                 ),
                 parameters=_image_schema(),
             )
         )
-    tools.extend(
-        [
+    if background_removal_enabled:
+        tools.append(
             CanonicalToolDefinition(
                 name="remove_backgrounds",
                 description=(
-                    "Remove the backgrounds from one or more images in one batch. Returns "
-                    "URLs to the processed images with transparent backgrounds in input "
-                    "order."
+                    "Remove the backgrounds from one or more images in one batch. "
+                    "Returns URLs to the processed images with transparent "
+                    "backgrounds in input order, with a per-image status."
                 ),
                 parameters=_remove_backgrounds_schema(),
-            ),
-        ]
-    )
+            )
+        )
     if image_editing_enabled:
         tools.append(
             CanonicalToolDefinition(
@@ -278,6 +287,29 @@ def canonical_tool_definitions(
                     "requested design. Screenshots are returned as attached images."
                 ),
                 parameters=_screenshot_preview_schema(),
+            )
+        )
+    if web_search_enabled:
+        # Described by web_search.tool so one definition serves every runtime,
+        # and wrapped here so that package never has to import agent types.
+        search_tool = web_search_tool_definition()
+        tools.append(
+            CanonicalToolDefinition(
+                name=search_tool.name,
+                description=search_tool.description,
+                parameters=search_tool.parameters,
+            )
+        )
+    if free_image_search_enabled:
+        # A separate tool from generate_images on purpose: one invents a
+        # picture, this one finds a real public-domain photograph. Described by
+        # free_images.tool so one definition serves every runtime.
+        free_image_tool = free_image_search_tool_definition()
+        tools.append(
+            CanonicalToolDefinition(
+                name=free_image_tool.name,
+                description=free_image_tool.description,
+                parameters=free_image_tool.parameters,
             )
         )
     tools.extend(

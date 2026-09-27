@@ -326,6 +326,22 @@ def _is_loopback(host: str) -> bool:
     return host in {"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"}
 
 
+def _is_figma_catalog_restricted_mcp_url(url: str) -> bool:
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower()
+    return (
+        (host == "mcp.figma.com" and parts.path == "/mcp")
+        or (
+            host in {"localhost", "127.0.0.1"}
+            and parts.port == 3845
+            and parts.path == "/mcp"
+        )
+    )
+
+
 @dataclass(frozen=True)
 class IntegrationDiagnostic:
     """Why something the user configured is not being used, safely worded."""
@@ -1015,6 +1031,12 @@ def _parse_mcp_server(
                 "needs a url."
             )
         url = _validate_endpoint(url, f"MCP server '{name or identifier}' url")
+        if _is_figma_catalog_restricted_mcp_url(url) and (enabled or trusted):
+            raise _fail(
+                "Figma accepts MCP connections only from clients listed in its "
+                "MCP Catalog. Disable this server and use shot2code's Figma "
+                "REST/PAT workflow instead."
+            )
         headers = _parse_string_map(
             payload.get("headers"),
             f"mcpServers[{index}].headers",

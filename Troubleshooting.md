@@ -228,8 +228,49 @@ source was chosen or why the request failed.
 
 ## Features that need extra setup
 
-**Image generation and editing** need a Replicate key. It has to go in
-`backend/.env` as `REPLICATE_API_KEY`; it cannot be set from the UI.
+**Image generation and editing** need an image provider. Replicate is the
+default: put `REPLICATE_API_KEY` in `backend/.env` or paste the key in
+**Settings → Replicate API key**. Cloudflare Workers AI (account ID + API
+token) and any OpenAI-compatible image endpoint are optional alternatives
+configured in **Settings → Image Generation**; choosing one changes nothing
+about your existing keys.
+
+**"Generated 0 of 3 images"** means the provider answered but produced
+nothing, and the reason is on each tile: rate limited (wait, or ask for fewer
+images at once), no credit (top up on the provider's dashboard), bad
+credentials (recheck the key), or a timeout (try again). A partially successful
+batch keeps the images it did get and says how many.
+
+**"Background removal runs on Replicate only"** is literal. No other provider
+here has an equivalent endpoint and none is substituted, so `remove_backgrounds`
+is not offered without a Replicate key — even when images are being generated
+by Cloudflare or a custom endpoint.
+
+**A custom Replicate model is refused** when its published schema says it does
+not take a string `prompt`, does not return an image, or requires inputs
+shot2code does not send. Replicate models do not share one input schema, so the
+schema is checked rather than assumed.
+
+**No image provider configured at all?** Turn on **Settings → Free image
+search**. It needs no API key and no payment, and lets a model find real
+CC0/public-domain photographs through Openverse. Results are restricted to
+CC0 and Public Domain Mark so an exported project does not inherit an
+attribution, share-alike or non-commercial obligation, and every image is
+downloaded and served locally rather than hotlinked.
+
+**"No free images found"** means Openverse had nothing matching that subject
+under those two licences — far more of its index is CC-BY or share-alike, which
+shot2code excludes. Try a broader subject. **"Found 1 of 3"** means the rest
+were skipped because their URLs failed a safety check (a private address, a
+mismatched content type, or a file over the size limit).
+
+**"The model won't open a link"** is deliberate. Copilot's built-in `web_fetch`
+is not offered, because the Copilot SDK hands a built-in's result straight to
+the model and only tells shot2code afterwards — there is no point at which a
+whole fetched page could be capped, marked untrusted or budgeted. Any URL the
+Copilot runtime asks to open during a run is denied. Use **Web search (all
+models)** in Settings instead: shot2code runs that search itself, so results
+are capped, labelled and counted against a budget.
 
 **Video / screen-recording input** requires a Gemini key.
 

@@ -100,6 +100,25 @@ describe("defaults and normalisation", () => {
     expect(normalized.enabled).toBe(false);
     expect(normalized.trusted).toBe(false);
   });
+
+  test("catalog-restricted Figma MCP servers are disabled during migration", () => {
+    const normalized = normalizeMcpServer({
+      name: "Figma",
+      enabled: true,
+      trusted: true,
+      transport: "http",
+      url: "https://mcp.figma.com/mcp",
+    });
+
+    expect(normalized.enabled).toBe(false);
+    expect(normalized.trusted).toBe(false);
+    expect(validateMcpServer(normalized).url).toMatch(/MCP Catalog/);
+    expect(activeMcpServers([normalized])).toEqual([]);
+    expect(toMcpWirePayload([normalized])[0]).toMatchObject({
+      enabled: false,
+      trusted: false,
+    });
+  });
 });
 
 describe("server keys", () => {

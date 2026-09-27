@@ -2,7 +2,7 @@ import { HTTP_BACKEND_URL } from "../config";
 import {
   buildIntegrationValidationPayload,
   parseIntegrationValidation,
-  type IntegrationSettingsSlice,
+  type ByokMcpSettingsSlice,
   type IntegrationValidationResult,
 } from "./integrations";
 
@@ -16,7 +16,7 @@ import {
  * carries presence flags, host names and diagnostics.
  */
 export async function validateIntegrations(
-  settings: IntegrationSettingsSlice,
+  settings: ByokMcpSettingsSlice,
   options: { signal?: AbortSignal } = {}
 ): Promise<IntegrationValidationResult> {
   const response = await fetch(`${HTTP_BACKEND_URL}/api/integrations/validate`, {

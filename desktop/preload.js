@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld("__SHOT2CODE_APP__", {
     ),
   importStitch: (payload, onProgress) =>
     invokeStitchWithProgress("shot2code:stitch-import", payload, onProgress),
+  submitFeedback: (payload) =>
+    ipcRenderer.invoke("shot2code:submit-feedback", payload),
   startGitHubOAuth: () => ipcRenderer.invoke("shot2code:github-oauth-start"),
   getGitHubOAuthStatus: () =>
     ipcRenderer.invoke("shot2code:github-oauth-status"),

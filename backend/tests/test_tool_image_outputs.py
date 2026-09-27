@@ -203,12 +203,16 @@ async def test_generate_images_emits_url_parts(
 ) -> None:
     monkeypatch.setattr("agent.tools.runtime.REPLICATE_API_KEY", "fake-key")
 
-    async def fake_process_tasks(
-        prompts: List[str], api_key: str, base_url: Any, model: str
-    ) -> List[str]:
-        return [f"https://replicate.delivery/{p}.png" for p in prompts]
+    async def fake_generate_one(
+        prompt: str, settings: Any, asset_base_url: str
+    ) -> Any:
+        from image_generation.assets import NormalizedImage
 
-    monkeypatch.setattr("agent.tools.runtime.process_tasks", fake_process_tasks)
+        return NormalizedImage(
+            url=f"https://replicate.delivery/{prompt}.png", mime_type="image/png"
+        )
+
+    monkeypatch.setattr("image_generation.generation.generate_one", fake_generate_one)
     runtime = AgentToolRuntime(
         file_state=AgentFileState(),
         should_generate_images=True,
@@ -221,6 +225,8 @@ async def test_generate_images_emits_url_parts(
     assert result.multimodal_parts is not None
     assert result.multimodal_parts[0].image_url == "https://replicate.delivery/a logo.png"
     assert result.multimodal_parts[0].data is None
+    assert result.result["generated"] == 1
+    assert result.result["message"] == "Generated 1 image."
 
 
 @pytest.mark.asyncio
@@ -240,8 +246,9 @@ async def test_generate_images_does_not_fallback_to_openai_key(
     )
 
     assert result.ok is False
-    assert result.result == {"error": "No API key available for image generation."}
-    assert result.summary == {"error": "Missing image generation API key"}
+    assert "Replicate API key" in result.result["error"]
+    assert result.result["errorCategory"] == "credentials"
+    assert result.summary == {"error": "Missing image generation credentials"}
 
 
 @pytest.mark.asyncio
@@ -251,15 +258,17 @@ async def test_generate_images_uses_replicate_key_from_settings(
     monkeypatch.setattr("agent.tools.runtime.REPLICATE_API_KEY", None)
     captured: dict[str, Any] = {}
 
-    async def fake_process_tasks(
-        prompts: List[str], api_key: str, base_url: Any, model: str
-    ) -> List[str]:
-        captured["api_key"] = api_key
-        captured["base_url"] = base_url
+    async def fake_call_replicate(
+        payload: dict[str, Any], api_token: str, model: str = "z_image_turbo"
+    ) -> str:
+        captured["api_token"] = api_token
         captured["model"] = model
-        return [f"https://replicate.delivery/{p}.png" for p in prompts]
+        captured["payload"] = payload
+        return "https://replicate.delivery/a-logo.png"
 
-    monkeypatch.setattr("agent.tools.runtime.process_tasks", fake_process_tasks)
+    monkeypatch.setattr(
+        "image_generation.generation.call_replicate", fake_call_replicate
+    )
     runtime = AgentToolRuntime(
         file_state=AgentFileState(),
         should_generate_images=True,
@@ -272,11 +281,9 @@ async def test_generate_images_uses_replicate_key_from_settings(
     )
 
     assert result.ok is True
-    assert captured == {
-        "api_key": "replicate-from-ui",
-        "base_url": None,
-        "model": "flux",
-    }
+    assert captured["api_token"] == "replicate-from-ui"
+    assert captured["model"] == "z_image_turbo"
+    assert captured["payload"]["prompt"] == "a logo"
 
 
 @pytest.mark.asyncio
@@ -347,10 +354,12 @@ async def test_edit_images_error_summary_preserves_full_prompt_and_source_urls(
         )
     )
 
-    assert result.ok is True
+    assert result.ok is False
     assert result.summary["images"][0]["prompt"] == prompt
     assert result.summary["images"][0]["image_urls"] == [source_url]
     assert result.summary["images"][0]["status"] == "error"
+    assert result.summary["edited"] == 0
+    assert result.summary["message"] == "Edited 0 of 1 images."
 
 
 @pytest.mark.asyncio
@@ -393,7 +402,7 @@ async def test_edit_images_uses_replicate_key_from_settings(
 async def test_save_assets_emits_byte_parts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr("agent.tools.local_assets.LOCAL_ASSET_DIR", str(tmp_path))
+    monkeypatch.setattr("asset_urls.LOCAL_ASSET_DIR", str(tmp_path))
     (tmp_path / "asset_x.png").write_bytes(b"saved-image")
 
     class _Saved:

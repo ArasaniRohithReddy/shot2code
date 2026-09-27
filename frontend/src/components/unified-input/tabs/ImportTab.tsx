@@ -36,7 +36,12 @@ import {
 } from "../../../lib/project-import";
 
 export interface ImportTabProps {
-  importFromCode: (code: string, stack: Stack, instruction?: string) => void;
+  importFromCode: (
+    code: string,
+    stack: Stack,
+    instruction?: string,
+    titleHint?: string
+  ) => void;
   importProject?: (
     selection: Parameters<EditableProjectImportHandler>[0],
     instruction?: string
@@ -264,7 +269,12 @@ function ImportTab({
       );
       return;
     }
-    importFromCode(legacyEditableFile.content, projectStack, instruction);
+    importFromCode(
+      legacyEditableFile.content,
+      projectStack,
+      instruction,
+      analysis.project.name
+    );
   };
 
   return (

@@ -8,6 +8,7 @@ import {
 } from "react-icons/lu";
 import {
   FEATURED_MCP_TEMPLATES,
+  isFigmaCatalogRestrictedMcpUrl,
   registryEntryToServer,
   searchMcpRegistry,
   type McpRegistryEntry,
@@ -118,6 +119,12 @@ export default function McpMarketplace({
                       {template.note}
                     </p>
                   </div>
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100">
+                    Figma restricts both of its MCP transports to clients in the Figma MCP
+                    Catalog. shot2code therefore uses the documented REST/PAT workflow in
+                    the Figma tab instead of installing a connection that Figma will
+                    reject.
+                  </div>
                   <button
                     type="button"
                     disabled={atLimit || installed}
@@ -164,7 +171,9 @@ export default function McpMarketplace({
       )}
 
       <div className="mt-3 max-h-80 space-y-2 overflow-y-auto">
-        {results.map((entry) => {
+        {results
+          .filter((entry) => !isFigmaCatalogRestrictedMcpUrl(entry.url))
+          .map((entry) => {
           const installed = configuredUrls.has(entry.url);
           return (
             <article
@@ -206,7 +215,7 @@ export default function McpMarketplace({
               </div>
             </article>
           );
-        })}
+          })}
       </div>
     </section>
   );

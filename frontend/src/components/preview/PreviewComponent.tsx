@@ -10,7 +10,11 @@ import {
   parsePreviewToHostMessage,
   PREVIEW_SANDBOX,
 } from "../../lib/preview-bridge";
-import { computePreviewCanvasLayout, type PreviewViewMode } from "./preview-layout";
+import {
+  resolvePreviewLayoutUpdate,
+  type PreviewCanvasLayout,
+  type PreviewViewMode,
+} from "./preview-layout";
 
 interface Props {
   code: string;
@@ -35,6 +39,11 @@ function PreviewComponent({
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const previewIdRef = useRef(`${device}-${nanoid(10)}`);
   const previousNonceRef = useRef<string | null>(null);
+  // Last geometry actually written to the DOM. Comparing against it is what
+  // stops an unchanged measurement from rewriting styles or re-reporting a
+  // scale, which would re-render the toolbar on every observer callback.
+  const appliedLayoutRef = useRef<PreviewCanvasLayout | null>(null);
+  const layoutFrameRef = useRef<number | null>(null);
   const throttledCode = useThrottle(code, 200);
   const activeMode = viewMode ?? "fit";
   const {
@@ -122,21 +131,34 @@ function PreviewComponent({
   }, [postBridgeState]);
 
   useEffect(() => {
-    const updateScale = () => {
-      const viewport = viewportRef.current;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const applyLayout = () => {
+      layoutFrameRef.current = null;
       const canvas = canvasRef.current;
       const iframe = iframeRef.current;
-      if (!viewport || !canvas || !iframe) return;
+      if (!canvas || !iframe) return;
 
-      const layout = computePreviewCanvasLayout({
+      const rect = viewport.getBoundingClientRect();
+      const update = resolvePreviewLayoutUpdate({
         device,
         viewMode: activeMode,
         customScale,
-        viewportWidth: viewport.clientWidth,
-        viewportHeight: viewport.clientHeight,
+        box: {
+          rectWidth: rect.width,
+          rectHeight: rect.height,
+          offsetWidth: viewport.offsetWidth,
+          offsetHeight: viewport.offsetHeight,
+          clientWidth: viewport.clientWidth,
+          clientHeight: viewport.clientHeight,
+        },
+        applied: appliedLayoutRef.current,
       });
+      if (update.action === "skip") return;
 
-      onScaleChange?.(layout.scale);
+      const { layout } = update;
+      appliedLayoutRef.current = layout;
 
       canvas.style.width = `${layout.canvasWidth}px`;
       canvas.style.height = `${layout.canvasHeight}px`;
@@ -145,16 +167,36 @@ function PreviewComponent({
       iframe.style.height = `${layout.iframeHeight}px`;
       iframe.style.transform = `scale(${layout.scale})`;
       iframe.style.transformOrigin = "top left";
+
+      // Reported last, and only for geometry that really changed, so the
+      // toolbar percentage cannot feed a re-render back into this loop.
+      onScaleChange?.(layout.scale);
     };
 
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    const resizeObserver = new ResizeObserver(updateScale);
-    if (viewportRef.current) resizeObserver.observe(viewportRef.current);
+    const scheduleLayout = () => {
+      if (layoutFrameRef.current !== null) return;
+      layoutFrameRef.current = window.requestAnimationFrame(applyLayout);
+    };
+
+    // A view-mode or zoom change has to land in the same frame as the click,
+    // so the first pass is synchronous; observer callbacks are coalesced.
+    applyLayout();
+
+    // No `window.resize` listener: the observer already fires for every box
+    // change, including window resizes, pane collapses and scrollbar gutters.
+    // Listening to both ran the layout pass twice per frame for one change.
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleLayout);
+    observer?.observe(viewport);
 
     return () => {
-      window.removeEventListener("resize", updateScale);
-      resizeObserver.disconnect();
+      if (layoutFrameRef.current !== null) {
+        window.cancelAnimationFrame(layoutFrameRef.current);
+        layoutFrameRef.current = null;
+      }
+      observer?.disconnect();
     };
   }, [activeMode, customScale, device, onScaleChange]);
 

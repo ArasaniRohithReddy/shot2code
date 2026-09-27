@@ -31,6 +31,17 @@ Type checking (must stay clean for files you touch):
 uv run pyright
 ```
 
+Web search (provider-neutral `search_web` tool):
+
+```bash
+uv run pytest tests/test_web_search.py
+```
+
+Every provider adapter is stubbed at the HTTP transport, so this suite makes no
+network request and needs no Tavily or Exa key. It covers tool serialization
+for all five runtimes, gating, the per-turn and per-generation budgets, secret
+stripping, response bounding, error mapping and the Copilot built-in collision.
+
 Export-specific validation:
 
 ```bash

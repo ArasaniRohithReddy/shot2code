@@ -17,24 +17,25 @@ function render(
 }
 
 describe("Help centre panels", () => {
-  it("exposes four tabs, starting on Get started", () => {
+  it("exposes five tabs, starting on Get started", () => {
     const html = render();
 
     expect(html).toContain('role="tablist"');
     expect(html).toContain('data-testid="help-tab-get-started"');
     expect(html).toContain('data-testid="help-tab-guides"');
     expect(html).toContain('data-testid="help-tab-support"');
+    expect(html).toContain('data-testid="help-tab-feedback"');
     expect(html).toContain('data-testid="help-tab-shortcuts"');
     expect(html).toContain("Get started");
     expect(html).toContain("Keyboard shortcuts");
-    expect(html.match(/role="tab"/g)).toHaveLength(4);
+    expect(html.match(/role="tab"/g)).toHaveLength(5);
   });
 
   it("keeps every tab a 44px target", () => {
     const html = render();
     const triggers = html.match(/role="tab"[^>]*/g) ?? [];
 
-    expect(triggers).toHaveLength(4);
+    expect(triggers).toHaveLength(5);
     for (const trigger of triggers) {
       expect(trigger).toMatch(/\bmin-h-11\b/);
     }
@@ -155,5 +156,16 @@ describe("Help centre panels", () => {
     expect(shortcuts).not.toContain("Connect a model");
     expect(getStarted).toContain("Connect a model");
     expect(getStarted).not.toContain("Move a workspace divider");
+  });
+
+  it("keeps bug, feature and general feedback inside the app", () => {
+    const html = render({ initialTab: "feedback" });
+
+    expect(html).toContain('data-testid="feedback-form"');
+    expect(html).toContain("Bug");
+    expect(html).toContain("Feature request");
+    expect(html).toContain("General feedback");
+    expect(html).toContain("No username");
+    expect(html).toContain("never attaches");
   });
 });

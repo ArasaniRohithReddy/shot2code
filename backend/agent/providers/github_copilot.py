@@ -37,6 +37,7 @@ from costs.token_usage import TokenUsage
 from fs_logging.agent_runs import AgentRunRecorder
 from integrations.copilot_sdk import (
     MAX_PROGRESS_CHARS,
+    assert_no_blocked_builtins,
     mcp_tool_display_name,
     redact_tool_arguments,
     summarize_tool_output,
@@ -562,7 +563,15 @@ class CopilotProviderSession(ProviderSession):
         return self._session
 
     def _available_tools(self) -> "copilot.ToolSet":
-        """Only shot2code's own tools, plus MCP when trusted servers exist."""
+        """Only shot2code's own tools, plus MCP when trusted servers exist.
+
+        Built-ins are added one at a time and never by a loop over settings:
+        ``web_search`` because the user asked for it and its results are at
+        least visible in the activity feed, ``skill`` because it is in the
+        SDK's own isolated set. ``web_fetch`` is deliberately absent - see
+        ``BLOCKED_BUILTIN_TOOLS`` for the evidence - and the assertion below
+        makes that a property of the returned set rather than of this reading.
+        """
         tool_set = copilot.ToolSet().add_custom("*")
         if self._allow_web_search:
             tool_set = tool_set.add_builtin("web_search")
@@ -570,7 +579,7 @@ class CopilotProviderSession(ProviderSession):
             tool_set = tool_set.add_builtin("skill")
         if self._mcp_servers:
             tool_set = tool_set.add_mcp("*")
-        return tool_set
+        return assert_no_blocked_builtins(tool_set)
 
     async def _run_send(self) -> str:
         session = await self._ensure_session()

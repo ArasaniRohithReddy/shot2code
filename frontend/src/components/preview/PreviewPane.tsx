@@ -65,6 +65,17 @@ import {
   stepPreviewZoom,
   type PreviewViewMode,
 } from "./preview-layout";
+import { usePersistedState } from "../../hooks/usePersistedState";
+import {
+  normalizePreviewSource,
+  normalizePreviewViewMode,
+  normalizePreviewZoom,
+  PREVIEW_DESKTOP_VIEW_MODE_STORAGE_KEY,
+  PREVIEW_DESKTOP_ZOOM_STORAGE_KEY,
+  PREVIEW_SOURCE_STORAGE_KEY,
+  type PreviewSource,
+  type PreviewTab,
+} from "./preview-preferences";
 
 function escapeSrcDocAttribute(value: string) {
   return value
@@ -115,8 +126,7 @@ interface Props {
   ) => void;
 }
 
-export type PreviewTab = "desktop" | "mobile" | "review" | "code";
-type PreviewSource = "html" | "stack";
+export type { PreviewTab };
 
 function PreviewArtifactNotice({
   artifact,
@@ -233,13 +243,25 @@ function PreviewPane({
     setVariantFileContent,
   } = useProjectStore();
   const [desktopScale, setDesktopScale] = useState(1);
-  const [desktopViewMode, setDesktopViewMode] =
-    useState<PreviewViewMode>("fit");
-  // Zoom the user typed in with the +/- buttons; only read while the mode is
+  // View preferences survive a restart; the value is validated on read so a
+  // stale or hand-edited entry shows a sane canvas without being destroyed.
+  const [storedDesktopViewMode, setDesktopViewMode] =
+    usePersistedState<PreviewViewMode>(
+      "fit",
+      PREVIEW_DESKTOP_VIEW_MODE_STORAGE_KEY
+    );
+  // Zoom the user dialled in with the +/- buttons; only read while the mode is
   // `custom`, so Fit and 100% stay one click away without losing it.
-  const [desktopZoom, setDesktopZoom] = useState(1);
+  const [storedDesktopZoom, setDesktopZoom] = usePersistedState<number>(
+    1,
+    PREVIEW_DESKTOP_ZOOM_STORAGE_KEY
+  );
+  const desktopViewMode = normalizePreviewViewMode(storedDesktopViewMode);
+  const desktopZoom = normalizePreviewZoom(storedDesktopZoom);
   const [previewRefreshToken, setPreviewRefreshToken] = useState(0);
-  const [previewSource, setPreviewSource] = useState<PreviewSource>("html");
+  const [storedPreviewSource, setPreviewSource] =
+    usePersistedState<PreviewSource>("html", PREVIEW_SOURCE_STORAGE_KEY);
+  const previewSource = normalizePreviewSource(storedPreviewSource);
   // Below `sm` the 1366px canvas at 100% is unusable, so the choice is hidden
   // and the preview stays scaled instead of stranding the user at 100%.
   const canChooseDesktopZoom = useMediaQuery(SM_MEDIA_QUERY);
@@ -260,7 +282,7 @@ function PreviewPane({
       setDesktopZoom(stepPreviewZoom(zoomStepBase, direction));
       setDesktopViewMode("custom");
     },
-    [zoomStepBase]
+    [setDesktopViewMode, setDesktopZoom, zoomStepBase]
   );
 
   // Sorted commit list for version navigation
@@ -297,6 +319,11 @@ function PreviewPane({
     controller: AbortController;
     promise: Promise<ExportPreview | null>;
   } | null>(null);
+  // A stack preference restored from storage has no artifact behind it yet.
+  // This is true for exactly one restoration attempt; afterwards the pane
+  // behaves as before and a stack or project change drops back to HTML rather
+  // than silently re-exporting on every version switch.
+  const pendingStackRestoreRef = useRef(previewSource === "stack");
 
   useEffect(() => {
     exportPreviewRequestRef.current?.controller.abort();
@@ -304,11 +331,11 @@ function PreviewPane({
     setExportPreview(null);
     setExportPreviewError(null);
     setIsExportPreviewLoading(false);
-    setPreviewSource("html");
+    if (!pendingStackRestoreRef.current) setPreviewSource("html");
     return () => {
       exportPreviewRequestRef.current?.controller.abort();
     };
-  }, [activeStack, projectExportState]);
+  }, [activeStack, projectExportState, setPreviewSource]);
 
   const ensureExportPreview = useCallback((): Promise<ExportPreview | null> => {
     if (exportPreview) return Promise.resolve(exportPreview);
@@ -358,7 +385,35 @@ function PreviewPane({
   const showStackPreview = useCallback(async () => {
     const nextPreview = exportPreview ?? (await ensureExportPreview());
     if (nextPreview) setPreviewSource("stack");
-  }, [ensureExportPreview, exportPreview]);
+  }, [ensureExportPreview, exportPreview, setPreviewSource]);
+
+  // Restoration only: rebuild the artifact behind a remembered stack preview
+  // once the project has something to export. Until it succeeds the pane keeps
+  // rendering the HTML artifact, and a failure gives the preference up rather
+  // than leaving the Stack button pressed with nothing behind it.
+  useEffect(() => {
+    if (!pendingStackRestoreRef.current) return;
+    if (previewSource !== "stack") {
+      pendingStackRestoreRef.current = false;
+      return;
+    }
+    if (!(appState === AppState.CODE_READY || isSelectedVariantComplete)) {
+      return;
+    }
+    if (!project.code.trim()) return;
+
+    pendingStackRestoreRef.current = false;
+    void ensureExportPreview().then((rebuilt) => {
+      if (!rebuilt) setPreviewSource("html");
+    });
+  }, [
+    appState,
+    ensureExportPreview,
+    isSelectedVariantComplete,
+    previewSource,
+    project.code,
+    setPreviewSource,
+  ]);
 
   const previewArtifact = useMemo(
     () => createProjectPreviewArtifact(project),

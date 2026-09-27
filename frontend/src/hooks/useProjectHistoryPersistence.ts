@@ -10,14 +10,19 @@ import {
   type HistorySaveReason,
   type ProjectHistoryPersistence,
 } from "../lib/history-persistence";
+import {
+  ACTIVE_HISTORY_PROJECT_STORAGE_KEY,
+  NEW_HISTORY_PROJECT_VALUE,
+  resolveProjectToRestore,
+} from "../lib/project-history";
 import type {
   ProjectHistorySnapshotState,
   RecentHistoryProject,
 } from "../lib/project-history";
 import type { Stack } from "../lib/stacks";
 
-export const ACTIVE_HISTORY_PROJECT_KEY = "shot2code-active-history-project";
-export const NEW_HISTORY_PROJECT_VALUE = "__new__";
+export const ACTIVE_HISTORY_PROJECT_KEY = ACTIVE_HISTORY_PROJECT_STORAGE_KEY;
+export { NEW_HISTORY_PROJECT_VALUE };
 const HISTORY_TOAST_ID = "project-history-status";
 
 interface UseProjectHistoryPersistenceOptions {
@@ -290,16 +295,11 @@ export function useProjectHistoryPersistence({
         if (cancelled) return;
         setRecentProjects(projects);
         if (useProjectStore.getState().projectId) return;
-        const remembered = window.localStorage.getItem(
-          ACTIVE_HISTORY_PROJECT_KEY
-        );
-        if (remembered === NEW_HISTORY_PROJECT_VALUE) return;
-        const rememberedProject = projects.find(
-          (project) => project.id === remembered
-        );
-        const projectToRestore =
-          rememberedProject ??
-          (window.__SHOT2CODE_APP__ ? projects[0] : undefined);
+        const projectToRestore = resolveProjectToRestore({
+          remembered: window.localStorage.getItem(ACTIVE_HISTORY_PROJECT_KEY),
+          projects,
+          isDesktopApp: Boolean(window.__SHOT2CODE_APP__),
+        });
         if (projectToRestore) {
           await openProject(projectToRestore.id, { announce: false });
         }
