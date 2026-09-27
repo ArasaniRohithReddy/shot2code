@@ -11,7 +11,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from config import ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
-from copilot_auth import get_copilot_snapshot
+from copilot_auth import CopilotAuthSnapshot, get_copilot_snapshot
 from integrations.config import (
     ByokConnectionSummary,
     IntegrationConfigError,
@@ -77,6 +77,7 @@ class ModelCatalogRequest(BaseModel):
     anthropicApiKey: str | None = None
     geminiApiKey: str | None = None
     copilotGithubToken: str | None = None
+    copilotUseLoggedInUser: bool = True
     selectedModels: list[str] = Field(default_factory=list)
     refresh: bool = False
     # Copilot SDK BYOK connection, in the same shape the generate socket takes.
@@ -127,7 +128,11 @@ async def _catalog_for(
     request: ModelCatalogRequest,
 ) -> ModelCatalogResponse:
     token = (request.copilotGithubToken or "").strip() or None
-    snapshot = await get_copilot_snapshot(github_token=token, force=request.refresh)
+    snapshot = (
+        await get_copilot_snapshot(github_token=token, force=request.refresh)
+        if token or request.copilotUseLoggedInUser
+        else CopilotAuthSnapshot(available=False, login=None, models=[])
+    )
 
     # The browser's key wins; otherwise fall back to what the backend was
     # started with. Only the origin is reported back, never the value.

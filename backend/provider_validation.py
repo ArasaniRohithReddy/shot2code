@@ -34,6 +34,7 @@ from integrations.config import (
     ByokConnection,
     ByokSelection,
     IntegrationConfigError,
+    byok_custom_selection,
     byok_selection_id,
     is_valid_wire_model,
     parse_byok_selection_id,
@@ -537,14 +538,17 @@ def _byok_model(
                     ),
                     model_id=candidate,
                 )
-            if parsed.is_custom and connection.wire_model != parsed.wire_model:
+            if (
+                parsed.is_custom
+                and parsed.wire_model not in connection.configured_wire_models
+            ):
                 return None, ProviderValidationResult(
                     provider="copilot-byok",
                     ok=False,
                     category="configuration",
                     message=(
-                        f"'{parsed.wire_model}' is not the endpoint model this "
-                        "connection is configured for. Update the wire model "
+                        f"'{parsed.wire_model}' is not one of the endpoint models "
+                        "this connection is configured for. Update the model list "
                         "and try again."
                     ),
                     model_id=candidate,
@@ -563,10 +567,8 @@ def _byok_model(
             return parsed, None
 
         # A bare endpoint model name is honoured when it is the configured one.
-        if connection.wire_model and candidate == connection.wire_model:
-            custom = connection.custom_selection
-            assert custom is not None
-            return custom, None
+        if candidate in connection.configured_wire_models:
+            return byok_custom_selection(connection.provider, candidate), None
 
         model = model_from_value(candidate)
         if model is None:

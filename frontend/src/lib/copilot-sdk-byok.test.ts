@@ -10,6 +10,7 @@ import {
   isByokSelectionId,
   isByokUsable,
   normalizeCopilotSdkByokSettings,
+  configuredWireModels,
   parseByokSelectionId,
   runtimeOfSelectionId,
   toByokWirePayload,
@@ -43,6 +44,7 @@ describe("defaults and normalisation", () => {
       bearerToken: null,
       wireApi: null,
       wireModel: null,
+      wireModels: [],
       azureApiVersion: null,
     });
   });
@@ -111,6 +113,24 @@ describe("defaults and normalisation", () => {
     });
     expect(normalized.apiKey).toBe("key");
     expect(normalized.wireModel).toBeNull();
+  });
+
+  test("migrates a legacy endpoint model into the multi-model list", () => {
+    const normalized = normalizeCopilotSdkByokSettings({
+      wireModel: "legacy-model",
+    });
+
+    expect(configuredWireModels(normalized)).toEqual(["legacy-model"]);
+    expect(normalized.wireModels).toEqual(["legacy-model"]);
+  });
+
+  test("preserves multiple endpoint models in order without duplicates", () => {
+    const normalized = normalizeCopilotSdkByokSettings({
+      wireModels: ["model-a", "model-b", "model-a"],
+    });
+
+    expect(configuredWireModels(normalized)).toEqual(["model-a", "model-b"]);
+    expect(normalized.wireModel).toBe("model-a");
   });
 });
 
@@ -295,6 +315,18 @@ describe("wire payload", () => {
     const payload = toByokWirePayload(settings());
     expect(Object.keys(payload)).not.toContain("selectedModels");
     expect(Object.keys(payload)).not.toContain("modelSelections");
+  });
+
+  test("sends every configured endpoint model with a legacy first model", () => {
+    const payload = toByokWirePayload(
+      settings({
+        wireModel: "model-a",
+        wireModels: ["model-a", "model-b"],
+      })
+    );
+
+    expect(payload.wireModel).toBe("model-a");
+    expect(payload.wireModels).toEqual(["model-a", "model-b"]);
   });
 
   test("omits every secret when asked to", () => {
@@ -581,6 +613,7 @@ describe("persisting an endpoint model id", () => {
     // Truncating here would silently run a *different* model after a restart.
     expect(restored.wireModel).toBe(LONG_MODEL);
     expect(restored.wireModel).toHaveLength(WIRE_MODEL_LIMIT);
+    expect(restored.wireModels).toEqual([LONG_MODEL]);
   });
 
   it("round-trips such an id through the payload and its selection identity", () => {
@@ -593,6 +626,7 @@ describe("persisting an endpoint model id", () => {
     });
 
     expect(toByokWirePayload(stored).wireModel).toBe(LONG_MODEL);
+    expect(toByokWirePayload(stored).wireModels).toEqual([LONG_MODEL]);
     const id = byokCustomSelectionId("openai", LONG_MODEL);
     expect(parseByokSelectionId(id)?.wireModel).toBe(LONG_MODEL);
   });

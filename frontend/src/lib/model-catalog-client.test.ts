@@ -20,6 +20,7 @@ test("posts the credentials and the current selection", async () => {
       anthropicApiKey: "",
       geminiApiKey: null,
       copilotGithubToken: "github_pat",
+      copilotUseLoggedInUser: true,
     },
     { selectedModels: ["gpt-5.5 (high thinking)"], refresh: true }
   );
@@ -32,6 +33,7 @@ test("posts the credentials and the current selection", async () => {
     anthropicApiKey: null,
     geminiApiKey: null,
     copilotGithubToken: "github_pat",
+    copilotUseLoggedInUser: true,
     selectedModels: ["gpt-5.5 (high thinking)"],
     refresh: true,
   });
@@ -51,6 +53,7 @@ test("defaults to no credentials, no selection and no refresh", async () => {
     anthropicApiKey: null,
     geminiApiKey: null,
     copilotGithubToken: null,
+    copilotUseLoggedInUser: true,
     selectedModels: [],
     refresh: false,
   });

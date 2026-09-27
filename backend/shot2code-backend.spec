@@ -49,6 +49,7 @@ for package in (
     "evals",
     "image_generation",
     "history",
+    "skills",
 ):
     hiddenimports += collect_submodules(package)
 
@@ -56,13 +57,17 @@ for package in (
 # modules that are now imported on first use rather than from main.py.
 hiddenimports += [
     "routes.generate_code",
+    "routes.ai_review",
     "routes.screenshot",
     "routes.evals",
     "routes.export",
     "routes.prompt_reports",
     "routes.agent_runs",
     "routes.eval_sets",
+    "routes.figma",
     "routes.project_context",
+    "routes.mcp_registry",
+    "routes.skills",
 ]
 
 # Prompt templates and other non-Python assets live next to the source.

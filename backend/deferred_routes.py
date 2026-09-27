@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.routing import APIRouter
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 ImportModule = Callable[[str], ModuleType]
 
@@ -44,6 +44,10 @@ class DeferredRouteLoader:
     @property
     def error(self) -> Exception | None:
         return self._error
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     @property
     def status(self) -> str:
@@ -138,15 +142,47 @@ class DeferredRoutesMiddleware:
         receive: Receive,
         send: Send,
     ) -> None:
+        downstream_receive = receive
+        downstream_send = send
         if (
             scope["type"] in {"http", "websocket"}
             and _path_matches(str(scope.get("path", "")), self._path_prefixes)
         ):
+            if scope["type"] == "websocket":
+                # A frozen build can spend tens of seconds importing the
+                # generation graph. Complete the WebSocket handshake first so
+                # Chromium does not abandon the initial connection while that
+                # import is still running. Replay the connect event to
+                # Starlette and suppress the route's duplicate accept.
+                first_message = await receive()
+                if first_message["type"] == "websocket.disconnect":
+                    return
+                if first_message["type"] == "websocket.connect":
+                    await send({"type": "websocket.accept"})
+                    replay_pending = True
+
+                    async def replay_receive() -> Message:
+                        nonlocal replay_pending
+                        if replay_pending:
+                            replay_pending = False
+                            return first_message
+                        return await receive()
+
+                    async def already_accepted_send(
+                        message: Message,
+                    ) -> None:
+                        if message["type"] == "websocket.accept":
+                            return
+                        await send(message)
+
+                    downstream_receive = replay_receive
+                    downstream_send = already_accepted_send
+
             try:
                 await self._loader.ensure_loaded(self._router_app)
             except DeferredRouteLoadError:
                 if scope["type"] == "websocket":
-                    await send(
+                    await downstream_send(
                         {
                             "type": "websocket.close",
                             "code": 1011,
@@ -171,4 +207,4 @@ class DeferredRoutesMiddleware:
                 await send({"type": "http.response.body", "body": body})
                 return
 
-        await self._app(scope, receive, send)
+        await self._app(scope, downstream_receive, downstream_send)

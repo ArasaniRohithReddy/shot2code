@@ -36,6 +36,8 @@ describe("parseCopilotLoginState", () => {
       login: "octocat",
       canCancel: true,
       installUrl: "https://github.com/github/copilot-cli",
+      userCode: null,
+      verificationUri: null,
     });
 
     expect(state).toEqual({
@@ -45,6 +47,8 @@ describe("parseCopilotLoginState", () => {
       login: "octocat",
       canCancel: true,
       installUrl: "https://github.com/github/copilot-cli",
+      userCode: null,
+      verificationUri: null,
     });
   });
 

@@ -11,8 +11,11 @@ files:
   - main.js
   - app-menu.js
   - backend-readiness.js
+  - backend-auth-restart.js
   - update-lifecycle.js
   - zoom-controls.js
+  - stitch-sdk.js
+  - github-oauth.js
   - preload.js
   - untrusted-preload.js
   - renderer/**/*
@@ -46,6 +49,9 @@ win:
 nsis:
   oneClick: false
   perMachine: false
+  # Updates and uninstall/reinstall cycles must not remove local project
+  # history or settings. The history database itself lives outside $INSTDIR.
+  deleteAppDataOnUninstall: false
   include: build/installer.nsh
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true

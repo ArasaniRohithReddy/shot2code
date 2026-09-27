@@ -22,8 +22,11 @@ interface Props {
     multiScreenshotMode?: MultiScreenshotMode
   ) => void;
   doCreateFromText: (text: string) => void;
-  importFromCode: (code: string, stack: Stack) => void;
-  importProject?: EditableProjectImportHandler;
+  importFromCode: (code: string, stack: Stack, instruction?: string) => void;
+  importProject?: (
+    selection: Parameters<EditableProjectImportHandler>[0],
+    instruction?: string
+  ) => void;
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   designSystems: DesignSystem[];
@@ -169,7 +172,12 @@ function UnifiedInputPane({
         <TabsContent value="url" className="mt-0">
           <UrlTab
             doCreate={doCreate}
+            doCreateFromText={doCreateFromText}
             screenshotOneApiKey={settings.screenshotOneApiKey}
+            figmaAccessToken={settings.figmaAccessToken}
+            stitchApiKey={settings.stitchApiKey}
+            importFromCode={importFromCode}
+            mcpServers={settings.mcpServers ?? []}
             stack={settings.generatedCodeConfig}
             setStack={setStack}
             designSystem={designSystemSelectorProps}
@@ -180,6 +188,8 @@ function UnifiedInputPane({
         <TabsContent value="text" className="mt-0">
           <TextTab
             doCreateFromText={doCreateFromText}
+            importFromCode={importFromCode}
+            stitchApiKey={settings.stitchApiKey}
             stack={settings.generatedCodeConfig}
             setStack={setStack}
             designSystem={designSystemSelectorProps}
@@ -192,6 +202,7 @@ function UnifiedInputPane({
             importFromCode={importFromCode}
             importProject={importProject}
             projectContext={settings.projectContext}
+            modelSelector={modelSelectorProps}
             setProjectContext={(projectContext) =>
               setSettings((previous) => ({ ...previous, projectContext }))
             }

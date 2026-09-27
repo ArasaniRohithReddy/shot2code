@@ -65,9 +65,8 @@ const MENU_ZOOM_COMMANDS = Object.freeze(["in", "out", "reset"]);
 const PRODUCT_PAGE_URL =
   "https://arasanirohithreddy.github.io/app-releases/shot2code/";
 const RELEASES_PAGE_URL = `${PRODUCT_PAGE_URL}releases/`;
-const DOCS_BASE_URL =
-  "https://github.com/ArasaniRohithReddy/app-releases/blob/main/products/shot2code/";
-const USER_GUIDE_URL = `${DOCS_BASE_URL}USER-GUIDE.md`;
+const DOCS_BASE_URL = `${PRODUCT_PAGE_URL}docs/`;
+const USER_GUIDE_URL = `${DOCS_BASE_URL}user-guide/`;
 const NEW_ISSUE_URL =
   "https://github.com/ArasaniRohithReddy/app-releases/issues/new/choose";
 

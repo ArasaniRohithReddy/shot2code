@@ -72,6 +72,8 @@ export type RenderedHistoryItem = Omit<Commit, "type"> & {
   retryDescendants: HistoryVersionLink[];
   images: string[];
   videos: string[];
+  selectedVariantModel: string | null;
+  selectedVariantNumber: number;
 };
 
 export const renderHistory = (history: Commit[]): RenderedHistoryItem[] => {
@@ -100,6 +102,7 @@ export const renderHistory = (history: Commit[]): RenderedHistoryItem[] => {
     const retrySourceVersion = commit.retryOfHash
       ? versionByHash.get(commit.retryOfHash) ?? null
       : null;
+    const selectedVariant = commit.variants[commit.selectedVariantIndex];
 
     return {
       ...commit,
@@ -119,6 +122,8 @@ export const renderHistory = (history: Commit[]): RenderedHistoryItem[] => {
       retryDescendants: retryDescendantsByHash.get(commit.hash) ?? [],
       images: media.images,
       videos: media.videos,
+      selectedVariantModel: selectedVariant?.model ?? null,
+      selectedVariantNumber: commit.selectedVariantIndex + 1,
     };
   });
 };

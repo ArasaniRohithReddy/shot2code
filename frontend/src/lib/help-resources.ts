@@ -125,7 +125,7 @@ export const HELP_GET_STARTED_STEPS = [
     id: "ship",
     title: "Read and export the source",
     detail:
-      "The Code tab is the authoritative project. Format, copy, download a single file, or export the whole project.",
+      "In the Code tab, keep the current source visible, inspect the read-only stack project before download, switch between HTML and Stack previews, or export the whole project.",
   },
 ] as const;
 

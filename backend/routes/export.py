@@ -67,6 +67,22 @@ MIME_EXTENSION_MAP = {
     "image/webp": "webp",
 }
 
+ASSET_MIME_BY_EXTENSION = {
+    "apng": "image/apng",
+    "avif": "image/avif",
+    "eot": "application/vnd.ms-fontobject",
+    "gif": "image/gif",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "otf": "font/otf",
+    "png": "image/png",
+    "svg": "image/svg+xml",
+    "ttf": "font/ttf",
+    "webp": "image/webp",
+    "woff": "font/woff",
+    "woff2": "font/woff2",
+}
+
 CSS_URL_RE = re.compile(r"url\(\s*(['\"]?)(.*?)\1\s*\)", re.IGNORECASE)
 RAW_URL_RE = re.compile(r"https?://[^\s'\"<>\\)]+")
 MAX_ASSETS = 50
@@ -75,6 +91,7 @@ MAX_REDIRECTS = 5
 MAX_PROJECT_FILES = 400
 MAX_PROJECT_FILE_BYTES = 600_000
 MAX_PROJECT_TOTAL_BYTES = 12 * 1024 * 1024
+MAX_EXPORT_PREVIEW_ASSET_BYTES = 24 * 1024 * 1024
 
 ProjectKind = Literal["vite_html", "vite_react", "vite_preact"]
 
@@ -917,6 +934,15 @@ class ProjectExport:
     project_kind: str
 
 
+@dataclass(frozen=True)
+class PreparedProjectExport:
+    files: dict[str, str]
+    entry_point: str
+    project_kind: str
+    assets: list[ExportedAsset]
+    candidate_count: int
+
+
 def get_export_strategy(stack: str | None) -> ExportStrategy:
     return EXPORT_STRATEGIES.get(stack or "", DEFAULT_EXPORT_STRATEGY)
 
@@ -1498,8 +1524,8 @@ def build_project_export(html: str, stack: str | None) -> ProjectExport:
     return ProjectExport(files, "vite_html")
 
 
-@router.post("/api/export")
-async def export_code(request: ExportRequest) -> Response:
+async def prepare_project_export(request: ExportRequest) -> PreparedProjectExport:
+    """Build the exact text/asset set shared by preview and ZIP export."""
     normalized_project = (
         normalize_project_payload(request.project)
         if request.splitFiles and request.project is not None
@@ -1524,8 +1550,13 @@ async def export_code(request: ExportRequest) -> Response:
         project_export = build_source_project_export(
             rewritten_project, request.stack
         )
-        zip_content = create_project_zip("", assets, project_export.files)
-        project_kind = project_export.project_kind
+        return PreparedProjectExport(
+            files=project_export.files,
+            entry_point=normalized_project.entry_point,
+            project_kind=project_export.project_kind,
+            assets=assets,
+            candidate_count=len(candidates),
+        )
     else:
         html_source = (
             normalized_project.files[normalized_project.entry_point]
@@ -1542,20 +1573,90 @@ async def export_code(request: ExportRequest) -> Response:
             rewrite_html_assets(soup, asset_path_by_url)
         index_html = rewrite_raw_asset_urls(str(soup), asset_path_by_url)
 
-        project_kind = "single_html"
-        extra_files: dict[str, str] | None = None
         if request.splitFiles:
             project_export = build_project_export(index_html, request.stack)
-            extra_files = project_export.files
+            files = project_export.files
             project_kind = project_export.project_kind
+        else:
+            files = {"index.html": index_html}
+            project_kind = "single_html"
+        return PreparedProjectExport(
+            files=files,
+            entry_point="index.html",
+            project_kind=project_kind,
+            assets=assets,
+            candidate_count=len(candidates),
+        )
 
-        zip_content = create_project_zip(index_html, assets, extra_files)
+
+class ExportPreviewFile(BaseModel):
+    path: str
+    content: str
+
+
+class ExportPreviewAsset(BaseModel):
+    path: str
+    size: int
+    mimeType: str
+    contentBase64: str | None = None
+
+
+class ExportPreviewResponse(BaseModel):
+    entryPoint: str
+    projectKind: str
+    files: list[ExportPreviewFile]
+    assets: list[ExportPreviewAsset]
+
+
+@router.post("/api/export/preview", response_model=ExportPreviewResponse)
+async def preview_export(request: ExportRequest) -> ExportPreviewResponse:
+    prepared = await prepare_project_export(request)
+    embedded_asset_bytes = 0
+    preview_assets: list[ExportPreviewAsset] = []
+    for asset in prepared.assets:
+        extension = PurePosixPath(asset.path).suffix.casefold().lstrip(".")
+        can_embed = (
+            embedded_asset_bytes + len(asset.content)
+            <= MAX_EXPORT_PREVIEW_ASSET_BYTES
+        )
+        content_base64 = (
+            base64.b64encode(asset.content).decode("ascii") if can_embed else None
+        )
+        if can_embed:
+            embedded_asset_bytes += len(asset.content)
+        preview_assets.append(
+            ExportPreviewAsset(
+                path=asset.path,
+                size=len(asset.content),
+                mimeType=ASSET_MIME_BY_EXTENSION.get(
+                    extension, "application/octet-stream"
+                ),
+                contentBase64=content_base64,
+            )
+        )
+
+    return ExportPreviewResponse(
+        entryPoint=prepared.entry_point,
+        projectKind=prepared.project_kind,
+        files=[
+            ExportPreviewFile(path=path, content=content)
+            for path, content in sorted(prepared.files.items())
+        ],
+        assets=preview_assets,
+    )
+
+
+@router.post("/api/export")
+async def export_code(request: ExportRequest) -> Response:
+    prepared = await prepare_project_export(request)
+    zip_content = create_project_zip("", prepared.assets, prepared.files)
 
     filename = export_archive_filename(request.stack, request.splitFiles)
     print(
         "Export complete: "
-        f"candidates={len(candidates)} assets={len(assets)} "
-        f"skipped={len(candidates) - len(assets)} mode={project_kind} "
+        f"candidates={prepared.candidate_count} assets={len(prepared.assets)} "
+        f"skipped={prepared.candidate_count - len(prepared.assets)} "
+        f"mode={prepared.project_kind} "
         f"responseBytes={len(zip_content)}"
     )
     return Response(

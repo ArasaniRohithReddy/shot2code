@@ -5,6 +5,7 @@ import {
   LuChevronDown,
   LuEye,
   LuLoader,
+  LuStore,
   LuPencil,
   LuPlus,
   LuTrash2,
@@ -39,6 +40,7 @@ import type {
   IntegrationValidationResult,
 } from "../../lib/integrations";
 import IntegrationDiagnostics from "./IntegrationDiagnostics";
+import McpMarketplace from "./McpMarketplace";
 
 export interface McpServersSettingsProps {
   servers: McpServerConfig[];
@@ -191,6 +193,7 @@ export default function McpServersSettings({
   const [isValidating, setIsValidating] = useState(false);
   const [result, setResult] = useState<IntegrationValidationResult | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
 
   const resetChecks = () => {
     setResult(null);
@@ -209,6 +212,16 @@ export default function McpServersSettings({
   const addServer = () => {
     if (servers.length >= MAX_MCP_SERVERS) return;
     const server = createMcpServer();
+    resetChecks();
+    onChange((current) =>
+      current.length >= MAX_MCP_SERVERS ? current : [...current, server]
+    );
+    setDrafts((current) => ({ ...current, [server.id]: draftFor(server) }));
+    setEditingId(server.id);
+  };
+
+  const installServer = (server: McpServerConfig) => {
+    if (servers.length >= MAX_MCP_SERVERS) return;
     resetChecks();
     onChange((current) =>
       current.length >= MAX_MCP_SERVERS ? current : [...current, server]
@@ -265,15 +278,26 @@ export default function McpServersSettings({
             {servers.length} of {MAX_MCP_SERVERS} configured
           </p>
         </div>
-        <button
-          type="button"
-          onClick={addServer}
-          disabled={servers.length >= MAX_MCP_SERVERS}
-          className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-        >
-          <LuPlus aria-hidden="true" className="h-3.5 w-3.5" />
-          Add server
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setMarketplaceOpen((open) => !open)}
+            aria-expanded={marketplaceOpen}
+            className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <LuStore aria-hidden="true" className="h-3.5 w-3.5" />
+            Browse registry
+          </button>
+          <button
+            type="button"
+            onClick={addServer}
+            disabled={servers.length >= MAX_MCP_SERVERS}
+            className="flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <LuPlus aria-hidden="true" className="h-3.5 w-3.5" />
+            Add manually
+          </button>
+        </div>
       </div>
 
       <div className="space-y-4 p-4">
@@ -286,6 +310,15 @@ export default function McpServersSettings({
           <p className="text-xs leading-5 text-gray-600 dark:text-zinc-300">
             {scopeNote}
           </p>
+        )}
+
+        {marketplaceOpen && (
+          <McpMarketplace
+            configured={servers}
+            atLimit={servers.length >= MAX_MCP_SERVERS}
+            onInstall={installServer}
+            onClose={() => setMarketplaceOpen(false)}
+          />
         )}
 
         {servers.length === 0 ? (

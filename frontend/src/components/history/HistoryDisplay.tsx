@@ -265,6 +265,15 @@ export default function HistoryDisplay() {
                     retryDescendants={item.retryDescendants}
                     onNavigate={setHead}
                   />
+                  {item.selectedVariantModel && (
+                    <span
+                      className="notranslate rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                      translate="no"
+                      title={`Option ${item.selectedVariantNumber}`}
+                    >
+                      {item.selectedVariantModel}
+                    </span>
+                  )}
                 </div>
                 <p
                   className={`text-sm mt-0.5 line-clamp-2 ${
@@ -281,6 +290,15 @@ export default function HistoryDisplay() {
                       {" "}
                       <code className="text-xs font-mono text-violet-700 dark:text-violet-300">&lt;{item.selectedElementTag}&gt;</code>
                     </>
+                  )}
+                  {item.selectedVariantModel && (
+                    <p className="notranslate mt-1 text-xs text-slate-600 dark:text-slate-300" translate="no">
+                      Model:{" "}
+                      <span className="font-medium">
+                        {item.selectedVariantModel}
+                      </span>{" "}
+                      · Option {item.selectedVariantNumber}
+                    </p>
                   )}
                 </p>
               </div>

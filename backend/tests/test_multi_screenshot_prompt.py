@@ -6,10 +6,21 @@ from prompts.request_parsing import parse_prompt_content
 
 
 def user_prompt_text(messages: list[dict[str, Any]]) -> str:
-    content = messages[1]["content"]
+    return content_text(messages[1].get("content"))
+
+
+def content_text(content: object) -> str:
     assert isinstance(content, list)
-    text_part = next(part for part in content if part.get("type") == "text")
-    return cast(str, text_part["text"])
+    for raw_part in cast(list[object], content):
+        if not isinstance(raw_part, dict):
+            continue
+        part = cast(dict[str, object], raw_part)
+        if part.get("type") != "text":
+            continue
+        text = part.get("text")
+        assert isinstance(text, str)
+        return text
+    raise AssertionError("Expected a text content part")
 
 
 def test_multiple_screenshots_default_to_distinct_pages() -> None:
@@ -56,7 +67,7 @@ def test_parser_accepts_multi_image_mode_from_frontend() -> None:
         }
     )
 
-    assert parsed["multi_image_mode"] == "states"
+    assert parsed.get("multi_image_mode") == "states"
 
 
 def test_history_preserves_multi_screenshot_relationship() -> None:
@@ -69,7 +80,6 @@ def test_history_preserves_multi_screenshot_relationship() -> None:
             "multi_image_mode": "responsive",
         }
     )
-    content = message["content"]
-    assert isinstance(content, list)
-    text_part = next(part for part in content if part.get("type") == "text")
-    assert "one page at different responsive sizes" in text_part["text"]
+    assert "one page at different responsive sizes" in content_text(
+        message.get("content")
+    )

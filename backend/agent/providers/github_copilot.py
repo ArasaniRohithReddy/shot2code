@@ -287,6 +287,8 @@ class CopilotProviderSession(ProviderSession):
         model_api_name: Optional[str] = None,
         reasoning_effort: Optional[CopilotSdkReasoningEffort] = None,
         allow_reasoning_effort: bool = True,
+        allow_web_search: bool = False,
+        skill_directories: Optional[List[str]] = None,
     ):
         self._client = client
         self._model = model
@@ -307,6 +309,8 @@ class CopilotProviderSession(ProviderSession):
         # custom BYOK run must never be sent one derived from its compatibility
         # template.
         self._allow_reasoning_effort = allow_reasoning_effort
+        self._allow_web_search = allow_web_search
+        self._skill_directories = list(skill_directories or [])
 
         self._system_prompt = _extract_system_prompt(prompt_messages)
         self._prompt, self._attachments = _build_prompt_and_attachments(prompt_messages)
@@ -387,21 +391,26 @@ class CopilotProviderSession(ProviderSession):
         the handler path and are already reported by the engine.
         """
         server_name = getattr(data, "mcp_server_name", None)
-        if not server_name:
+        tool_name = getattr(data, "mcp_tool_name", None) or getattr(
+            data, "tool_name", None
+        )
+        is_web_search = tool_name == "web_search" and self._allow_web_search
+        if not server_name and not is_web_search:
             return
         tool_call_id = getattr(data, "tool_call_id", None) or (
-            f"mcp_{uuid.uuid4().hex[:12]}"
+            f"external_{uuid.uuid4().hex[:12]}"
         )
-        tool_name = (
-            getattr(data, "mcp_tool_name", None)
-            or getattr(data, "tool_name", None)
-            or "tool"
+        tool_name = tool_name or "tool"
+        display_name = (
+            "Copilot · Web search"
+            if is_web_search
+            else mcp_tool_display_name(str(server_name), str(tool_name))
         )
         external = _ExternalToolCall(
             tool_call_id=tool_call_id,
-            server_name=str(server_name),
+            server_name=str(server_name or "copilot"),
             tool_name=str(tool_name),
-            display_name=mcp_tool_display_name(str(server_name), str(tool_name)),
+            display_name=display_name,
         )
         self._external_tools[tool_call_id] = external
         self._queue.put_nowait(
@@ -530,6 +539,9 @@ class CopilotProviderSession(ProviderSession):
             # MCP OAuth tokens belong to the person at the keyboard, not to
             # this machine's disk.
             kwargs["mcp_oauth_token_storage"] = "in-memory"
+        if self._skill_directories:
+            kwargs["enable_skills"] = True
+            kwargs["skill_directories"] = self._skill_directories
         if self._permission_handler is not None:
             kwargs["on_permission_request"] = self._permission_handler
         if self._provider_config is not None:
@@ -552,6 +564,10 @@ class CopilotProviderSession(ProviderSession):
     def _available_tools(self) -> "copilot.ToolSet":
         """Only shot2code's own tools, plus MCP when trusted servers exist."""
         tool_set = copilot.ToolSet().add_custom("*")
+        if self._allow_web_search:
+            tool_set = tool_set.add_builtin("web_search")
+        if self._skill_directories:
+            tool_set = tool_set.add_builtin("skill")
         if self._mcp_servers:
             tool_set = tool_set.add_mcp("*")
         return tool_set

@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 from fastapi import APIRouter, FastAPI, WebSocket
@@ -87,6 +88,65 @@ def test_deferred_websocket_route_loads_before_dispatch() -> None:
             assert websocket.receive_text() == "loaded"
 
     assert imports == ["fake_feature"]
+
+
+@pytest.mark.asyncio
+async def test_deferred_websocket_is_accepted_before_slow_loader_finishes() -> None:
+    release_loader = asyncio.Event()
+    sent: list[dict[str, Any]] = []
+    received_connect = False
+
+    class WaitingLoader:
+        error = None
+
+        async def ensure_loaded(self, _app: FastAPI) -> None:
+            await release_loader.wait()
+
+    async def downstream(
+        _scope: dict[str, Any],
+        receive: Any,
+        send: Any,
+    ) -> None:
+        nonlocal received_connect
+        received_connect = (await receive())["type"] == "websocket.connect"
+        await send({"type": "websocket.accept"})
+        await send({"type": "websocket.close", "code": 1000})
+
+    messages = iter([{"type": "websocket.connect"}])
+
+    async def receive() -> dict[str, Any]:
+        return next(messages)
+
+    async def send(message: dict[str, Any]) -> None:
+        sent.append(message)
+
+    app = FastAPI()
+    middleware = DeferredRoutesMiddleware(
+        downstream,  # type: ignore[arg-type]
+        router_app=app,
+        loader=WaitingLoader(),  # type: ignore[arg-type]
+        path_prefixes=("/feature-ws",),
+    )
+    task = asyncio.create_task(
+        middleware(
+            {"type": "websocket", "path": "/feature-ws"},  # type: ignore[arg-type]
+            receive,  # type: ignore[arg-type]
+            send,  # type: ignore[arg-type]
+        )
+    )
+
+    await asyncio.sleep(0)
+    assert sent == [{"type": "websocket.accept"}]
+    assert not task.done()
+
+    release_loader.set()
+    await task
+
+    assert received_connect is True
+    assert sent == [
+        {"type": "websocket.accept"},
+        {"type": "websocket.close", "code": 1000},
+    ]
 
 
 def test_deferred_import_failure_is_explicit_and_marks_health_failed() -> None:

@@ -311,17 +311,18 @@ test("offers the endpoint model as a primary field, not an advanced one", () => 
 
   // Visible without expanding the disclosure.
   expect(html).toMatch(/aria-expanded="false"/);
-  expect(html).toContain("Endpoint model (optional)");
+  expect(html).toContain("Endpoint models (optional)");
   expect(html).toMatch(/id="[^"]*-wire-model"/);
 });
 
-test("names the one truthful option a custom endpoint model produces", () => {
+test("names the truthful option a custom endpoint model produces", () => {
   const html = render({ settings: customSettings() });
 
   expect(html).toContain('data-testid="byok-custom-entry-note"');
-  expect(html).toContain(`${CUSTOM_MODEL} via openai`);
-  expect(html).toContain("The catalog models are replaced");
-  expect(html).toContain("No thinking level is sent for it.");
+  expect(html).toContain(CUSTOM_MODEL);
+  expect(html).toContain("1 separate option");
+  expect(html).toContain("provider catalog is replaced");
+  expect(html).toContain("No thinking level is inferred");
   // The whole point: no GPT aliases pretending to be this model.
   const note = html.slice(html.indexOf('data-testid="byok-custom-entry-note"'));
   expect(note.slice(0, 600)).not.toMatch(/gpt-5/i);
@@ -356,8 +357,8 @@ test("never infers capability from the endpoint's model list", () => {
 
 test("tells an OpenAI-compatible endpoint how to list its models", () => {
   const html = render({ settings: customSettings({ wireModel: null }) });
-  expect(html).toContain("Run Test model access to list what the endpoint reports");
-  expect(html).toContain("or type the name yourself");
+  expect(html).toContain("Choose any models this endpoint serves");
+  expect(html).toContain("Each becomes a separate option in Models");
 });
 
 test("keeps manual entry for providers that cannot list models", () => {
@@ -368,7 +369,7 @@ test("keeps manual entry for providers that cannot list models", () => {
       wireModel: "my-deployment",
     }),
   });
-  expect(azure).toContain("Deployment name (optional)");
+  expect(azure).toContain("Deployment names (optional)");
   expect(azure).toContain("Azure does not list deployments here");
   expect(azure).toMatch(/id="[^"]*-wire-model"/);
   expect(azure).not.toContain('data-testid="byok-discovered-models"');
@@ -398,7 +399,7 @@ test("the endpoint model field never becomes a password input", () => {
   expect(field.slice(0, 200)).not.toContain('type="password"');
 });
 
-test("lists what the endpoint reported, as an accessible labelled selector", () => {
+test("lists what the endpoint reported as accessible multi-select choices", () => {
   const html = render({
     settings: customSettings({ wireModel: null }),
     initialDiscoveredModels: [CUSTOM_MODEL, "my-model-large", "my-org/my-model:latest"],
@@ -406,11 +407,26 @@ test("lists what the endpoint reported, as an accessible labelled selector", () 
 
   expect(html).toContain('data-testid="byok-discovered-models"');
   expect(html).toContain("Models this endpoint reports (3)");
-  expect(html).toMatch(/<label[^>]*for="[^"]*-discovered"/);
-  expect(html).toContain("Choose a model…");
-  expect(html).toContain(`<option value="${CUSTOM_MODEL}">`);
-  expect(html).toContain('<option value="my-model-large">');
+  expect(html).toContain("<fieldset");
+  expect(html).toContain('type="checkbox"');
+  expect(html).toContain(CUSTOM_MODEL);
+  expect(html).toContain("my-model-large");
   expect(html).toContain("my-org/my-model:latest");
+});
+
+test("shows every configured endpoint model as a separate removable choice", () => {
+  const html = render({
+    settings: customSettings({
+      wireModel: "model-a",
+      wireModels: ["model-a", "model-b"],
+    }),
+    initialDiscoveredModels: ["model-a", "model-b", "model-c"],
+  });
+
+  expect(html).toContain("2 separate options");
+  expect(html).toContain("Remove model-a");
+  expect(html).toContain("Remove model-b");
+  expect(html).not.toContain("Remove model-c");
 });
 
 test("does not claim the list says anything about capability", () => {
@@ -419,31 +435,27 @@ test("does not claim the list says anything about capability", () => {
     initialDiscoveredModels: [CUSTOM_MODEL],
   });
 
-  expect(html).toContain("list of ids the endpoint returned");
-  expect(html).toContain(
-    "It does not say which of them can read images or call tools"
-  );
+  expect(html).toContain("The list does not prove image or tool support");
   // No claim that discovery proved vision or tools.
   expect(html).not.toMatch(/supports (vision|images)/i);
   expect(html).not.toMatch(/vision[- ]capable/i);
 });
 
-test("marks the selector as showing the current endpoint model", () => {
+test("marks a discovered model as selected when it is configured", () => {
   const html = render({
     settings: customSettings(),
     initialDiscoveredModels: [CUSTOM_MODEL, "my-model-large"],
   });
-  expect(html).toContain(`<option value="${CUSTOM_MODEL}" selected=""`);
+  expect((html.match(/checked=""/g) ?? []).length).toBeGreaterThanOrEqual(2);
 });
 
-test("leaves the selector unset when the typed model is not in the list", () => {
+test("keeps a manually configured model even when discovery does not list it", () => {
   const html = render({
     settings: customSettings({ wireModel: "hand-typed-model" }),
     initialDiscoveredModels: [CUSTOM_MODEL],
   });
-  // Manual entry stays authoritative; the selector does not silently rewrite it.
-  expect(html).toContain('<option value="" selected="">Choose a model…');
-  expect(html).toContain('value="hand-typed-model"');
+  expect(html).toContain("hand-typed-model");
+  expect(html).toContain("Configured endpoint models");
 });
 
 test("keeps manual entry available beside the discovered list", () => {
@@ -451,7 +463,7 @@ test("keeps manual entry available beside the discovered list", () => {
     settings: customSettings({ wireModel: null }),
     initialDiscoveredModels: [CUSTOM_MODEL],
   });
-  expect(html).toContain("You can also");
+  expect(html).toContain("Add a model manually");
   expect(html).toMatch(/id="[^"]*-wire-model"/);
 });
 
@@ -495,7 +507,7 @@ test("names no vendor, host or model outside the supported provider list", () =>
   // Scope to the endpoint-model section: the card's intro legitimately names
   // Gemini and Replicate when saying the native providers are untouched.
   const section = html.slice(
-    html.indexOf("Endpoint model (optional)"),
+    html.indexOf("Endpoint models (optional)"),
     html.indexOf("Advanced connection options")
   );
   expect(section.length).toBeGreaterThan(200);

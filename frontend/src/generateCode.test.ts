@@ -192,6 +192,41 @@ describe("a generation that ends in a known server error", () => {
     );
   });
 
+  it("does not report a connection error after every option finished", () => {
+    const { socket, callbacks } = run();
+
+    socket.emit("message", {
+      data: JSON.stringify({
+        type: "variantCount",
+        value: "2",
+        variantIndex: 0,
+      }),
+    });
+    for (const variantIndex of [0, 1]) {
+      socket.emit("message", {
+        data: JSON.stringify({
+          type: "variantComplete",
+          variantIndex,
+        }),
+      });
+    }
+    socket.emit("close", { code: 1006, reason: "" });
+
+    expect(callbacks.onComplete).toHaveBeenCalledTimes(1);
+    expect(callbacks.onCancel).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("ignores heartbeat messages", () => {
+    const { socket, callbacks } = run();
+    socket.emit("message", {
+      data: JSON.stringify({ type: "heartbeat", variantIndex: 0 }),
+    });
+
+    expect(callbacks.onCancel).not.toHaveBeenCalled();
+    expect(callbacks.onComplete).not.toHaveBeenCalled();
+  });
+
   it("leaves per-variant errors and user cancellation untouched", () => {
     const { socket, callbacks } = run();
 

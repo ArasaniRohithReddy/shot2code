@@ -13,6 +13,19 @@ contextBridge.exposeInMainWorld("__SHOT2CODE_APP__", {
   getAppInfo: () => ipcRenderer.invoke("shot2code:get-app-info"),
   checkForUpdates: () => ipcRenderer.invoke("shot2code:check-for-updates"),
   installUpdate: () => ipcRenderer.invoke("shot2code:install-update"),
+  testStitchKey: (payload) =>
+    ipcRenderer.invoke("shot2code:stitch-test", payload),
+  generateStitch: (payload) =>
+    ipcRenderer.invoke("shot2code:stitch-generate", payload),
+  importStitch: (payload) =>
+    ipcRenderer.invoke("shot2code:stitch-import", payload),
+  startGitHubOAuth: () => ipcRenderer.invoke("shot2code:github-oauth-start"),
+  getGitHubOAuthStatus: () =>
+    ipcRenderer.invoke("shot2code:github-oauth-status"),
+  cancelGitHubOAuth: () =>
+    ipcRenderer.invoke("shot2code:github-oauth-cancel"),
+  disconnectGitHubOAuth: () =>
+    ipcRenderer.invoke("shot2code:github-oauth-disconnect"),
   onUpdateState: (callback) => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("shot2code:update-state", listener);

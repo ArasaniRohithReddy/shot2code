@@ -354,6 +354,38 @@ class TestMcpSessionConfiguration:
         assert session._available_tools().to_list() == ["custom:*"]  # pyright: ignore[reportPrivateUsage]
         assert session._permission_handler is None  # pyright: ignore[reportPrivateUsage]
 
+    def test_web_search_can_be_enabled_without_file_or_shell_tools(self) -> None:
+        session = session_for(
+            Llm.COPILOT_GPT_5_6_SOL,
+            copilot_github_token="github_pat_test",
+            integrations=settings_for(),
+            copilot_web_search_enabled=True,
+        )
+
+        assert isinstance(session, CopilotProviderSession)
+        assert session._available_tools().to_list() == [  # pyright: ignore[reportPrivateUsage]
+            "custom:*",
+            "builtin:web_search",
+        ]
+
+    def test_enabled_skills_add_only_the_isolated_skill_tool(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            "agent.providers.factory.enabled_skill_directories",
+            lambda: ["C:\\safe\\skills\\accessibility"],
+        )
+        session = self.copilot_session([])
+
+        assert session._available_tools().to_list() == [  # pyright: ignore[reportPrivateUsage]
+            "custom:*",
+            "builtin:skill",
+        ]
+        assert session._skill_directories == [  # pyright: ignore[reportPrivateUsage]
+            "C:\\safe\\skills\\accessibility"
+        ]
+
     @pytest.mark.asyncio
     async def test_session_kwargs_pin_mcp_storage_and_permissions(
         self, monkeypatch: pytest.MonkeyPatch

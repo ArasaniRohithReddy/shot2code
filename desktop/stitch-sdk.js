@@ -1,0 +1,161 @@
+const MAX_HTML_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+function cleanText(value, label, maxLength = 4096) {
+  if (typeof value !== "string") throw new Error(`${label} must be text.`);
+  const text = value.trim();
+  if (!text || text.length > maxLength) {
+    throw new Error(`${label} is missing or too long.`);
+  }
+  return text;
+}
+
+function identifierFromUrl(url, queryNames, pathMarker) {
+  for (const name of queryNames) {
+    const value = url.searchParams.get(name);
+    if (value) return value;
+  }
+  const segments = url.pathname.split("/").filter(Boolean);
+  const markerIndex = segments.findIndex(
+    (segment) => segment.toLowerCase() === pathMarker
+  );
+  if (markerIndex >= 0 && segments[markerIndex + 1]) {
+    return segments[markerIndex + 1];
+  }
+  return null;
+}
+
+function parseStitchReference(rawUrl) {
+  const input = cleanText(rawUrl, "Stitch URL", 2048);
+  let url;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new Error("Enter a valid Stitch project or screen URL.");
+  }
+  if (url.protocol !== "https:" || url.hostname !== "stitch.withgoogle.com") {
+    throw new Error("Enter an https://stitch.withgoogle.com URL.");
+  }
+
+  let projectId = identifierFromUrl(
+    url,
+    ["projectId", "project", "project_id"],
+    "projects"
+  );
+  let screenId = identifierFromUrl(
+    url,
+    ["screenId", "screen", "screen_id"],
+    "screens"
+  );
+  const numericSegments = url.pathname
+    .split("/")
+    .filter((segment) => /^\d{8,}$/.test(segment));
+  if (!projectId) projectId = numericSegments[0] || null;
+  if (!screenId) screenId = numericSegments[1] || null;
+  if (!projectId) {
+    throw new Error(
+      "The Stitch URL does not expose a project ID. Open the project or screen and copy its full URL."
+    );
+  }
+  return { projectId, screenId };
+}
+
+async function readBounded(urlValue, maxBytes, kind) {
+  const url = new URL(cleanText(urlValue, `${kind} URL`, 4096));
+  if (url.protocol !== "https:") {
+    throw new Error(`Stitch returned an unsafe ${kind} URL.`);
+  }
+  const response = await fetch(url, { redirect: "follow" });
+  if (!response.ok) {
+    throw new Error(`Could not download Stitch ${kind} (HTTP ${response.status}).`);
+  }
+  const declared = Number(response.headers.get("content-length") || "0");
+  if (declared > maxBytes) throw new Error(`Stitch ${kind} is too large.`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > maxBytes) throw new Error(`Stitch ${kind} is too large.`);
+  return { bytes, contentType: response.headers.get("content-type") || "" };
+}
+
+async function screenResult(screen, client) {
+  try {
+    const [htmlUrl, imageUrl] = await Promise.all([
+      screen.getHtml(),
+      screen.getImage(),
+    ]);
+    const [htmlDownload, imageDownload] = await Promise.all([
+      readBounded(htmlUrl, MAX_HTML_BYTES, "HTML"),
+      readBounded(imageUrl, MAX_IMAGE_BYTES, "image"),
+    ]);
+    return {
+      projectId: screen.projectId,
+      screenId: screen.screenId,
+      html: Buffer.from(htmlDownload.bytes).toString("utf8"),
+      image: `data:${
+        imageDownload.contentType.split(";")[0] || "image/png"
+      };base64,${Buffer.from(imageDownload.bytes).toString("base64")}`,
+    };
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+async function createClient(apiKey) {
+  const key = cleanText(apiKey, "Stitch API key");
+  const { Stitch, StitchToolClient } = await import("@google/stitch-sdk");
+  const client = new StitchToolClient({ apiKey: key });
+  return { client, sdk: new Stitch(client) };
+}
+
+async function testStitchKey({ apiKey }) {
+  const { client } = await createClient(apiKey);
+  try {
+    const result = await client.listTools();
+    return {
+      ok: true,
+      toolCount: Array.isArray(result?.tools) ? result.tools.length : 0,
+      message: "Stitch accepted the API key.",
+    };
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+async function generateStitchScreen({ apiKey, prompt, deviceType = "DESKTOP" }) {
+  const instruction = cleanText(prompt, "Stitch prompt", 20_000);
+  const allowedDevices = new Set(["MOBILE", "DESKTOP", "TABLET", "AGNOSTIC"]);
+  const device = allowedDevices.has(deviceType) ? deviceType : "DESKTOP";
+  const { client, sdk } = await createClient(apiKey);
+  try {
+    const project = await sdk.createProject(
+      `shot2code ${new Date().toISOString().slice(0, 10)}`
+    );
+    const screen = await project.generate(instruction, device);
+    return await screenResult(screen, client);
+  } catch (error) {
+    await client.close().catch(() => {});
+    throw error;
+  }
+}
+
+async function importStitchScreen({ apiKey, url }) {
+  const { projectId, screenId } = parseStitchReference(url);
+  const { client, sdk } = await createClient(apiKey);
+  try {
+    const project = sdk.project(projectId);
+    const screen = screenId
+      ? await project.getScreen(screenId)
+      : (await project.screens())[0];
+    if (!screen) throw new Error("The Stitch project has no screens.");
+    return await screenResult(screen, client);
+  } catch (error) {
+    await client.close().catch(() => {});
+    throw error;
+  }
+}
+
+module.exports = {
+  generateStitchScreen,
+  importStitchScreen,
+  parseStitchReference,
+  testStitchKey,
+};

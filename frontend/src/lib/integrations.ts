@@ -21,6 +21,7 @@ import {
   MAX_MODEL_SELECTIONS,
   baseModelOfSelectionId,
   byokSelectionId,
+  configuredWireModels,
   isByokSelectionId,
   normalizeCopilotSdkByokSettings,
   parseByokSelectionId,
@@ -116,6 +117,7 @@ export interface ByokConnectionSummary {
   baseProvider: string;
   wireApi: string;
   wireModel: string | null;
+  wireModels: string[];
   baseUrlHost: string | null;
   hasApiKey: boolean;
   hasBearerToken: boolean;
@@ -124,6 +126,7 @@ export interface ByokConnectionSummary {
   reason: string | null;
   /** Set when the endpoint serves its own model rather than a catalog one. */
   customSelectionId: string | null;
+  customSelectionIds: string[];
 }
 
 function parseByokSummary(raw: unknown): ByokConnectionSummary | null {
@@ -138,6 +141,7 @@ function parseByokSummary(raw: unknown): ByokConnectionSummary | null {
     baseProvider: text(item.baseProvider),
     wireApi: text(item.wireApi),
     wireModel: nullableText(item.wireModel),
+    wireModels: stringList(item.wireModels),
     baseUrlHost: nullableText(item.baseUrlHost),
     hasApiKey: item.hasApiKey === true,
     hasBearerToken: item.hasBearerToken === true,
@@ -145,6 +149,7 @@ function parseByokSummary(raw: unknown): ByokConnectionSummary | null {
     usable: item.usable === true,
     reason: nullableText(item.reason),
     customSelectionId: nullableText(item.customSelectionId),
+    customSelectionIds: stringList(item.customSelectionIds),
   };
 }
 
@@ -291,7 +296,10 @@ export function unavailableByokSelections(
     // A custom identity names one exact endpoint model. Pointing the
     // connection at a different one leaves the old pick unserviceable, and the
     // backend refuses it for the same reason.
-    if (parsed.isCustom) return parsed.wireModel !== connection.wireModel;
+    if (parsed.isCustom) {
+      return !configuredWireModels(connection).includes(parsed.wireModel ?? "");
+    }
+    if (configuredWireModels(connection).length > 0) return true;
     return false;
   });
 }

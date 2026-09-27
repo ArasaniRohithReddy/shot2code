@@ -16,11 +16,14 @@ from preview_screenshot import close_screenshot_preview, probe_screenshot_previe
 from routes import (
     capabilities,
     design_systems,
+    figma,
     history,
     home,
     integrations,
+    mcp_registry,
     models,
     providers,
+    skills,
 )
 from uploaded_assets import configure_uploaded_asset_routes
 
@@ -30,8 +33,8 @@ configure_uploaded_asset_routes(app)
 DEFERRED_ROUTE_GROUPS = (
     (
         "generation",
-        ("routes.generate_code",),
-        ("/generate-code",),
+        ("routes.generate_code", "routes.ai_review"),
+        ("/generate-code", "/api/review/ai"),
     ),
     (
         "project tools",
@@ -98,7 +101,9 @@ async def start_optional_discovery() -> None:
     optional_startup_tasks.start(
         "screenshot preview probe",
         probe_screenshot_preview,
-        timeout_seconds=60,
+        # Longer than the backend's own launch budget so cancellation never
+        # turns a slow first-run antivirus scan into a false unavailable state.
+        timeout_seconds=180,
     )
     optional_startup_tasks.start(
         "Copilot authentication probe",
@@ -130,6 +135,9 @@ app.include_router(home.router)
 app.include_router(capabilities.router)
 app.include_router(models.router)
 app.include_router(integrations.router)
+app.include_router(mcp_registry.router)
 app.include_router(providers.router)
+app.include_router(skills.router)
 app.include_router(design_systems.router)
+app.include_router(figma.router)
 app.include_router(history.router)

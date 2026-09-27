@@ -15,6 +15,7 @@ import { HTTP_BACKEND_URL } from "../../config";
 import ModelCatalogPicker from "./ModelCatalogPicker";
 import CopilotSdkByokSettings from "./CopilotSdkByokSettings";
 import McpServersSettings from "./McpServersSettings";
+import SkillLibrary from "./SkillLibrary";
 import CopilotSignIn from "./CopilotSignIn";
 import ProviderConnectionChecks from "./ProviderConnectionChecks";
 import { useModelCatalog } from "../../hooks/useModelCatalog";
@@ -30,6 +31,7 @@ import {
   isPackagedDesktopRuntime,
 } from "../../lib/screenshot-preview-help";
 import toast from "react-hot-toast";
+import { parseCopilotLoginState } from "../../lib/copilot-login";
 
 interface Props {
   settings: Settings;
@@ -51,10 +53,27 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   const [updateState, setUpdateState] =
     useState<Shot2CodeUpdateState | null>(null);
   const initialCopilotToken = useRef(settings.copilotGithubToken);
+  const useLoggedInCopilot = settings.copilotUseLoggedInUser !== false;
 
   const byokSettings =
     settings.copilotSdkByok ?? DEFAULT_COPILOT_SDK_BYOK_SETTINGS;
   const mcpServers = settings.mcpServers ?? [];
+  const desktopOAuthClient = window.__SHOT2CODE_APP__?.startGitHubOAuth
+    ? {
+        start: async () =>
+          parseCopilotLoginState(
+            await window.__SHOT2CODE_APP__!.startGitHubOAuth()
+          ),
+        poll: async () =>
+          parseCopilotLoginState(
+            await window.__SHOT2CODE_APP__!.getGitHubOAuthStatus()
+          ),
+        cancel: async () =>
+          parseCopilotLoginState(
+            await window.__SHOT2CODE_APP__!.cancelGitHubOAuth()
+          ),
+      }
+    : undefined;
 
   const {
     catalog,
@@ -88,15 +107,19 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   useEffect(() => {
     let cancelled = false;
     const token = initialCopilotToken.current?.trim();
+    const usePost = Boolean(token) || !useLoggedInCopilot;
     fetch(
-      token
+      usePost
         ? `${HTTP_BACKEND_URL}/api/copilot/capabilities`
         : `${HTTP_BACKEND_URL}/api/capabilities`,
-      token
+      usePost
         ? {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token }),
+            body: JSON.stringify({
+              token,
+              useLoggedInUser: useLoggedInCopilot,
+            }),
           }
         : undefined
     )
@@ -116,7 +139,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [useLoggedInCopilot]);
 
   useEffect(() => {
     const desktop = window.__SHOT2CODE_APP__;
@@ -144,19 +167,22 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
 
   // Re-probing Copilot goes through the same refresh so the sign-in line and
   // the model list can never disagree about who is signed in.
-  const refreshModelCatalog = async () => {
+  const refreshModelCatalog = async (
+    useLoggedInUser = settings.copilotUseLoggedInUser !== false
+  ) => {
     try {
       await refreshCatalog();
       const token = settings.copilotGithubToken?.trim();
+      const usePost = Boolean(token) || !useLoggedInUser;
       const response = await fetch(
-        token
-          ? `${HTTP_BACKEND_URL}/api/copilot/capabilities`
-          : `${HTTP_BACKEND_URL}/api/capabilities?refresh=true`,
-        token
-          ? {
+        usePost
+            ? `${HTTP_BACKEND_URL}/api/copilot/capabilities`
+            : `${HTTP_BACKEND_URL}/api/capabilities?refresh=true`,
+        usePost
+            ? {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ token }),
+              body: JSON.stringify({ token, useLoggedInUser }),
             }
           : undefined
       );
@@ -532,7 +558,42 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                     in a terminal, or paste a token below. Requires an active
                     Copilot subscription.
                   </p>
-                  <CopilotSignIn onSignedIn={refreshModelCatalog} />
+                  <CopilotSignIn
+                    client={desktopOAuthClient}
+                    onSignedIn={async () => {
+                      setSettings((current) => ({
+                        ...current,
+                        copilotUseLoggedInUser: true,
+                      }));
+                      await refreshModelCatalog(true);
+                    }}
+                  />
+                  {(copilotAvailable ||
+                    settings.copilotGithubToken ||
+                    !useLoggedInCopilot) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void window.__SHOT2CODE_APP__?.disconnectGitHubOAuth();
+                        setSettings((current) => ({
+                          ...current,
+                          copilotGithubToken: null,
+                          copilotUseLoggedInUser: false,
+                        }));
+                        setCopilotAvailable(false);
+                        setCopilotLogin(null);
+                      }}
+                      className="mt-2 min-h-11 rounded-lg border border-gray-200 px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      Disconnect GitHub from shot2code
+                    </button>
+                  )}
+                  {!useLoggedInCopilot && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+                      shot2code will not reuse the machine&apos;s gh or Copilot
+                      CLI session. Those external tools remain signed in.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <p className="text-xs text-gray-500 dark:text-zinc-400">
@@ -559,6 +620,32 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                     setSettings((s) => ({
                       ...s,
                       copilotGithubToken: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                  Google Stitch API key
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                  Used by the bundled experimental <code>@google/stitch-sdk</code>{" "}
+                  in the desktop app to generate or import Stitch screens.
+                  Stored on this device and excluded from model requests.
+                </p>
+                <Input
+                  id="stitch-api-key"
+                  className="mt-2"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Stitch API key"
+                  value={settings.stitchApiKey || ""}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      stitchApiKey: event.target.value,
                     }))
                   }
                 />
@@ -622,6 +709,32 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   />
                 </div>
               )}
+
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                  Figma personal access token
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                  Optional local-tooling alternative to Figma MCP. Used only
+                  when importing a Figma design URL and never sent with model
+                  generation requests. Requires <code>file_content:read</code>.
+                </p>
+                <Input
+                  id="figma-access-token"
+                  className="mt-2"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Figma personal access token"
+                  value={settings.figmaAccessToken || ""}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      figmaAccessToken: event.target.value,
+                    }))
+                  }
+                />
+              </div>
 
               <div>
                 <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
@@ -733,6 +846,40 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
             scopeNote={mcpScopeNote}
           />
 
+          <SkillLibrary />
+
+          <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+            <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
+              <h2 className="text-sm font-medium text-gray-900 dark:text-white">
+                Copilot web research
+              </h2>
+            </div>
+            <div className="flex items-start justify-between gap-4 p-4">
+              <div>
+                <p className="text-sm text-gray-700 dark:text-zinc-300">
+                  Allow web search
+                </p>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                  Lets GitHub Copilot and Copilot SDK BYOK options search the
+                  public web when a prompt needs current documentation or
+                  examples. Search queries leave this device. Shell access and
+                  unrestricted computer files remain disabled.
+                </p>
+              </div>
+              <Switch
+                id="copilot-web-search"
+                checked={settings.copilotWebSearchEnabled}
+                onCheckedChange={(checked) =>
+                  setSettings((current) => ({
+                    ...current,
+                    copilotWebSearchEnabled: checked,
+                  }))
+                }
+                aria-label="Allow Copilot web search"
+              />
+            </div>
+          </div>
+
           {/* Image Generation */}
           <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
             <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
@@ -747,7 +894,10 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                     Placeholder Images
                   </p>
                   <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                    More fun with it but if you want to save money, turn it off.
+                    Uses Replicate and is billed by Replicate per generated or
+                    edited image. A key may be saved here or configured in
+                    backend/.env; generation reports an actionable error when
+                    neither is available.
                   </p>
                 </div>
                 <Switch

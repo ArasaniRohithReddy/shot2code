@@ -114,6 +114,7 @@ export interface CatalogCredentials {
   anthropicApiKey?: string | null;
   geminiApiKey?: string | null;
   copilotGithubToken?: string | null;
+  copilotUseLoggedInUser?: boolean;
 }
 
 const PROVIDER_IDS: ProviderId[] = [
@@ -459,7 +460,11 @@ export function withMigratedModelSelection<T extends MigratableSettings>(
 
 export type ProviderCredentialSettings = Pick<
   Settings,
-  "openAiApiKey" | "anthropicApiKey" | "geminiApiKey" | "copilotGithubToken"
+  | "openAiApiKey"
+  | "anthropicApiKey"
+  | "geminiApiKey"
+  | "copilotGithubToken"
+  | "copilotUseLoggedInUser"
 >;
 
 export function credentialsFromSettings(
@@ -470,5 +475,6 @@ export function credentialsFromSettings(
     anthropicApiKey: settings.anthropicApiKey,
     geminiApiKey: settings.geminiApiKey,
     copilotGithubToken: settings.copilotGithubToken,
+    copilotUseLoggedInUser: settings.copilotUseLoggedInUser !== false,
   };
 }

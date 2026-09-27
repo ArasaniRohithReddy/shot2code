@@ -15,6 +15,9 @@ import { Progress } from "../../ui/progress";
 import { Textarea } from "../../ui/textarea";
 import StackLabel from "../../core/StackLabel";
 import OutputSettingsSection from "../../settings/OutputSettingsSection";
+import ModelSelector, {
+  type ModelSelectorProps,
+} from "../../settings/ModelSelector";
 import { Stack, STACK_DESCRIPTIONS } from "../../../lib/stacks";
 import type { ProjectContext } from "../../../types";
 import {
@@ -33,10 +36,14 @@ import {
 } from "../../../lib/project-import";
 
 export interface ImportTabProps {
-  importFromCode: (code: string, stack: Stack) => void;
-  importProject?: EditableProjectImportHandler;
+  importFromCode: (code: string, stack: Stack, instruction?: string) => void;
+  importProject?: (
+    selection: Parameters<EditableProjectImportHandler>[0],
+    instruction?: string
+  ) => void;
   projectContext: ProjectContext | null;
   setProjectContext: (context: ProjectContext | null) => void;
+  modelSelector?: ModelSelectorProps;
 }
 
 type ImportMode = "page" | "project";
@@ -50,6 +57,7 @@ function ImportTab({
   importProject,
   projectContext,
   setProjectContext,
+  modelSelector,
 }: ImportTabProps) {
   const [mode, setMode] = useState<ImportMode>("page");
   const [code, setCode] = useState("");
@@ -59,6 +67,7 @@ function ImportTab({
   const [isScanningProject, setIsScanningProject] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ProjectImportProgress | null>(null);
+  const [instruction, setInstruction] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
@@ -111,7 +120,7 @@ function ImportTab({
       toast.error("Select the stack this code should use.");
       return;
     }
-    importFromCode(code, selectedStack);
+    importFromCode(code, selectedStack, instruction);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -243,7 +252,10 @@ function ImportTab({
       return;
     }
     if (importProject) {
-      importProject({ project: analysis.project, stack: projectStack });
+      importProject(
+        { project: analysis.project, stack: projectStack },
+        instruction
+      );
       return;
     }
     if (!legacyEditableFile) {
@@ -252,7 +264,7 @@ function ImportTab({
       );
       return;
     }
-    importFromCode(legacyEditableFile.content, projectStack);
+    importFromCode(legacyEditableFile.content, projectStack, instruction);
   };
 
   return (
@@ -370,13 +382,42 @@ function ImportTab({
               shouldDisableUpdates={false}
             />
 
+            <div className="space-y-2">
+              <label
+                htmlFor="import-page-instruction"
+                className="text-sm font-medium text-gray-700 dark:text-zinc-300"
+              >
+                First AI instruction <span className="font-normal text-gray-400">Optional</span>
+              </label>
+              <Textarea
+                id="import-page-instruction"
+                value={instruction}
+                onChange={(event) => setInstruction(event.target.value)}
+                placeholder="For example: make this responsive and preserve the existing visual style."
+                className="min-h-24 resize-y"
+              />
+              <p className="text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                If provided, shot2code imports the source first and then sends
+                this instruction through the selected model in Chat.
+              </p>
+            </div>
+
+            {modelSelector && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+                <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                  Models for the first edit
+                </span>
+                <ModelSelector {...modelSelector} />
+              </div>
+            )}
+
             <Button
               onClick={doImport}
               className="min-h-11 w-full"
               size="lg"
               data-testid="import-submit"
             >
-              Import code
+              {instruction.trim() ? "Import & apply instruction" : "Import code"}
             </Button>
             <p className="text-center text-xs text-gray-400 dark:text-zinc-500">
               Press Cmd/Ctrl + Enter to import
@@ -544,6 +585,30 @@ function ImportTab({
                   shouldDisableUpdates={false}
                 />
 
+                <div className="space-y-2 rounded-lg border border-emerald-200 bg-white/70 p-3 dark:border-emerald-900/70 dark:bg-zinc-900/70">
+                  <label
+                    htmlFor="import-project-instruction"
+                    className="text-sm font-medium text-gray-700 dark:text-zinc-300"
+                  >
+                    First AI instruction <span className="font-normal text-gray-400">Optional</span>
+                  </label>
+                  <Textarea
+                    id="import-project-instruction"
+                    value={instruction}
+                    onChange={(event) => setInstruction(event.target.value)}
+                    placeholder="For example: update the main page to match my new design."
+                    className="min-h-24 resize-y"
+                  />
+                  {modelSelector && (
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="text-xs text-gray-600 dark:text-zinc-400">
+                        Models for the first edit
+                      </span>
+                      <ModelSelector {...modelSelector} />
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid gap-2 sm:grid-cols-2">
                   <Button
                     type="button"
@@ -559,7 +624,9 @@ function ImportTab({
                     disabled={!canOpenEditableProject || !projectStack}
                     onClick={openEditableProject}
                   >
-                    Open editable project
+                    {instruction.trim()
+                      ? "Open & apply instruction"
+                      : "Open editable project"}
                   </Button>
                 </div>
 

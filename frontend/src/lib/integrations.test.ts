@@ -489,6 +489,7 @@ function byokConnection(
     bearerToken: null,
     wireApi: "completions",
     wireModel: CUSTOM_MODEL,
+    wireModels: [],
     azureApiVersion: null,
     ...overrides,
   };

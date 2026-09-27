@@ -60,7 +60,7 @@ export const MAX_DISCOVERED_MODELS = 100;
  */
 const WIRE_MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/;
 
-export function isValidWireModel(value: unknown): value is string {
+export function isValidWireModel(value: unknown): boolean {
   if (typeof value !== "string") return false;
   const candidate = value.trim();
   if (!candidate || candidate.length > MAX_WIRE_MODEL_LENGTH) return false;
@@ -92,8 +92,10 @@ export interface CopilotSdkByokSettings {
    * specifically keeps working.
    */
   wireApi: ByokWireApi | null;
-  /** What the endpoint calls the model, when it differs from the base model. */
+  /** First configured endpoint model, retained for older saved settings. */
   wireModel: string | null;
+  /** Every endpoint model this connection may expose as its own run identity. */
+  wireModels: string[];
   azureApiVersion: string | null;
 }
 
@@ -105,6 +107,7 @@ export const DEFAULT_COPILOT_SDK_BYOK_SETTINGS: CopilotSdkByokSettings = {
   bearerToken: null,
   wireApi: null,
   wireModel: null,
+  wireModels: [],
   azureApiVersion: null,
 };
 
@@ -183,6 +186,18 @@ export function normalizeCopilotSdkByokSettings(
   const wireApi = BYOK_WIRE_APIS.includes(raw.wireApi as ByokWireApi)
     ? (raw.wireApi as ByokWireApi)
     : null;
+  const legacyWireModel = cleanText(raw.wireModel, BYOK_MAX_VALUE_LENGTH);
+  const wireModels = Array.isArray(raw.wireModels)
+    ? raw.wireModels
+        .map((value) => cleanText(value, BYOK_MAX_VALUE_LENGTH))
+        .filter((value): value is string => Boolean(value))
+        .filter((value, index, values) => values.indexOf(value) === index)
+        .slice(0, MAX_MODEL_SELECTIONS)
+    : [];
+  if (legacyWireModel && !wireModels.includes(legacyWireModel)) {
+    wireModels.unshift(legacyWireModel);
+  }
+  wireModels.splice(MAX_MODEL_SELECTIONS);
 
   return {
     enabled: raw.enabled === true,
@@ -194,7 +209,8 @@ export function normalizeCopilotSdkByokSettings(
     // Bounded only so nothing unbounded is persisted. A value between the
     // validity limit and this cap survives intact and is reported by
     // `validateByokSettings` instead of being quietly rewritten.
-    wireModel: cleanText(raw.wireModel, BYOK_MAX_VALUE_LENGTH),
+    wireModel: wireModels[0] ?? null,
+    wireModels,
     // Only Azure accepts an api-version; the backend refuses it elsewhere.
     azureApiVersion:
       provider === "azure"
@@ -353,6 +369,22 @@ export function hasByokCredential(settings: CopilotSdkByokSettings): boolean {
   return Boolean(settings.apiKey || settings.bearerToken);
 }
 
+/** Endpoint model ids, de-duplicated while preserving the user's order. */
+export function configuredWireModels(
+  settings: Pick<CopilotSdkByokSettings, "wireModel" | "wireModels">
+): string[] {
+  const values = [
+    ...(Array.isArray(settings.wireModels) ? settings.wireModels : []),
+    settings.wireModel,
+  ];
+  const unique: string[] = [];
+  for (const raw of values) {
+    const model = typeof raw === "string" ? raw.trim() : "";
+    if (model && !unique.includes(model)) unique.push(model);
+  }
+  return unique.slice(0, MAX_MODEL_SELECTIONS);
+}
+
 /**
  * Why this connection cannot run, in the words the user will see.
  *
@@ -398,6 +430,7 @@ export type ByokField =
   | "apiKey"
   | "bearerToken"
   | "wireModel"
+  | "wireModels"
   | "azureApiVersion";
 
 export type ByokValidationErrors = Partial<Record<ByokField, string>>;
@@ -458,6 +491,17 @@ export function validateByokSettings(
         ? `This model id is longer than ${MAX_WIRE_MODEL_LENGTH} characters, which the endpoint cannot be asked for.`
         : "Use the exact model id the endpoint reports. Letters, digits and . _ : / @ + - are allowed, but no spaces.";
   }
+  const invalidListModel = configuredWireModels(settings).find(
+    (model) => !isValidWireModel(model)
+  );
+  if (settings.wireModels.length > MAX_MODEL_SELECTIONS) {
+    errors.wireModels = `Choose at most ${MAX_MODEL_SELECTIONS} endpoint models.`;
+  } else if (invalidListModel) {
+    errors.wireModels =
+      invalidListModel.length > MAX_WIRE_MODEL_LENGTH
+        ? `A model id is longer than ${MAX_WIRE_MODEL_LENGTH} characters.`
+        : "Every model id must use letters, digits and . _ : / @ + - with no spaces.";
+  }
 
   if (
     !hasByokCredential(settings) &&
@@ -490,6 +534,7 @@ export interface CopilotSdkByokWirePayload {
   apiKey?: string;
   bearerToken?: string;
   wireModel?: string;
+  wireModels?: string[];
   azureApiVersion?: string;
 }
 
@@ -522,7 +567,13 @@ export function toByokWirePayload(
   if (includeSecrets && settings.bearerToken) {
     payload.bearerToken = settings.bearerToken;
   }
-  if (settings.wireModel) payload.wireModel = settings.wireModel;
+  const wireModels = configuredWireModels(settings);
+  if (wireModels.length > 0) {
+    // Keep the singular field for older backends while the plural field is
+    // authoritative for current builds.
+    payload.wireModel = wireModels[0];
+    payload.wireModels = wireModels;
+  }
   if (settings.provider === "azure" && settings.azureApiVersion) {
     payload.azureApiVersion = settings.azureApiVersion;
   }
@@ -543,6 +594,12 @@ export function describeByokEndpoint(settings: CopilotSdkByokSettings): string {
       ? "your resource"
       : "the provider default endpoint");
   const wire = BYOK_WIRE_API_LABELS[effectiveWireApi(settings)];
-  const model = settings.wireModel ? ` as ${settings.wireModel}` : "";
+  const models = configuredWireModels(settings);
+  const model =
+    models.length === 1
+      ? ` as ${models[0]}`
+      : models.length > 1
+        ? ` with ${models.length} models`
+        : "";
   return `${provider} · ${where} · ${wire}${model}`;
 }

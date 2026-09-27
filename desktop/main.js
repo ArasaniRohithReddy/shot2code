@@ -7,6 +7,7 @@ const {
   ipcMain,
   session,
   desktopCapturer,
+  safeStorage,
 } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
@@ -19,12 +20,19 @@ const {
 const { waitForBackend } = require("./backend-readiness");
 const { applyZoomCommand, installZoomControls } = require("./zoom-controls");
 const {
+  generateStitchScreen,
+  importStitchScreen,
+  testStitchKey,
+} = require("./stitch-sdk");
+const {
   DEFAULT_MENU_STATE,
   MENU_COMMAND_CHANNEL,
   MENU_LINKS,
   MENU_STATE_CHANNEL,
   createAppMenu,
 } = require("./app-menu");
+const { GitHubOAuthManager } = require("./github-oauth");
+const { createBackendAuthRestarter } = require("./backend-auth-restart");
 
 const untrustedPreloadPath = path.join(__dirname, "untrusted-preload.js");
 
@@ -43,6 +51,9 @@ let splashWindow = null;
 let logStream = null;
 let desktopUpdater = null;
 let appMenu = null;
+let githubOAuth = null;
+let backendPort = null;
+let backendGithubToken = null;
 let updateState = {
   status: isDev ? "unavailable" : "idle",
   currentVersion: app.getVersion(),
@@ -119,7 +130,7 @@ function resolveBackendCommand(port) {
   };
 }
 
-function startBackend(port) {
+function startBackend(port, githubToken = null) {
   const { command, args, cwd } = resolveBackendCommand(port);
   log(`starting backend: ${command} ${args.join(" ")} (cwd=${cwd})`);
 
@@ -130,6 +141,7 @@ function startBackend(port) {
       PORT: String(port),
       BACKEND_PORT: String(port),
       PYTHONUNBUFFERED: "1",
+      ...(githubToken ? { COPILOT_GITHUB_TOKEN: githubToken } : {}),
     },
     windowsHide: true,
   });
@@ -143,6 +155,22 @@ function startBackend(port) {
 
   return child;
 }
+
+const restartBackendForGitHubAuth = createBackendAuthRestarter({
+  getBackendPort: () => backendPort,
+  getBackendToken: () => backendGithubToken,
+  setBackendToken: (token) => {
+    backendGithubToken = token;
+  },
+  getGitHubToken: () => githubOAuth.getToken(),
+  stopBackend,
+  startBackend,
+  setBackendProcess: (process) => {
+    backendProcess = process;
+  },
+  waitForBackend,
+  log,
+});
 
 /**
  * Frozen Python still has a visible cold-start cost. Put a window up
@@ -458,6 +486,9 @@ function createWindow() {
   mainWindow.webContents.on(
     "did-fail-load",
     (_e, errorCode, errorDescription, validatedURL) => {
+      // Chromium reports ERR_ABORTED (-3) when a srcdoc preview is replaced or
+      // unmounted. That is expected lifecycle noise, not a renderer failure.
+      if (errorCode === -3 && validatedURL === "about:srcdoc") return;
       log(`renderer failed to load ${validatedURL}: ${errorDescription} (${errorCode})`);
     }
   );
@@ -465,6 +496,9 @@ function createWindow() {
     log(`renderer process gone: ${JSON.stringify(details)}`);
   });
   mainWindow.webContents.on("console-message", (_e, level, message, line, sourceId) => {
+    if (message === "ResizeObserver loop completed with undelivered notifications.") {
+      return;
+    }
     if (level >= 2) log(`renderer console [${level}] ${message} (${sourceId}:${line})`);
   });
   installZoomControls(mainWindow.webContents, {
@@ -576,6 +610,11 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    githubOAuth = new GitHubOAuthManager({
+      userDataPath: app.getPath("userData"),
+      safeStorage,
+      openExternal: (url) => shell.openExternal(url),
+    });
     ipcMain.handle("shot2code:open-logs", () => openDiagnosticLogs());
     ipcMain.handle("shot2code:get-app-info", () => ({
       version: app.getVersion(),
@@ -594,6 +633,29 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle("shot2code:install-update", () => {
       return installDownloadedUpdate();
     });
+    ipcMain.handle("shot2code:stitch-test", (_event, payload) => {
+      return testStitchKey(payload || {});
+    });
+    ipcMain.handle("shot2code:stitch-generate", (_event, payload) => {
+      return generateStitchScreen(payload || {});
+    });
+    ipcMain.handle("shot2code:stitch-import", (_event, payload) => {
+      return importStitchScreen(payload || {});
+    });
+    ipcMain.handle("shot2code:github-oauth-start", () => githubOAuth.start());
+    ipcMain.handle("shot2code:github-oauth-status", async () => {
+      const state = githubOAuth.status();
+      if (state.status === "succeeded") {
+        await restartBackendForGitHubAuth();
+      }
+      return state;
+    });
+    ipcMain.handle("shot2code:github-oauth-cancel", () => githubOAuth.cancel());
+    ipcMain.handle("shot2code:github-oauth-disconnect", async () => {
+      const state = await githubOAuth.disconnect();
+      await restartBackendForGitHubAuth();
+      return state;
+    });
     // The renderer owns the truth about whether a project is open, so it tells
     // the menu what to enable. Until that first message the project items stay
     // enabled and the renderer answers with its own toast, which is honest
@@ -609,11 +671,13 @@ if (!app.requestSingleInstanceLock()) {
 
     try {
       const port = await findFreePort();
+      backendPort = port;
       process.env.SHOT2CODE_BACKEND_HTTP = `http://127.0.0.1:${port}`;
       process.env.SHOT2CODE_BACKEND_WS = `ws://127.0.0.1:${port}`;
 
       const backendStartedAt = Date.now();
-      backendProcess = startBackend(port);
+      backendGithubToken = await githubOAuth.getToken();
+      backendProcess = startBackend(port, backendGithubToken);
       await waitForBackend(port, { backendProcess });
       log(`backend ready on ${port} in ${Date.now() - backendStartedAt}ms`);
     } catch (err) {

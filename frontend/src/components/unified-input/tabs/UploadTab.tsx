@@ -17,6 +17,47 @@ import {
 } from "../../ui/select";
 
 function fileToDataURL(file: File): Promise<string> {
+  if (
+    file.type === "image/svg+xml" ||
+    file.name.toLowerCase().endsWith(".svg")
+  ) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = () => {
+        const svg = String(reader.result ?? "");
+        const blobUrl = URL.createObjectURL(
+          new Blob([svg], { type: "image/svg+xml" })
+        );
+        const image = new Image();
+        image.onload = () => {
+          try {
+            const maxDimension = 2048;
+            const width = Math.max(1, image.naturalWidth || 1024);
+            const height = Math.max(1, image.naturalHeight || 1024);
+            const scale = Math.min(1, maxDimension / Math.max(width, height));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(width * scale));
+            canvas.height = Math.max(1, Math.round(height * scale));
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("Canvas is unavailable.");
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL("image/png"));
+          } catch (error) {
+            reject(error);
+          } finally {
+            URL.revokeObjectURL(blobUrl);
+          }
+        };
+        image.onerror = () => {
+          URL.revokeObjectURL(blobUrl);
+          reject(new Error("Could not render the SVG export."));
+        };
+        image.src = blobUrl;
+      };
+      reader.readAsText(file);
+    });
+  }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -239,6 +280,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: P
       "image/png": [".png"],
       "image/jpeg": [".jpeg"],
       "image/jpg": [".jpg"],
+      "image/svg+xml": [".svg"],
       "video/quicktime": [".mov"],
       "video/mp4": [".mp4"],
       "video/webm": [".webm"],
@@ -257,7 +299,9 @@ function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: P
       }
 
       if (firstError.code === "file-invalid-type") {
-        toast.error("Unsupported file type. Use PNG, JPG, MP4, MOV, or WebM.");
+        toast.error(
+          "Unsupported file type. Use PNG, JPG, SVG, MP4, MOV, or WebM."
+        );
         return;
       }
 
@@ -297,7 +341,13 @@ function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: P
     images: string[],
     inputMode: "image" | "video"
   ) => {
-    doCreate(images, inputMode, "");
+    doCreate(
+      images,
+      inputMode,
+      textPrompt,
+      inputMode === "image" && isAssetExtractionEnabled,
+      multiScreenshotMode
+    );
   };
 
   const handleRemoveImage = (index: number) => {
@@ -354,7 +404,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: P
               </p>
             </div>
             <p className="text-xs text-gray-400 dark:text-zinc-500 mt-2">
-              Supports PNG, JPG, MP4, MOV, WebM (max 20MB each, 30s video)
+              Supports PNG, JPG, SVG, MP4, MOV, WebM (max 20MB each, 30s video)
             </p>
             <button
               type="button"
@@ -527,21 +577,28 @@ function UploadTab({ doCreate, stack, setStack, designSystem, modelSelector }: P
             </div>
           )}
 
-          <GenerationControls
-            textPrompt={textPrompt}
-            onTextPromptChange={setTextPrompt}
-            textInputRef={textInputRef}
-            onTextInputKeyDown={handleKeyDown}
-            stack={stack}
-            setStack={setStack}
-            designSystem={designSystem}
-          modelSelector={modelSelector}
-            showAssetExtraction={uploadedInputMode === "image"}
-            isAssetExtractionEnabled={isAssetExtractionEnabled}
-            onAssetExtractionChange={setIsAssetExtractionEnabled}
-            onGenerate={handleGenerate}
-          />
         </div>
+      )}
+
+      {screenRecorderState === ScreenRecorderState.INITIAL && (
+        <GenerationControls
+          textPrompt={textPrompt}
+          onTextPromptChange={setTextPrompt}
+          textInputRef={textInputRef}
+          onTextInputKeyDown={handleKeyDown}
+          stack={stack}
+          setStack={setStack}
+          designSystem={designSystem}
+          modelSelector={modelSelector}
+          showAssetExtraction={uploadedInputMode === "image"}
+          isAssetExtractionEnabled={isAssetExtractionEnabled}
+          onAssetExtractionChange={setIsAssetExtractionEnabled}
+          onGenerate={handleGenerate}
+          actionLabel={
+            hasUploadedFile ? "Generate Code" : "Add a screenshot to generate"
+          }
+          isActionDisabled={!hasUploadedFile}
+        />
       )}
 
       {!hasUploadedFile && (

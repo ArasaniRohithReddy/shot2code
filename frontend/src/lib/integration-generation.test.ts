@@ -28,6 +28,7 @@ import {
   buildGenerationIntegrationPayload,
   buildModelSelections,
 } from "./integrations";
+import { toGenerationSettings } from "./generation-settings";
 import { createMcpServer } from "./mcp-servers";
 import {
   buildHistoryProjectSnapshot,
@@ -60,7 +61,10 @@ function settingsFixture(): Settings {
     openAiBaseURL: "https://proxy.example.com/v1",
     replicateApiKey: "replicate-value",
     screenshotOneApiKey: null,
+    figmaAccessToken: "figma-secret",
+    stitchApiKey: "stitch-secret",
     isImageGenerationEnabled: true,
+    copilotWebSearchEnabled: true,
     editorTheme: EditorTheme.COBALT,
     generatedCodeConfig: Stack.HTML_TAILWIND,
     codeGenerationModel: CodeGenerationModel.GEMINI_3_FLASH_PREVIEW_MINIMAL,
@@ -269,6 +273,17 @@ describe("the WebSocket generation payload", () => {
     expect(payload.openAiBaseURL).toBe("https://proxy.example.com/v1");
     expect(payload.anthropicApiKey).toBe(DIRECT_ANTHROPIC_KEY);
     expect(payload.replicateApiKey).toBe("replicate-value");
+  });
+
+  test("capture-only credentials never enter a generation request", () => {
+    const safe = toGenerationSettings(settingsFixture());
+    const serialized = JSON.stringify(safe);
+
+    expect(serialized).not.toContain("figma-secret");
+    expect(serialized).not.toContain("stitch-secret");
+    expect(serialized).not.toContain("screenshotOneApiKey");
+    expect(serialized).not.toContain("figmaAccessToken");
+    expect(serialized).not.toContain("stitchApiKey");
   });
 
   test("a retry replays each identity with its own runtime", () => {

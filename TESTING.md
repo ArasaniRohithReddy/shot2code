@@ -68,9 +68,8 @@ pnpm lint        # eslint, runs with --max-warnings 0
 pnpm exec tsc --noEmit   # type check
 ```
 
-`pnpm lint` reports a handful of pre-existing errors (mostly
-`@typescript-eslint/no-explicit-any`). Those are baseline; just make sure your
-change doesn't add new ones.
+`pnpm lint` runs with `--max-warnings 0` and must pass without errors or
+warnings.
 
 ## Desktop app
 

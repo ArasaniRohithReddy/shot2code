@@ -63,12 +63,14 @@ class AgentEngine:
         gemini_api_key: Optional[str],
         replicate_api_key: Optional[str],
         should_generate_images: bool,
+        copilot_web_search_enabled: bool = False,
         should_extract_assets: bool = True,
         asset_base_url: str = "",
         initial_file_state: Optional[Dict[str, str]] = None,
         option_codes: Optional[List[str]] = None,
         recorder: Optional[AgentRunRecorder] = None,
         copilot_github_token: Optional[str] = None,
+        copilot_use_logged_in_user: bool = True,
         integrations: Optional[IntegrationSettings] = None,
     ):
         self.send_message = send_message
@@ -80,8 +82,10 @@ class AgentEngine:
         self.gemini_api_key = gemini_api_key
         self.replicate_api_key = replicate_api_key
         self.copilot_github_token = copilot_github_token
+        self.copilot_use_logged_in_user = copilot_use_logged_in_user
         self.integrations = integrations or EMPTY_INTEGRATIONS
         self.should_generate_images = should_generate_images
+        self.copilot_web_search_enabled = copilot_web_search_enabled
         self.should_extract_assets = should_extract_assets
 
         self.file_state = AgentFileState()
@@ -400,6 +404,7 @@ class AgentEngine:
             gemini_api_key=self.gemini_api_key,
             replicate_api_key=self.replicate_api_key,
             copilot_github_token=self.copilot_github_token,
+            copilot_use_logged_in_user=self.copilot_use_logged_in_user,
             # Only advertise extraction when the request actually contains a
             # still image the runtime can crop. In particular, Gemini videos
             # share the image_url message shape but are not valid extractor
@@ -409,6 +414,7 @@ class AgentEngine:
             ),
             recorder=self.recorder,
             integrations=self.integrations,
+            copilot_web_search_enabled=self.copilot_web_search_enabled,
             # Only ever set when the selection itself asked for the BYOK runtime.
             byok_connection=byok_connection,
             # The endpoint's own model name, when the selection named one.

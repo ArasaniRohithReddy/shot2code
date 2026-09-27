@@ -1,11 +1,125 @@
 import { HTTP_BACKEND_URL } from "../../config";
 import { normalizeBabelCdn } from "../../lib/babelCdn";
 import type { ProjectExportState, ProjectFile } from "../../lib/project-files";
+import {
+  createProjectFile,
+  type ProjectFileMap,
+} from "../../lib/project-files";
 
 export type CodeDownloadResult =
   | { kind: "server-export"; filename: string }
   | { kind: "preview-fallback"; filename: string }
   | { kind: "project-backup"; filename: string };
+
+export interface ExportPreview {
+  entryPoint: string;
+  projectKind: string;
+  files: ProjectFileMap;
+  runtimeFiles: ProjectFileMap;
+  assets: Array<{
+    path: string;
+    size: number;
+    mimeType: string;
+    contentBase64: string | null;
+  }>;
+}
+
+export async function loadExportPreview(
+  code: string,
+  options: {
+    stack: string;
+    project: ProjectExportState;
+    signal?: AbortSignal;
+  }
+): Promise<ExportPreview> {
+  const response = await fetch(`${HTTP_BACKEND_URL}/api/export/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal: options.signal,
+    body: JSON.stringify({
+      code,
+      baseUrl: window.location.href,
+      splitFiles: true,
+      stack: options.stack,
+      project: options.project,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      typeof payload.detail === "string"
+        ? payload.detail
+        : `Could not prepare export preview (${response.status}).`
+    );
+  }
+  const files: ProjectFileMap = {};
+  for (const raw of Array.isArray(payload.files) ? payload.files : []) {
+    if (
+      raw &&
+      typeof raw.path === "string" &&
+      typeof raw.content === "string"
+    ) {
+      const file = createProjectFile(raw.path, raw.content, {
+        readonly: true,
+        generated: true,
+        metadata: { exportPreview: true },
+      });
+      files[file.path] = file;
+    }
+  }
+  if (Object.keys(files).length === 0) {
+    throw new Error("The export preview did not contain any text files.");
+  }
+  const assets = Array.isArray(payload.assets)
+    ? payload.assets.filter(
+        (
+          asset: unknown
+        ): asset is {
+          path: string;
+          size: number;
+          mimeType: string;
+          contentBase64: string | null;
+        } =>
+          Boolean(
+            asset &&
+              typeof asset === "object" &&
+              typeof (asset as { path?: unknown }).path === "string" &&
+              typeof (asset as { size?: unknown }).size === "number" &&
+              typeof (asset as { mimeType?: unknown }).mimeType === "string" &&
+              (typeof (asset as { contentBase64?: unknown }).contentBase64 ===
+                "string" ||
+                (asset as { contentBase64?: unknown }).contentBase64 === null)
+          )
+      )
+    : [];
+  const runtimeFiles: ProjectFileMap = { ...files };
+  for (const asset of assets) {
+    if (!asset.contentBase64) continue;
+    const file = createProjectFile(asset.path, asset.contentBase64, {
+      readonly: true,
+      generated: true,
+      metadata: {
+        exportPreview: true,
+        binaryAsset: true,
+        encoding: "base64",
+        mimeType: asset.mimeType,
+        byteSize: asset.size,
+      },
+    });
+    runtimeFiles[file.path] = file;
+  }
+  return {
+    entryPoint:
+      typeof payload.entryPoint === "string"
+        ? payload.entryPoint
+        : Object.keys(files)[0],
+    projectKind:
+      typeof payload.projectKind === "string" ? payload.projectKind : "project",
+    files,
+    runtimeFiles,
+    assets,
+  };
+}
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);

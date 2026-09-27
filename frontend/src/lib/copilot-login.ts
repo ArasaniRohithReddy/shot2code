@@ -25,7 +25,11 @@ export const COPILOT_LOGIN_STATUSES = [
 
 export type CopilotLoginStatus = (typeof COPILOT_LOGIN_STATUSES)[number];
 
-export const COPILOT_LOGIN_METHODS = ["copilot-cli", "github-cli"] as const;
+export const COPILOT_LOGIN_METHODS = [
+  "copilot-cli",
+  "github-cli",
+  "github-oauth",
+] as const;
 
 export type CopilotLoginMethod = (typeof COPILOT_LOGIN_METHODS)[number];
 
@@ -40,6 +44,8 @@ export interface CopilotLoginState {
   canCancel: boolean;
   /** Where to get the missing CLI. Only ever an https URL. */
   installUrl: string | null;
+  userCode: string | null;
+  verificationUri: string | null;
 }
 
 export const IDLE_COPILOT_LOGIN: CopilotLoginState = {
@@ -49,11 +55,14 @@ export const IDLE_COPILOT_LOGIN: CopilotLoginState = {
   login: null,
   canCancel: false,
   installUrl: null,
+  userCode: null,
+  verificationUri: null,
 };
 
 const METHOD_LABELS: Record<CopilotLoginMethod, string> = {
   "copilot-cli": "GitHub Copilot CLI",
   "github-cli": "GitHub CLI",
+  "github-oauth": "shot2code GitHub OAuth",
 };
 
 export function describeCopilotLoginMethod(
@@ -122,6 +131,10 @@ export function parseCopilotLoginState(raw: unknown): CopilotLoginState {
     installUrl: isTrustedInstallUrl(payload.installUrl)
       ? payload.installUrl
       : null,
+    userCode: asString(payload.userCode).trim() || null,
+    verificationUri: isTrustedInstallUrl(payload.verificationUri)
+      ? payload.verificationUri
+      : null,
   };
 }
 
@@ -139,6 +152,8 @@ const MISSING_ROUTE_STATE: CopilotLoginState = {
   login: null,
   canCancel: false,
   installUrl: null,
+  userCode: null,
+  verificationUri: null,
 };
 
 async function request(

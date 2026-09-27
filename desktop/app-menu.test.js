@@ -330,6 +330,14 @@ test("every external link points at the authoritative release hub", () => {
   }
 });
 
+test("documentation menu links use the rendered product site", () => {
+  assert.equal(
+    new URL(MENU_LINKS.userGuide).hostname,
+    "arasanirohithreddy.github.io"
+  );
+  assert.doesNotMatch(MENU_LINKS.userGuide, /github\.com|\.md(?:$|[?#])/);
+});
+
 test("uses stable, collision-free accelerators", () => {
   for (const platform of ["win32", "darwin", "linux"]) {
     const { template } = build({ platform, isDev: true });
@@ -637,4 +645,6 @@ test("keeps the IPC channels and the packaged file list in step", () => {
     "utf8"
   );
   assert.match(builderConfig, /^\s*-\s+app-menu\.js\s*$/m);
+  assert.match(builderConfig, /^\s*-\s+stitch-sdk\.js\s*$/m);
+  assert.match(builderConfig, /^\s*-\s+github-oauth\.js\s*$/m);
 });

@@ -77,28 +77,38 @@ export default function CopilotSignIn({
   useEffect(() => {
     if (!isPolling) return;
     let active = true;
-    const timer = setInterval(() => {
-      void pollRef
-        .current()
-        .then((next) => {
-          if (!active) return;
-          setState(next);
-          if (next.status === "succeeded") void onSignedInRef.current();
-        })
-        .catch((caught) => {
-          if (!active) return;
-          // A dropped poll is not a failed sign-in; the flow may still be
-          // open in the browser, so only the message is surfaced.
-          setRequestError(
-            caught instanceof Error
-              ? caught.message
-              : "Lost contact with the backend while signing in."
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const pollOnce = async () => {
+      try {
+        const next = await pollRef.current();
+        if (!active) return;
+        setState(next);
+        if (next.status === "succeeded") void onSignedInRef.current();
+      } catch (caught) {
+        if (!active) return;
+        // A dropped poll is not a failed sign-in; the flow may still be
+        // open in the browser, so only the message is surfaced.
+        setRequestError(
+          caught instanceof Error
+            ? caught.message
+            : "Lost contact with the backend while signing in."
+        );
+      } finally {
+        if (active) {
+          timer = setTimeout(
+            () => void pollOnce(),
+            COPILOT_LOGIN_POLL_INTERVAL_MS
           );
-        });
-    }, COPILOT_LOGIN_POLL_INTERVAL_MS);
+        }
+      }
+    };
+    timer = setTimeout(
+      () => void pollOnce(),
+      COPILOT_LOGIN_POLL_INTERVAL_MS
+    );
     return () => {
       active = false;
-      clearInterval(timer);
+      if (timer) clearTimeout(timer);
     };
   }, [isPolling]);
 
@@ -190,9 +200,9 @@ export default function CopilotSignIn({
 
       <p className="text-xs leading-5 text-gray-500 dark:text-zinc-400">
         This opens the official{" "}
-        {methodLabel ?? "GitHub Copilot CLI"} sign-in page in your browser. The
-        credential is stored by that tool on this device — shot2code never
-        receives or saves your token.
+        {methodLabel ?? "GitHub"} sign-in page in your browser. Desktop OAuth
+        credentials are encrypted with the operating system; CLI credentials
+        stay in that tool&apos;s own store.
       </p>
 
       <div aria-live="polite" className="space-y-2">
@@ -214,6 +224,24 @@ export default function CopilotSignIn({
           >
             {state.message}
           </p>
+        )}
+
+        {state.userCode && state.verificationUri && (
+          <div className="rounded-md border border-violet-200 bg-violet-50 p-3 text-xs text-violet-900 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-100">
+            <p>Enter this one-time code on GitHub:</p>
+            <code className="notranslate mt-1 block select-all text-lg font-bold tracking-widest" translate="no">
+              {state.userCode}
+            </code>
+            <a
+              href={state.verificationUri}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="mt-2 inline-flex min-h-11 items-center gap-1 font-medium underline underline-offset-2"
+            >
+              Open GitHub device activation
+              <LuExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+            </a>
+          </div>
         )}
 
         {requestError && (

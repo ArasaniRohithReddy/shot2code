@@ -5,7 +5,7 @@
 // (React.createElement). We rewrite the CDN URL wherever generated code is
 // rendered or exported, so already-generated projects keep working too.
 
-const PINNED_BABEL_STANDALONE_URL =
+export const PINNED_BABEL_STANDALONE_URL =
   "https://unpkg.com/@babel/standalone@7.25.6/babel.min.js";
 
 const BABEL_CDN_RE =

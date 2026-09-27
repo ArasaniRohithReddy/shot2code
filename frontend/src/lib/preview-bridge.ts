@@ -448,6 +448,41 @@ function buildPreviewBridgeScript(nonce: string): string {
     event.stopImmediatePropagation();
   };
 
+  // A srcdoc document inherits the packaged app's file:// base URL. Without
+  // this guard, an ordinary in-page link such as href="#pricing" tries to load
+  // renderer/index.html#pricing and Electron reports a blocked local-resource
+  // error. Keep fragment navigation entirely inside the preview instead.
+  window.addEventListener(
+    "click",
+    (event) => {
+      if (enabled) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest("a[href]");
+      if (!anchor) return;
+      const href = anchor.getAttribute("href") || "";
+      if (!href.startsWith("#")) return;
+      event.preventDefault();
+      const rawId = href.slice(1);
+      if (!rawId) return;
+      let id = rawId;
+      try {
+        id = decodeURIComponent(rawId);
+      } catch {
+        // Use the literal fragment when it is not valid percent encoding.
+      }
+      const escaped =
+        typeof CSS !== "undefined" && typeof CSS.escape === "function"
+          ? CSS.escape(id)
+          : id.replace(/["\\\\]/g, "\\\\$&");
+      const destination =
+        document.getElementById(id) ||
+        document.querySelector('[name="' + escaped + '"]');
+      destination?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    true
+  );
+
   window.addEventListener("pointerdown", suppress, true);
   window.addEventListener("mousedown", suppress, true);
   window.addEventListener("mouseup", suppress, true);

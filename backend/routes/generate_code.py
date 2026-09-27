@@ -69,6 +69,7 @@ MessageType = Literal[
     "assistant",
     "toolStart",
     "toolResult",
+    "heartbeat",
 ]
 from prompts.pipeline import build_prompt_messages
 from prompts.request_parsing import parse_prompt_content, parse_prompt_history
@@ -138,6 +139,22 @@ def _empty_strings() -> List[str]:
     return []
 
 
+def _empty_params() -> Dict[str, Any]:
+    return {}
+
+
+def _empty_prompt_messages() -> List[ChatCompletionMessageParam]:
+    return []
+
+
+def _empty_variant_completions() -> Dict[int, str]:
+    return {}
+
+
+def _empty_metadata() -> Dict[str, Any]:
+    return {}
+
+
 def _error_provider(spec: "ModelRunSpec") -> str:
     """Which provider a failing variant should be blamed on."""
     if spec.is_byok:
@@ -170,14 +187,18 @@ class PipelineContext:
 
     websocket: WebSocket
     ws_comm: "WebSocketCommunicator | None" = None
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: Dict[str, Any] = field(default_factory=_empty_params)
     extracted_params: "ExtractedParams | None" = None
-    prompt_messages: List[ChatCompletionMessageParam] = field(default_factory=list)
+    prompt_messages: List[ChatCompletionMessageParam] = field(
+        default_factory=_empty_prompt_messages
+    )
     variant_specs: List[ModelRunSpec] = field(default_factory=_empty_specs)
     planned_variant_count: int = 0
-    completions: List[str] = field(default_factory=list)
-    variant_completions: Dict[int, str] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    completions: List[str] = field(default_factory=_empty_strings)
+    variant_completions: Dict[int, str] = field(
+        default_factory=_empty_variant_completions
+    )
+    metadata: Dict[str, Any] = field(default_factory=_empty_metadata)
 
     @property
     def variant_models(self) -> List[Llm]:
@@ -249,11 +270,52 @@ class WebSocketCommunicator:
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
         self.is_closed = False
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     async def accept(self) -> None:
         """Accept the WebSocket connection"""
         await self.websocket.accept()
         print("Incoming websocket connection...")
+
+    def start_heartbeat(self, interval_seconds: float = 15.0) -> None:
+        """Keep long provider turns visibly alive without changing UI state."""
+        if self._heartbeat_task is not None:
+            return
+
+        async def heartbeat() -> None:
+            try:
+                while not self.is_closed:
+                    await asyncio.sleep(interval_seconds)
+                    if self.is_closed:
+                        return
+                    await self.websocket.send_json(
+                        {"type": "heartbeat", "variantIndex": 0}
+                    )
+            except asyncio.CancelledError:
+                raise
+            except (
+                ConnectionClosedOK,
+                ConnectionClosedError,
+                RuntimeError,
+                WebSocketDisconnect,
+            ):
+                self.is_closed = True
+
+        self._heartbeat_task = asyncio.create_task(
+            heartbeat(),
+            name="generation-websocket-heartbeat",
+        )
+
+    async def _stop_heartbeat(self) -> None:
+        task = self._heartbeat_task
+        self._heartbeat_task = None
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     async def send_message(
         self,
@@ -298,6 +360,7 @@ class WebSocketCommunicator:
     async def throw_error(self, message: str) -> None:
         """Send an error message and close the connection"""
         print(message)
+        await self._stop_heartbeat()
         if not self.is_closed:
             try:
                 await self.websocket.send_json({"type": "error", "value": message})
@@ -323,6 +386,7 @@ class WebSocketCommunicator:
 
     async def close(self) -> None:
         """Close the WebSocket connection"""
+        await self._stop_heartbeat()
         if not self.is_closed:
             try:
                 await self.websocket.close()
@@ -351,6 +415,8 @@ class ExtractedParams:
     history: List[PromptHistoryMessage]
     file_state: Dict[str, str] | None
     option_codes: List[str]
+    copilot_web_search_enabled: bool = False
+    copilot_use_logged_in_user: bool = True
     should_extract_assets: bool = True
     asset_base_url: str = ""
     design_system: str | None = None
@@ -471,8 +537,29 @@ class ParameterExtractionStage:
         if not openai_base_url:
             print("Using official OpenAI URL")
 
-        # Feature preferences default to enabled for older clients.
-        should_generate_images = bool(params.get("isImageGenerationEnabled", True))
+        # Feature preferences default to enabled for older clients, but the
+        # Replicate-backed tool is only real when a Replicate credential is
+        # available. This effective value also shapes the prompt, so the model
+        # is never instructed to call a tool the runtime cannot offer.
+        should_generate_images = bool(
+            params.get("isImageGenerationEnabled", True)
+        ) and bool(replicate_api_key)
+        copilot_web_search_enabled = bool(
+            params.get("copilotWebSearchEnabled", False)
+        )
+        copilot_use_logged_in_user = bool(
+            params.get("copilotUseLoggedInUser", True)
+        )
+        if (
+            not copilot_use_logged_in_user
+            and not (
+                isinstance(params.get("copilotGithubToken"), str)
+                and params["copilotGithubToken"].strip()
+            )
+        ):
+            # App-only disconnect means neither a CLI session nor a backend
+            # environment token may silently reconnect this browser.
+            copilot_github_token = None
         should_extract_assets = bool(params.get("isAssetExtractionEnabled", True))
 
         # Extract and validate generation type
@@ -497,15 +584,21 @@ class ParameterExtractionStage:
         raw_file_state = params.get("fileState")
         file_state: Dict[str, str] | None = None
         if isinstance(raw_file_state, dict):
-            content = raw_file_state.get("content")
+            file_state_record = cast(dict[str, object], raw_file_state)
+            content = file_state_record.get("content")
             if isinstance(content, str) and content.strip():
-                path = raw_file_state.get("path") or "index.html"
+                raw_path = file_state_record.get("path")
+                path = (
+                    raw_path
+                    if isinstance(raw_path, str) and raw_path.strip()
+                    else "index.html"
+                )
                 file_state = {"path": path, "content": content}
 
         raw_option_codes = params.get("optionCodes")
         option_codes: List[str] = []
         if isinstance(raw_option_codes, list):
-            for entry in raw_option_codes:
+            for entry in cast(list[object], raw_option_codes):
                 if isinstance(entry, str):
                     option_codes.append(entry)
                 elif entry is None:
@@ -524,6 +617,8 @@ class ParameterExtractionStage:
             stack=validated_stack,
             input_mode=validated_input_mode,
             should_generate_images=should_generate_images,
+            copilot_web_search_enabled=copilot_web_search_enabled,
+            copilot_use_logged_in_user=copilot_use_logged_in_user,
             should_extract_assets=should_extract_assets,
             openai_api_key=openai_api_key,
             anthropic_api_key=anthropic_api_key,
@@ -782,7 +877,8 @@ class PromptCreationStage:
             return prompt_messages
         except Exception:
             await self.throw_error(
-                "Error assembling prompt. Contact support at support@getwhimsyworks.com"
+                "Could not assemble the generation prompt. See the shot2code "
+                "troubleshooting guide for recovery steps."
             )
             raise
 
@@ -817,12 +913,14 @@ class AgenticGenerationStage:
         file_state: Dict[str, str] | None,
         asset_base_url: str,
         option_codes: List[str] | None,
+        copilot_web_search_enabled: bool = False,
         should_extract_assets: bool = True,
         generation_id: str | None = None,
         stack: str | None = None,
         input_mode: str | None = None,
         generation_type: str | None = None,
         copilot_github_token: str | None = None,
+        copilot_use_logged_in_user: bool = True,
         integrations: IntegrationSettings | None = None,
     ):
         self.send_message = send_message
@@ -832,8 +930,10 @@ class AgenticGenerationStage:
         self.gemini_api_key = gemini_api_key
         self.replicate_api_key = replicate_api_key
         self.copilot_github_token = copilot_github_token
+        self.copilot_use_logged_in_user = copilot_use_logged_in_user
         self.integrations = integrations or IntegrationSettings()
         self.should_generate_images = should_generate_images
+        self.copilot_web_search_enabled = copilot_web_search_enabled
         self.should_extract_assets = should_extract_assets
         self.file_state = file_state
         self.asset_base_url = asset_base_url
@@ -968,6 +1068,7 @@ class AgenticGenerationStage:
                 gemini_api_key=self.gemini_api_key,
                 replicate_api_key=self.replicate_api_key,
                 copilot_github_token=self.copilot_github_token,
+                copilot_use_logged_in_user=self.copilot_use_logged_in_user,
                 should_generate_images=self.should_generate_images,
                 should_extract_assets=self.should_extract_assets,
                 asset_base_url=self.asset_base_url,
@@ -975,6 +1076,7 @@ class AgenticGenerationStage:
                 option_codes=self.option_codes,
                 recorder=recorder,
                 integrations=self.integrations,
+                copilot_web_search_enabled=self.copilot_web_search_enabled,
             )
             completion = await runner.run(
                 model,
@@ -1007,7 +1109,8 @@ class AgenticGenerationStage:
                 redact_secrets(e.message)
                 + ". Please make sure you have followed the instructions correctly to obtain "
                 "an OpenAI key with GPT vision access: "
-                "https://github.com/ArasaniRohithReddy/shot2code/blob/main/Troubleshooting.md"
+                "https://arasanirohithreddy.github.io/app-releases/shot2code/"
+                "docs/troubleshooting/"
             )
             self._record_variant_error(index, error_message, "model")
             await self.send_message("variantError", error_message, index, None, None)
@@ -1064,6 +1167,9 @@ class ParameterExtractionMiddleware(Middleware):
             # not an error, so stop the pipeline quietly instead.
             print("WebSocket closed before parameters were received")
             return
+        start_heartbeat = getattr(context.ws_comm, "start_heartbeat", None)
+        if callable(start_heartbeat):
+            start_heartbeat()
 
         # Extract and validate
         param_extractor = ParameterExtractionStage(
@@ -1200,7 +1306,13 @@ class CodeGenerationMiddleware(Middleware):
                 gemini_api_key=context.extracted_params.gemini_api_key,
                 replicate_api_key=context.extracted_params.replicate_api_key,
                 copilot_github_token=context.extracted_params.copilot_github_token,
+                copilot_use_logged_in_user=(
+                    context.extracted_params.copilot_use_logged_in_user
+                ),
                 should_generate_images=context.extracted_params.should_generate_images,
+                copilot_web_search_enabled=(
+                    context.extracted_params.copilot_web_search_enabled
+                ),
                 should_extract_assets=context.extracted_params.should_extract_assets,
                 file_state=context.extracted_params.file_state,
                 asset_base_url=context.extracted_params.asset_base_url,

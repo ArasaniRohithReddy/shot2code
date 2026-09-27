@@ -69,6 +69,7 @@ export function useModelCatalog({
     anthropicApiKey,
     geminiApiKey,
     copilotGithubToken,
+    copilotUseLoggedInUser,
   } = credentials;
 
   // Serialising the connection keeps the effect keyed on its contents rather
@@ -92,6 +93,7 @@ export function useModelCatalog({
             anthropicApiKey,
             geminiApiKey,
             copilotGithubToken,
+            copilotUseLoggedInUser,
           },
           {
             refresh,
@@ -119,6 +121,7 @@ export function useModelCatalog({
       anthropicApiKey,
       geminiApiKey,
       copilotGithubToken,
+      copilotUseLoggedInUser,
       byokKey,
       byokHasCredential,
     ]

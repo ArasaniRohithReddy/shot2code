@@ -62,7 +62,8 @@ describe("provider reliability wiring", () => {
       SETTINGS_SOURCE.indexOf("GitHub token (optional)")
     );
     expect(branch).toContain("<CopilotSignIn");
-    expect(branch).toContain("onSignedIn={refreshModelCatalog}");
+    expect(branch).toContain("copilotUseLoggedInUser: true");
+    expect(branch).toContain("refreshModelCatalog(true)");
     // The existing ladder survives beside it.
     expect(branch).toContain("gh auth login");
     expect(branch).toContain("copilot");

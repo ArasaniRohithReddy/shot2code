@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from copilot_auth import (
+    CopilotAuthSnapshot,
     copilot_login,
     copilot_models,
     get_copilot_snapshot,
@@ -71,6 +72,7 @@ class Capabilities(BaseModel):
 
 class CopilotCapabilitiesRequest(BaseModel):
     token: str | None = None
+    useLoggedInUser: bool = True
 
 
 @router.get("/api/capabilities", response_model=Capabilities)
@@ -96,9 +98,13 @@ async def get_capabilities(refresh: bool = False) -> Capabilities:
 async def get_copilot_capabilities(
     request: CopilotCapabilitiesRequest,
 ) -> Capabilities:
-    snapshot = await get_copilot_snapshot(
-        github_token=request.token or None,
-        force=True,
+    snapshot = (
+        await get_copilot_snapshot(
+            github_token=request.token or None,
+            force=True,
+        )
+        if request.token or request.useLoggedInUser
+        else CopilotAuthSnapshot(available=False, login=None, models=[])
     )
     return Capabilities(
         screenshot_preview=is_screenshot_preview_available(),

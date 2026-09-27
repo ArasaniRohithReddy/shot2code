@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FaCodepen } from "react-icons/fa";
 import {
   LuAlignLeft,
@@ -8,6 +8,7 @@ import {
   LuPanelLeftClose,
   LuPanelLeftOpen,
   LuWand2,
+  LuPackageOpen,
 } from "react-icons/lu";
 import copy from "copy-to-clipboard";
 import toast from "react-hot-toast";
@@ -36,7 +37,10 @@ import {
   describeUnsupportedLanguage,
   formatSource,
 } from "../../lib/format-source";
-import { downloadProjectFile } from "./download";
+import {
+  downloadProjectFile,
+  type ExportPreview,
+} from "./download";
 import { createCodePenShareResult, submitCodePenPayload } from "./codepen";
 
 interface Props {
@@ -48,11 +52,16 @@ interface Props {
   stack: Stack;
   settings: Settings;
   readOnly?: boolean;
+  exportPreview: ExportPreview | null;
+  exportPreviewError: string | null;
+  isExportPreviewLoading: boolean;
+  onLoadExportPreview: () => Promise<ExportPreview | null>;
   onSelectFile: (path: string) => void;
   onFileChange: (path: string, content: string) => void;
 }
 
 type ExplorerPreference = "auto" | "open" | "closed";
+type CodeView = "source" | "export";
 
 const LANGUAGE_LABELS: Record<ProjectFileLanguage, string> = {
   html: "HTML",
@@ -93,14 +102,27 @@ function CodeTab({
   stack,
   settings,
   readOnly = false,
+  exportPreview,
+  exportPreviewError,
+  isExportPreviewLoading,
+  onLoadExportPreview,
   onSelectFile,
   onFileChange,
 }: Props) {
+  const [codeView, setCodeView] = useState<CodeView>("source");
+  const [exportActivePath, setExportActivePath] = useState<string | null>(null);
+  const currentFiles =
+    codeView === "export" && exportPreview ? exportPreview.files : files;
   const filePaths = useMemo(
-    () => Object.keys(files).sort((a, b) => a.localeCompare(b)),
-    [files]
+    () => Object.keys(currentFiles).sort((a, b) => a.localeCompare(b)),
+    [currentFiles]
   );
-  const activeFile = files[activeFilePath] ?? files[filePaths[0]];
+  const currentActivePath =
+    codeView === "export"
+      ? exportActivePath ?? exportPreview?.entryPoint ?? filePaths[0]
+      : activeFilePath;
+  const activeFile =
+    currentFiles[currentActivePath] ?? currentFiles[filePaths[0]];
   const activeTabIndex = activeFile
     ? Math.max(0, filePaths.indexOf(activeFile.path))
     : 0;
@@ -115,6 +137,22 @@ function CodeTab({
       ? filePaths.length > 1
       : explorerPreference === "open";
   const hasFileTabs = filePaths.length > 1;
+
+  useEffect(() => {
+    setExportActivePath(null);
+    setCodeView("source");
+  }, [files, stack]);
+
+  const showExportPreview = useCallback(async () => {
+    const next = exportPreview ?? (await onLoadExportPreview());
+    if (!next) return;
+    setExportActivePath((current) => current ?? next.entryPoint);
+    setCodeView("export");
+  }, [exportPreview, onLoadExportPreview]);
+
+  const showCurrentCode = useCallback(() => {
+    setCodeView("source");
+  }, []);
 
   // Width is a separate, UI-only preference: it survives version switches and
   // restarts, and never becomes part of the project it is displaying.
@@ -192,7 +230,8 @@ function CodeTab({
   }, [codePenShareResult]);
 
   const focusTab = (path: string) => {
-    onSelectFile(path);
+    if (codeView === "export") setExportActivePath(path);
+    else onSelectFile(path);
     window.requestAnimationFrame(() => tabRefs.current[path]?.focus());
   };
 
@@ -226,7 +265,8 @@ function CodeTab({
     );
   }
 
-  const editorIsReadOnly = readOnly || Boolean(activeFile.readonly);
+  const editorIsReadOnly =
+    codeView === "export" || readOnly || Boolean(activeFile.readonly);
   const isFormattable = canFormatLanguage(activeFile.language);
   const canFormat = isFormattable && !editorIsReadOnly;
   const formatTitle = editorIsReadOnly
@@ -241,6 +281,67 @@ function CodeTab({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white dark:bg-zinc-950">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+        <div
+          role="group"
+          aria-label="Code file view"
+          className="flex rounded-lg border border-gray-200 bg-white p-0.5 dark:border-zinc-700 dark:bg-zinc-950"
+        >
+          <button
+            type="button"
+            onClick={showCurrentCode}
+            aria-pressed={codeView === "source"}
+            className={`min-h-11 rounded-md px-3 text-xs font-medium ${
+              codeView === "source"
+                ? "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-100"
+                : "text-gray-600 dark:text-zinc-300"
+            }`}
+          >
+            Current code
+          </button>
+          <button
+            type="button"
+            onClick={() => void showExportPreview()}
+            aria-pressed={codeView === "export"}
+            disabled={isExportPreviewLoading}
+            className={`min-h-11 rounded-md px-3 text-xs font-medium ${
+              codeView === "export"
+                ? "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-100"
+                : "text-gray-600 dark:text-zinc-300"
+            } disabled:opacity-60`}
+          >
+            {isExportPreviewLoading ? "Preparing…" : "Export project"}
+          </button>
+        </div>
+        {codeView === "export" && exportPreview && (
+          <span className="flex items-center gap-1 text-xs text-gray-600 dark:text-zinc-300">
+            <LuPackageOpen className="h-3.5 w-3.5" aria-hidden="true" />
+            {exportPreview.projectKind} · {filePaths.length} text files
+            {exportPreview.assets.length > 0
+              ? ` · ${exportPreview.assets.length} downloaded assets`
+              : ""}
+          </span>
+        )}
+        {exportPreviewError && (
+          <span role="alert" className="text-xs text-red-600 dark:text-red-400">
+            {exportPreviewError}
+          </span>
+        )}
+        {codeView === "export" && exportPreview?.assets.length ? (
+          <details className="min-w-0 max-w-full text-xs text-gray-600 dark:text-zinc-300">
+            <summary className="inline-flex min-h-11 cursor-pointer items-center rounded px-1 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500">
+              Show downloaded asset files
+            </summary>
+            <ul className="mt-1 max-h-28 overflow-auto break-all pl-5 font-mono text-[11px]">
+              {exportPreview.assets.map((asset) => (
+                <li key={asset.path}>
+                  {asset.path} ({Math.max(1, Math.ceil(asset.size / 1024))} KB)
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+      </div>
       <div
         ref={workspaceRowRef}
         className="flex min-h-0 flex-1 flex-col md:flex-row"
@@ -276,9 +377,12 @@ function CodeTab({
               </button>
             </div>
             <ProjectFileExplorer
-              files={files}
+              files={currentFiles}
               activeFilePath={activeFile.path}
-              onSelectFile={onSelectFile}
+              onSelectFile={(path) => {
+                if (codeView === "export") setExportActivePath(path);
+                else onSelectFile(path);
+              }}
             />
           </aside>
         )}
@@ -306,7 +410,7 @@ function CodeTab({
               className="flex min-h-11 shrink-0 overflow-x-auto border-b border-gray-200 bg-gray-50 dark:border-zinc-800 dark:bg-zinc-900"
             >
               {filePaths.map((path, index) => {
-                const file = files[path];
+                const file = currentFiles[path];
                 const isActive = path === activeFile.path;
                 return (
                   <button
@@ -321,7 +425,10 @@ function CodeTab({
                     aria-controls="project-editor-panel"
                     aria-label={`${path}${file.readonly ? ", read only" : ""}`}
                     tabIndex={isActive ? 0 : -1}
-                    onClick={() => onSelectFile(path)}
+                    onClick={() => {
+                      if (codeView === "export") setExportActivePath(path);
+                      else onSelectFile(path);
+                    }}
                     onKeyDown={(event) => handleTabKeyDown(event, index)}
                     title={path}
                     className={`relative flex min-h-11 max-w-56 shrink-0 cursor-pointer items-center gap-2 border-r border-gray-200 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-inset dark:border-zinc-800 ${
@@ -376,7 +483,10 @@ function CodeTab({
                   {fileName(activeFile.path)}
                 </span>
               </span>
-              {activeFile.path === entryPoint && (
+              {activeFile.path ===
+                (codeView === "export"
+                  ? exportPreview?.entryPoint
+                  : entryPoint) && (
                 <span
                   className={`${BADGE} bg-gray-100 text-gray-700 dark:bg-zinc-800 dark:text-zinc-300`}
                   title="The file the project starts from"
@@ -384,7 +494,8 @@ function CodeTab({
                   Entry
                 </span>
               )}
-              {activeFile.path === previewSourcePath && (
+              {codeView === "source" &&
+                activeFile.path === previewSourcePath && (
                 <span
                   className={`${BADGE} bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200`}
                   title="The file the live preview is rendered from"
@@ -399,6 +510,14 @@ function CodeTab({
                 >
                   <LuLock className="h-3 w-3" aria-hidden="true" />
                   Read-only
+                </span>
+              )}
+              {codeView === "export" && (
+                <span
+                  className={`${BADGE} bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-200`}
+                  title="Generated by the same stack-aware export path as Download project"
+                >
+                  Export preview
                 </span>
               )}
               {activeFile.generated && !editorIsReadOnly && (
@@ -490,7 +609,11 @@ function CodeTab({
               language={activeFile.language}
               filePath={activeFile.path}
               readOnly={editorIsReadOnly}
-              onCodeChange={(content) => onFileChange(activeFile.path, content)}
+              onCodeChange={(content) => {
+                if (codeView === "source") {
+                  onFileChange(activeFile.path, content);
+                }
+              }}
             />
           </div>
 

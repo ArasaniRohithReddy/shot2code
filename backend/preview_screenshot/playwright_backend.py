@@ -13,7 +13,10 @@ from preview_screenshot.base import VIEWPORT_SIZES
 
 PAGE_LOAD_TIMEOUT_MS = 15000
 RENDER_SETTLE_MS = 250
-BROWSER_LAUNCH_TIMEOUT_SECONDS = 60
+# Frozen Chromium can spend well over a minute in first-run antivirus scanning.
+# This runs in an optional background task, so a larger budget does not delay
+# API or window readiness; it only avoids caching a false "unavailable" result.
+BROWSER_LAUNCH_TIMEOUT_SECONDS = 150
 BROWSER_CLOSE_TIMEOUT_SECONDS = 5
 
 

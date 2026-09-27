@@ -35,6 +35,7 @@ export async function fetchModelCatalog(
       anthropicApiKey: credentials.anthropicApiKey?.trim() || null,
       geminiApiKey: credentials.geminiApiKey?.trim() || null,
       copilotGithubToken: credentials.copilotGithubToken?.trim() || null,
+      copilotUseLoggedInUser: credentials.copilotUseLoggedInUser !== false,
       selectedModels: options.selectedModels ?? [],
       refresh: options.refresh ?? false,
       ...(options.copilotSdkByok

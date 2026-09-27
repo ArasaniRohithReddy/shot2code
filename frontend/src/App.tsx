@@ -72,6 +72,7 @@ import {
 } from "./components/commits/types";
 import { createCommit } from "./components/commits/utils";
 import {
+  getCompletedVariantIndex,
   getSelectedVariantState,
   getVariantUpdateUnavailableMessage,
 } from "./components/commits/selectors";
@@ -79,6 +80,7 @@ import {
   createProjectStateFromImport,
   type EditableProjectImportSelection,
 } from "./lib/project-import";
+import type { ReviewBinding } from "./lib/review";
 import {
   DEFAULT_PROJECT_ENTRY_POINT,
   getProjectGenerationContent,
@@ -97,6 +99,7 @@ import {
   type AppCommand,
 } from "./lib/app-shortcuts";
 import { useDesktopMenu } from "./hooks/useDesktopMenu";
+import { toGenerationSettings } from "./lib/generation-settings";
 
 interface GenerationCommitOptions {
   generationBaseHash?: string | null;
@@ -126,6 +129,7 @@ function App() {
     setHead,
     appendCommitCode,
     setCommitCode,
+    updateSelectedVariantIndex,
     updateVariantStatus,
     finalizeGeneratingVariants,
     resizeVariants,
@@ -159,10 +163,14 @@ function App() {
       anthropicApiKey: null,
       geminiApiKey: null,
       screenshotOneApiKey: null,
+      figmaAccessToken: null,
+      stitchApiKey: null,
       copilotGithubToken: null,
+      copilotUseLoggedInUser: true,
       copilotModels: [],
       selectedModels: [],
       isImageGenerationEnabled: true,
+      copilotWebSearchEnabled: false,
       editorTheme: EditorTheme.COBALT,
       generatedCodeConfig: Stack.HTML_TAILWIND,
       codeGenerationModel: CodeGenerationModel.GEMINI_3_FLASH_PREVIEW_MINIMAL,
@@ -532,8 +540,9 @@ function App() {
       generationContext.selectedModels
     );
 
+    const generationSettings = toGenerationSettings(settings);
     const updatedParams = {
-      ...settings,
+      ...generationSettings,
       ...requestParams,
       inputMode: generationContext.inputMode,
       generatedCodeConfig: generationContext.stack,
@@ -829,6 +838,15 @@ function App() {
               ? undefined
               : errorMessage || "Generation failed. Please retry."
           );
+          const retainedCommit =
+            useProjectStore.getState().commits[commit.hash];
+          const completedIndex = getCompletedVariantIndex(retainedCommit);
+          if (
+            completedIndex !== null &&
+            retainedCommit.selectedVariantIndex !== completedIndex
+          ) {
+            updateSelectedVariantIndex(commit.hash, completedIndex);
+          }
           setAppState(AppState.CODE_READY);
           void projectHistory.persistMilestone("final");
           return;
@@ -952,18 +970,23 @@ function App() {
       return;
     }
 
-    if (head === null) {
+    const activeHead = useProjectStore.getState().head;
+    if (activeHead === null) {
       toast.error(
         "No current version set. Contact support or open a Github issue."
       );
       throw new Error("Update called with no head");
     }
 
-    const currentCommit = useProjectStore.getState().commits[head];
+    const currentCommit = useProjectStore.getState().commits[activeHead];
     if (!currentCommit) {
       toast.error("The selected version could not be found.");
       return;
     }
+    const activeInputMode =
+      currentCommit.type === "code_create"
+        ? "text"
+        : currentCommit.generationContext?.inputMode ?? inputMode;
 
     const selectedVariantState = getSelectedVariantState(currentCommit);
     if (!selectedVariantState.variant) {
@@ -1002,7 +1025,7 @@ function App() {
 
     doGenerateCode(
       buildUpdateGenerationRequest({
-        inputMode,
+        inputMode: activeInputMode,
         prompt: {
           text: updateInstruction,
           fullText: modifiedUpdateInstruction,
@@ -1013,6 +1036,7 @@ function App() {
         parentCommit: currentCommit,
         imageAssetIds: updateImageAssetIds,
         getAssetsById,
+        generationTargetPath: selectedVariantState.variant.activeFilePath,
       })
     );
   }
@@ -1024,7 +1048,18 @@ function App() {
     }));
   }
 
-  function importFromCode(code: string, stack: Stack) {
+  function applyInitialImportInstruction(instruction: string) {
+    const nextInstruction = instruction.trim();
+    if (!nextInstruction) return;
+    setUpdateInstruction(nextInstruction);
+    window.setTimeout(() => void doUpdate(nextInstruction), 0);
+  }
+
+  function importFromCode(
+    code: string,
+    stack: Stack,
+    instruction: string = ""
+  ) {
     reset();
     setStack(stack);
     setInputMode("text");
@@ -1049,12 +1084,13 @@ function App() {
     });
     addCommit(commit);
     setAppState(AppState.CODE_READY);
+    applyInitialImportInstruction(instruction);
   }
 
   function importProject({
     project,
     stack,
-  }: EditableProjectImportSelection) {
+  }: EditableProjectImportSelection, instruction: string = "") {
     reset();
     setStack(stack);
     setInputMode("text");
@@ -1087,6 +1123,7 @@ function App() {
     toast.success(
       `Opened ${project.name} with ${project.files.length} editable files.`
     );
+    applyInitialImportInstruction(instruction);
   }
 
   const openStartPane = (tab: InputTab) => {
@@ -1110,27 +1147,30 @@ function App() {
     setIsConversationCollapsed(false);
     setMobilePane("chat");
   }, [setIsConversationCollapsed]);
-  const handleFixReviewFindings = useCallback(
-    (instruction: string) => {
-      const existingDraft =
-        useAppStore.getState().updateInstruction.trim();
-      setUpdateInstruction(
-        existingDraft ? `${existingDraft}\n\n${instruction}` : instruction
+  const handleFixReviewFindings = (
+    instruction: string,
+    binding: ReviewBinding
+  ) => {
+    if (!binding.commitHash) {
+      toast.error("The reviewed version could not be found.");
+      return;
+    }
+    const reviewedCommit =
+      useProjectStore.getState().commits[binding.commitHash];
+    const reviewedVariant = reviewedCommit?.variants[binding.variantIndex];
+    if (!reviewedCommit || reviewedVariant?.status !== "complete") {
+      toast.error(
+        "The reviewed option is no longer available. Run Review again."
       );
-      openConversation();
-      window.setTimeout(() => {
-        const composer = document.querySelector<HTMLTextAreaElement>(
-          '[data-testid="update-input"]'
-        );
-        composer?.focus();
-        composer?.setSelectionRange(
-          composer.value.length,
-          composer.value.length
-        );
-      }, 0);
-    },
-    [openConversation, setUpdateInstruction]
-  );
+      return;
+    }
+
+    setHead(binding.commitHash);
+    updateSelectedVariantIndex(binding.commitHash, binding.variantIndex);
+    setUpdateInstruction(instruction);
+    openConversation();
+    void doUpdate(instruction);
+  };
 
   /**
    * The one place a command runs.

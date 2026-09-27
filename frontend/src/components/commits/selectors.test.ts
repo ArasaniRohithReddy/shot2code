@@ -1,5 +1,6 @@
 import type { Commit, VariantStatus } from "./types";
 import {
+  getCompletedVariantIndex,
   getSelectedVariantState,
   getVariantUpdateUnavailableMessage,
 } from "./selectors";
@@ -65,6 +66,24 @@ test("switching between completed options keeps two-option updates working", () 
   const selected = getSelectedVariantState(commit);
   expect(selected.canUpdate).toBe(true);
   expect(selected.variant?.history[0].text).toBe("Option 2 history");
+});
+
+test("finds a completed option when the selected option was cancelled", () => {
+  const commit = makeCommit(["complete", "cancelled", "error"], 1);
+
+  expect(getCompletedVariantIndex(commit)).toBe(0);
+});
+
+test("keeps the selected option when it is already complete", () => {
+  const commit = makeCommit(["complete", "complete"], 1);
+
+  expect(getCompletedVariantIndex(commit)).toBe(1);
+});
+
+test("reports no completed option when every option failed or was cancelled", () => {
+  const commit = makeCommit(["error", "cancelled"], 1);
+
+  expect(getCompletedVariantIndex(commit)).toBeNull();
 });
 
 test("returns status-specific feedback when an update is blocked", () => {

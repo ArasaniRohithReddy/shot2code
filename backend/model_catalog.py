@@ -354,11 +354,10 @@ def _byok_models(
     if connection is None or not connection.usable:
         return ()
 
-    if connection.custom_selection_id and connection.wire_model:
-        served = connection.wire_model
-        return (
+    if connection.custom_selection_ids and connection.wire_models:
+        return tuple(
             CatalogModel(
-                id=connection.custom_selection_id,
+                id=selection_id,
                 provider="sdk-byok",
                 label=f"{served} via {connection.provider}",
                 family=served,
@@ -370,7 +369,11 @@ def _byok_models(
                 runtime="copilot-byok",
                 base_model_id=None,
                 wire_model=served,
-            ),
+            )
+            for selection_id, served in zip(
+                connection.custom_selection_ids,
+                connection.wire_models,
+            )
         )
 
     curated: dict[ModelProvider, frozenset[Llm]] = {

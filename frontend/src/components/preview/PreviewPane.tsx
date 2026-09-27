@@ -15,7 +15,7 @@ import {
   LuHistory,
   LuListChecks,
 } from "react-icons/lu";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import toast from "react-hot-toast";
 import { AppState, Settings } from "../../types";
@@ -25,7 +25,11 @@ import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { extractHtml } from "./extractHtml";
 import PreviewComponent from "./PreviewComponent";
-import { downloadCode } from "./download";
+import {
+  downloadCode,
+  loadExportPreview,
+  type ExportPreview,
+} from "./download";
 import {
   Popover,
   PopoverContent,
@@ -47,6 +51,11 @@ import {
 } from "../../lib/project-files";
 import ReviewWorkspace from "./ReviewWorkspace";
 import { hashReviewProjectFiles } from "../../lib/review";
+import type { ReviewBinding } from "../../lib/review";
+import {
+  createExportRuntimePreview,
+  type ExportRuntimePreview,
+} from "../../lib/export-runtime-preview";
 
 function escapeSrcDocAttribute(value: string) {
   return value
@@ -91,10 +100,14 @@ interface Props {
   onActiveTabChange: (tab: PreviewTab) => void;
   exportRequested: boolean;
   onExportRequestHandled: () => void;
-  onFixReviewFindings: (instruction: string) => void;
+  onFixReviewFindings: (
+    instruction: string,
+    binding: ReviewBinding
+  ) => void;
 }
 
 export type PreviewTab = "desktop" | "mobile" | "review" | "code";
+type PreviewSource = "html" | "stack";
 
 function PreviewArtifactNotice({
   artifact,
@@ -158,6 +171,40 @@ function PreviewArtifactNotice({
   );
 }
 
+function StackPreviewNotice({
+  preview,
+  runtime,
+}: {
+  preview: ExportPreview;
+  runtime: ExportRuntimePreview;
+}) {
+  const isReady = runtime.status === "ready";
+  return (
+    <div
+      role="status"
+      className={`flex min-h-9 shrink-0 items-center gap-2 border-b px-3 py-1.5 text-xs ${
+        isReady
+          ? "border-gray-200 bg-gray-50 text-gray-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+          : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100"
+      }`}
+    >
+      {isReady ? (
+        <LuFileCode2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+      ) : (
+        <LuAlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+      )}
+      <span className="min-w-0 break-words">
+        <span className="font-semibold">Stack project:</span>{" "}
+        <code className="font-mono">{preview.projectKind}</code>{" "}
+        <span aria-hidden="true">-</span> {runtime.detail}. Rendered from{" "}
+        {Object.keys(preview.files).length} export text files inside the
+        existing browser sandbox; no package scripts or project configuration
+        were executed.
+      </span>
+    </div>
+  );
+}
+
 function PreviewPane({
   settings,
   onOpenHistory,
@@ -179,6 +226,7 @@ function PreviewPane({
   const [desktopScale, setDesktopScale] = useState(1);
   const [desktopViewMode, setDesktopViewMode] = useState<"fit" | "actual">("fit");
   const [previewRefreshToken, setPreviewRefreshToken] = useState(0);
+  const [previewSource, setPreviewSource] = useState<PreviewSource>("html");
   // Below `sm` the 1366px canvas at 100% is unusable, so the choice is hidden
   // and the preview stays scaled instead of stranding the user at 100%.
   const canChooseDesktopZoom = useMediaQuery(SM_MEDIA_QUERY);
@@ -201,12 +249,88 @@ function PreviewPane({
   const currentCommit = head ? commits[head] : undefined;
   const selectedVariantIndex = currentCommit?.selectedVariantIndex ?? 0;
   const selectedVariant = currentCommit?.variants[selectedVariantIndex];
+  const isSelectedVariantComplete = selectedVariant?.status === "complete";
   const project = useMemo(
     () => normalizeProjectState(selectedVariant ?? { code: "" }),
     [selectedVariant]
   );
+  const activeStack = selectedVariant?.stack ?? settings.generatedCodeConfig;
+  const projectExportState = useMemo(
+    () => getProjectExportState(project),
+    [project]
+  );
+  const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
+  const [exportPreviewError, setExportPreviewError] = useState<string | null>(
+    null
+  );
+  const [isExportPreviewLoading, setIsExportPreviewLoading] = useState(false);
+  const exportPreviewRequestRef = useRef<{
+    controller: AbortController;
+    promise: Promise<ExportPreview | null>;
+  } | null>(null);
 
-  const isSelectedVariantComplete = selectedVariant?.status === "complete";
+  useEffect(() => {
+    exportPreviewRequestRef.current?.controller.abort();
+    exportPreviewRequestRef.current = null;
+    setExportPreview(null);
+    setExportPreviewError(null);
+    setIsExportPreviewLoading(false);
+    setPreviewSource("html");
+    return () => {
+      exportPreviewRequestRef.current?.controller.abort();
+    };
+  }, [activeStack, projectExportState]);
+
+  const ensureExportPreview = useCallback((): Promise<ExportPreview | null> => {
+    if (exportPreview) return Promise.resolve(exportPreview);
+    if (exportPreviewRequestRef.current) {
+      return exportPreviewRequestRef.current.promise;
+    }
+
+    const controller = new AbortController();
+    setIsExportPreviewLoading(true);
+    setExportPreviewError(null);
+    const promise = loadExportPreview(project.code, {
+      stack: activeStack,
+      project: projectExportState,
+      signal: controller.signal,
+    })
+      .then((nextPreview) => {
+        if (exportPreviewRequestRef.current?.controller !== controller) {
+          return null;
+        }
+        setExportPreview(nextPreview);
+        return nextPreview;
+      })
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) return null;
+        const message =
+          caught instanceof Error
+            ? caught.message
+            : "Could not prepare the stack project preview.";
+        setExportPreviewError(message);
+        toast.error(message);
+        return null;
+      })
+      .finally(() => {
+        if (exportPreviewRequestRef.current?.controller === controller) {
+          exportPreviewRequestRef.current = null;
+          setIsExportPreviewLoading(false);
+        }
+      });
+    exportPreviewRequestRef.current = { controller, promise };
+    return promise;
+  }, [activeStack, exportPreview, project.code, projectExportState]);
+
+  const exportRuntimePreview = useMemo(
+    () => (exportPreview ? createExportRuntimePreview(exportPreview) : null),
+    [exportPreview]
+  );
+  const showStackPreview = useCallback(async () => {
+    const nextPreview = exportPreview ?? (await ensureExportPreview());
+    if (nextPreview) setPreviewSource("stack");
+  }, [ensureExportPreview, exportPreview]);
+
   const previewArtifact = useMemo(
     () => createProjectPreviewArtifact(project),
     [project]
@@ -220,6 +344,10 @@ function PreviewPane({
     inputMode === "video" && appState === AppState.CODING
       ? extractHtml(composedPreviewCode)
       : composedPreviewCode;
+  const activePreviewCode =
+    previewSource === "stack" && exportRuntimePreview
+      ? exportRuntimePreview.artifact.html
+      : previewCode;
   const sourceImage =
     currentCommit && currentCommit.type !== "code_create"
       ? currentCommit.inputs.images[0]
@@ -232,18 +360,26 @@ function PreviewPane({
     !!sourceImage;
 
   const canSelectAndEdit =
+    previewSource === "html" &&
     previewArtifact.supportsSelectAndEdit &&
     (appState === AppState.CODE_READY || !!isSelectedVariantComplete);
 
   useEffect(() => {
-    if (!previewArtifact.supportsSelectAndEdit) {
+    if (
+      previewSource !== "html" ||
+      !previewArtifact.supportsSelectAndEdit
+    ) {
       disableInSelectAndEditMode();
     }
-  }, [disableInSelectAndEditMode, previewArtifact.supportsSelectAndEdit]);
+  }, [
+    disableInSelectAndEditMode,
+    previewArtifact.supportsSelectAndEdit,
+    previewSource,
+  ]);
 
   const downloadPreviewArtifact = async () => {
     try {
-      const result = await downloadCode(previewCode);
+      const result = await downloadCode(activePreviewCode);
       toast.success(`Downloaded preview artifact: ${result.filename}`);
     } catch (error) {
       console.error("Failed to download preview artifact", error);
@@ -255,7 +391,7 @@ function PreviewPane({
     try {
       const result = await downloadCode(project.code, {
         splitFiles: true,
-        stack: settings.generatedCodeConfig,
+        stack: activeStack,
         project: getProjectExportState(project),
       });
       if (result.kind === "project-backup") {
@@ -269,7 +405,7 @@ function PreviewPane({
       console.error("Failed to download project", error);
       toast.error("Could not export the project.");
     }
-  }, [project, settings.generatedCodeConfig]);
+  }, [activeStack, project]);
 
   useEffect(() => {
     if (!exportRequested) return;
@@ -330,6 +466,49 @@ function PreviewPane({
             </TabsList>
             {(activeTab === "desktop" || activeTab === "mobile") && (
               <div className="inline-flex items-center gap-2">
+                <div
+                  role="group"
+                  aria-label="Preview source"
+                  className="inline-flex items-center rounded-lg bg-gray-100 p-0.5 dark:bg-zinc-800"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setPreviewSource("html")}
+                    aria-pressed={previewSource === "html"}
+                    className={`min-h-11 rounded-md px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                      previewSource === "html"
+                        ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-600 dark:text-zinc-100"
+                        : "text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                    }`}
+                  >
+                    HTML
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void showStackPreview()}
+                    aria-pressed={previewSource === "stack"}
+                    disabled={
+                      isExportPreviewLoading ||
+                      !(
+                        appState === AppState.CODE_READY ||
+                        isSelectedVariantComplete
+                      )
+                    }
+                    title={
+                      appState === AppState.CODE_READY ||
+                      isSelectedVariantComplete
+                        ? "Render the generated stack project files in the sandbox"
+                        : "Stack preview is available after generation completes"
+                    }
+                    className={`min-h-11 rounded-md px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-wait disabled:opacity-60 ${
+                      previewSource === "stack"
+                        ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-600 dark:text-zinc-100"
+                        : "text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                    }`}
+                  >
+                    {isExportPreviewLoading ? "Loading stack…" : "Stack"}
+                  </button>
+                </div>
                 {activeTab === "desktop" && canChooseDesktopZoom && (
                   <div
                     role="group"
@@ -378,7 +557,7 @@ function PreviewPane({
                   </div>
                 )}
                 <Button
-                  onClick={() => openInNewTab(previewCode)}
+                  onClick={() => openInNewTab(activePreviewCode)}
                   variant="ghost"
                   size="icon"
                   title="Open preview artifact in new tab"
@@ -510,12 +689,21 @@ function PreviewPane({
             <ImageScanningPreview imageUrl={sourceImage} />
           ) : (
             <>
-              <PreviewArtifactNotice
-                artifact={previewArtifact}
-                fileCount={Object.keys(project.files).length}
-              />
+              {previewSource === "stack" &&
+              exportPreview &&
+              exportRuntimePreview ? (
+                <StackPreviewNotice
+                  preview={exportPreview}
+                  runtime={exportRuntimePreview}
+                />
+              ) : (
+                <PreviewArtifactNotice
+                  artifact={previewArtifact}
+                  fileCount={Object.keys(project.files).length}
+                />
+              )}
               <PreviewComponent
-                code={previewCode}
+                code={activePreviewCode}
                 device="desktop"
                 onScaleChange={setDesktopScale}
                 viewMode={effectiveDesktopViewMode}
@@ -529,12 +717,21 @@ function PreviewPane({
             <ImageScanningPreview imageUrl={sourceImage} />
           ) : (
             <>
-              <PreviewArtifactNotice
-                artifact={previewArtifact}
-                fileCount={Object.keys(project.files).length}
-              />
+              {previewSource === "stack" &&
+              exportPreview &&
+              exportRuntimePreview ? (
+                <StackPreviewNotice
+                  preview={exportPreview}
+                  runtime={exportRuntimePreview}
+                />
+              ) : (
+                <PreviewArtifactNotice
+                  artifact={previewArtifact}
+                  fileCount={Object.keys(project.files).length}
+                />
+              )}
               <PreviewComponent
-                code={previewCode}
+                code={activePreviewCode}
                 device="mobile"
                 viewMode="fit"
                 refreshToken={previewRefreshToken}
@@ -549,9 +746,13 @@ function PreviewPane({
             entryPoint={project.entryPoint}
             previewSourcePath={previewArtifact.sourcePath}
             previewArtifact={previewArtifact}
-            stack={selectedVariant?.stack ?? settings.generatedCodeConfig}
+            stack={activeStack}
             settings={settings}
             readOnly={Boolean(currentCommit?.isCommitted)}
+            exportPreview={exportPreview}
+            exportPreviewError={exportPreviewError}
+            isExportPreviewLoading={isExportPreviewLoading}
+            onLoadExportPreview={ensureExportPreview}
             onSelectFile={(path) => {
               if (head && currentCommit) {
                 setVariantActiveFile(head, selectedVariantIndex, path);
@@ -582,6 +783,8 @@ function PreviewPane({
             commitHash={head}
             variantIndex={selectedVariantIndex}
             refreshToken={previewRefreshToken}
+            modelId={selectedVariant?.model}
+            settings={settings}
             onFixSelectedFindings={onFixReviewFindings}
           />
         </TabsContent>

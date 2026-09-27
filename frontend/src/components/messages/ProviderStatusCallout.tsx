@@ -1,11 +1,13 @@
 import { LuExternalLink, LuKeyRound, LuSettings } from "react-icons/lu";
 import {
+  helpDocUrl,
+} from "../../lib/help-resources";
+import {
   summarizeProviderStatus,
   type ProviderSettings,
 } from "../../lib/provider-status";
 
-const SETUP_GUIDE_URL =
-  "https://github.com/ArasaniRohithReddy/shot2code/blob/main/Troubleshooting.md";
+const SETUP_GUIDE_URL = helpDocUrl("USER-GUIDE.md");
 
 interface Props {
   settings: ProviderSettings;

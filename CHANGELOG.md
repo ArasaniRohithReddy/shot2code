@@ -11,7 +11,96 @@ in this file; see the git history for those changes.
 
 ## [Unreleased]
 
-Nothing yet.
+## [0.5.0] - 2026-09-27
+
+Released as [shot2code v0.5.0](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.5.0).
+Checksums for the published Windows artifacts:
+[docs/releases/v0.5.0/SHA256SUMS.txt](docs/releases/v0.5.0/SHA256SUMS.txt).
+
+This release turns shot2code into a broader local-first design-to-code
+workspace: app-owned GitHub sign-in, multi-model Copilot SDK BYOK, MCP and
+Agent Skills discovery, Figma and Stitch imports, durable conversational
+history, stronger Review/Design Inspector workflows, exact export-project
+inspection, and sandboxed HTML/stack previews.
+
+### Added
+
+- App-owned GitHub OAuth device flow with expiring-token refresh and
+  operating-system encrypted storage in the Windows desktop app.
+- Official MCP Registry browsing with disabled/untrusted installation drafts,
+  plus featured Figma Desktop, Figma Remote and Google Stitch configurations.
+- Local/public-GitHub Agent Skill import with validation, provenance, explicit
+  enablement and Copilot-only execution; shell tools remain disabled.
+- Figma REST/PAT frame import, SVG reference import, and Figma-link generation
+  through a configured Copilot MCP runtime.
+- Bundled experimental `@google/stitch-sdk` support for prompt generation and
+  Stitch project/screen import using the user's API key.
+- Design Inspector exports for `DESIGN.md`, `SKILL.md`, and palette PNGs.
+- A bounded, no-tools AI-assisted Review pass tied to the exact model recorded
+  for the selected option.
+- A read-only **Export project** mode in the Code tab that shows the exact
+  stack-aware text files and downloaded-asset manifest produced for the project
+  ZIP without replacing the current source view.
+- An additive **Stack** preview beside the existing HTML preview. Controlled
+  Vite HTML, React and Preact export files run inside the existing sandbox
+  without executing package scripts or project configuration.
+- Desktop packaging now uses Electron 44.4.3, electron-builder 26.15.3 and
+  electron-updater 6.8.9; the complete desktop dependency audit is clean.
+
+### Changed
+
+- Chat reconstructs the full active-branch conversation, including persisted
+  assistant responses, while History shows each selected option's exact model
+  identity.
+- One BYOK endpoint can expose several discovered or manually entered models as
+  independent selectable identities.
+- Upload and Import expose optional first instructions; imported projects can
+  immediately enter the same refinement flow.
+- Review findings support severity filters, text search, visible-selection
+  controls, automatic fixes and model attribution.
+- In-app documentation links point to the rendered product site; GitHub remains
+  only for source and issue-tracker destinations.
+- Project download and pre-download inspection now share one backend projection,
+  and the active selected stack is used consistently for both.
+
+### Fixed
+
+- The initial generation WebSocket is accepted before frozen deferred route
+  imports finish, and long generations send an application heartbeat.
+- An abnormal close after every option reached a terminal state no longer
+  reports a false generation failure.
+- ScreenshotOne failures now expose actionable authentication, billing,
+  rate-limit, timeout and URL messages; the URL tab can test its key.
+- Replicate image tools are not advertised without an effective key, while an
+  environment-provided key no longer disables the user's image-generation
+  preference switch.
+- Cancelled selected options automatically fall back to a completed option when
+  one exists, keeping Chat editable and Review fixes usable.
+- Fragment links inside packaged `srcdoc` previews stay inside the preview
+  instead of attempting blocked `file://` navigation.
+- Fragment-link interception no longer stops generated pages' own click
+  handlers, so `href="#"` controls, menus, tabs and modal triggers remain
+  interactive.
+- Project data remains outside the installation directory and NSIS explicitly
+  preserves app data during upgrades/uninstall-reinstall workflows.
+- Stack-preview assets are size-bounded before entering the renderer; assets
+  over the preview budget remain visible in the manifest rather than being
+  silently dropped.
+- Concurrent GitHub device-flow status polls share one serialized backend
+  restart, preventing a successful sign-in from entering a kill/restart loop.
+- Public GitHub Agent Skills can be imported from a folder directly under the
+  repository root as well as from nested folders.
+- Frozen first-run Chromium discovery has a larger optional background timeout
+  so antivirus scanning does not cache a false unavailable result.
+
+### Security
+
+- Capture-only ScreenshotOne, Figma and Stitch credentials are stripped before
+  model-generation payloads are built.
+- Imported skills reject traversal, binary/oversized content and duplicate
+  installs, remain disabled by default, and cannot introduce shell access.
+- Figma image downloads, Stitch SDK downloads and MCP registry entries are
+  bounded and restricted to expected HTTPS endpoints.
 
 ## [0.4.0] - 2026-09-20
 
@@ -515,7 +604,8 @@ real multi-file project you can edit, and previews run in a locked-down sandbox.
 - CodePen sharing requires explicit confirmation before any code leaves the
   device.
 
-[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.1...v0.3.2

@@ -19,7 +19,6 @@ import AgentActivity from "../agent/AgentActivity";
 import { formatCompletedGenerationDuration } from "../agent/generation-time";
 import WorkingPulse from "../core/WorkingPulse";
 import ImageLightbox from "../ImageLightbox";
-import { Commit } from "../commits/types";
 import { getSelectedVariantState } from "../commits/selectors";
 import { CodeGenerationModel } from "../../lib/models";
 import DesignSystemSelector, {
@@ -28,6 +27,7 @@ import DesignSystemSelector, {
 import ModelSelector, {
   ModelSelectorProps,
 } from "../settings/ModelSelector";
+import ConversationThread from "./ConversationThread";
 
 interface SidebarProps {
   doUpdate: (instruction: string) => void;
@@ -41,38 +41,6 @@ interface SidebarProps {
 }
 
 const MAX_UPDATE_IMAGES = 5;
-
-function extractTagName(html: string): string {
-  const match = html.match(/^<(\w+)/);
-  return match ? match[1].toLowerCase() : "element";
-}
-
-function summarizeLatestChange(commit: Commit | null): string | null {
-  if (!commit) return null;
-  if (commit.type === "code_create") return "Imported existing code.";
-
-  const text = commit.inputs.text.trim();
-  if (text.length > 0) return text;
-
-  if (commit.type === "ai_create") {
-    return "Create";
-  }
-
-  if (commit.inputs.images.length > 1) {
-    return `Updated with ${commit.inputs.images.length} reference images.`;
-  }
-  if (commit.inputs.images.length === 1) {
-    return "Updated with one reference image.";
-  }
-  return "Updated code.";
-}
-
-function getSelectedElementTag(commit: Commit | null): string | null {
-  if (!commit || commit.type === "code_create") return null;
-  const html = commit.inputs.selectedElementHtml;
-  if (!html) return null;
-  return extractTagName(html);
-}
 
 function isSlowModel(model?: string): boolean {
   return (
@@ -95,9 +63,6 @@ function Sidebar({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const middlePaneRef = useRef<HTMLDivElement>(null);
   const [isErrorExpanded, setIsErrorExpanded] = useState(false);
-  const [isPromptExpanded, setIsPromptExpanded] = useState(false);
-  const [isPromptClamped, setIsPromptClamped] = useState(false);
-  const promptTextRef = useRef<HTMLParagraphElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -167,16 +132,6 @@ function Sidebar({
   const { head, commits, latestCommitHash, setHead } = useProjectStore();
 
   const currentCommit = head ? commits[head] : null;
-  const latestChangeSummary = summarizeLatestChange(currentCommit);
-  const selectedElementTag = getSelectedElementTag(currentCommit);
-  const latestChangeImages =
-    currentCommit && currentCommit.type !== "code_create"
-      ? currentCommit.inputs.images
-      : [];
-  const latestChangeVideos =
-    currentCommit && currentCommit.type !== "code_create"
-      ? currentCommit.inputs.videos ?? []
-      : [];
   const selectedVariantIndex = currentCommit?.selectedVariantIndex ?? 0;
   const selectedVariantState = getSelectedVariantState(currentCommit);
   const selectedVariant = selectedVariantState.variant;
@@ -280,20 +235,6 @@ function Sidebar({
     setIsErrorExpanded(false);
   }, [head, selectedVariantIndex]);
 
-  // Reset prompt expanded state when commit changes and detect clamping
-  useEffect(() => {
-    setIsPromptExpanded(false);
-  }, [head]);
-
-  useEffect(() => {
-    const el = promptTextRef.current;
-    if (el) {
-      setIsPromptClamped(el.scrollHeight > el.clientHeight);
-    } else {
-      setIsPromptClamped(false);
-    }
-  }, [latestChangeSummary, isPromptExpanded]);
-
   useEffect(() => {
     if (!middlePaneRef.current) return;
     requestAnimationFrame(() => {
@@ -368,69 +309,11 @@ function Sidebar({
         ref={middlePaneRef}
         className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto sidebar-scrollbar-stable px-4 pt-4"
       >
-        {latestChangeSummary && (
-          <div className="mb-4 flex flex-col items-end">
-            <div className="inline-block max-w-[85%] rounded-2xl rounded-br-md bg-violet-100 px-4 py-2.5 dark:bg-violet-900/30">
-              <p
-                ref={promptTextRef}
-                className={`text-[13px] text-violet-950 dark:text-violet-100 break-words whitespace-pre-wrap ${
-                  !isPromptExpanded ? "line-clamp-[10]" : ""
-                }`}
-              >
-                {latestChangeSummary}
-              </p>
-              {selectedElementTag && (
-                <div className="mt-1.5 flex items-center gap-1.5">
-                  <LuMousePointerClick className="w-3 h-3 text-violet-500 dark:text-violet-400" />
-                  <span className="text-[11px] text-violet-600 dark:text-violet-300">
-                    Selected: <code className="font-mono text-[10px] bg-violet-200/60 dark:bg-violet-800/50 px-1 py-0.5 rounded">&lt;{selectedElementTag}&gt;</code>
-                  </span>
-                </div>
-              )}
-              {(isPromptClamped || isPromptExpanded) && (
-                <div className="flex justify-end mt-1.5">
-                  <button
-                    onClick={() => setIsPromptExpanded(!isPromptExpanded)}
-                    className="text-[11px] font-medium text-gray-600 bg-white/70 hover:bg-white dark:text-gray-300 dark:bg-zinc-800/70 dark:hover:bg-zinc-800 px-2 py-0.5 rounded-full transition-colors shadow-sm"
-                  >
-                    {isPromptExpanded ? "less" : "more"}
-                  </button>
-                </div>
-              )}
-            </div>
-              {latestChangeImages.length > 0 && (
-                <div className="mt-2 flex gap-2 flex-wrap justify-end">
-                  {latestChangeImages.map((image, index) => (
-                    <button
-                      key={`${image.slice(0, 40)}-${index}`}
-                      onClick={() => setLightboxImage(image)}
-                      className="shrink-0 cursor-zoom-in rounded-lg border border-gray-200 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-900 hover:border-violet-300 dark:hover:border-violet-500 transition-colors"
-                    >
-                      <img
-                        src={image}
-                        alt={`Reference ${index + 1}`}
-                        className="h-24 w-24 object-contain"
-                        loading="lazy"
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-              {latestChangeVideos.length > 0 && (
-                <div className="mt-2 space-y-2">
-                  {latestChangeVideos.map((video, index) => (
-                    <video
-                      key={`${video.slice(0, 40)}-${index}`}
-                      src={video}
-                      className="w-full rounded-lg border border-gray-200 dark:border-zinc-700"
-                      controls
-                      preload="metadata"
-                    />
-                  ))}
-                </div>
-              )}
-          </div>
-        )}
+        <ConversationThread
+          commits={commits}
+          head={head}
+          onOpenImage={setLightboxImage}
+        />
 
         {showWorkingIndicator && (
           <div className="working-indicator-bg mb-3 rounded-xl border border-violet-200 dark:border-violet-800 px-3 py-2 transition-all duration-500">

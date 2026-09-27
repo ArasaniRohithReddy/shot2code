@@ -26,7 +26,11 @@ export interface Settings {
   openAiBaseURL: string | null;
   replicateApiKey: string | null;
   screenshotOneApiKey: string | null;
+  figmaAccessToken: string | null;
+  stitchApiKey: string | null;
   isImageGenerationEnabled: boolean;
+  /** Allow Copilot SDK variants to use the built-in web_search tool. */
+  copilotWebSearchEnabled: boolean;
   editorTheme: EditorTheme;
   generatedCodeConfig: Stack;
   /**
@@ -38,6 +42,8 @@ export interface Settings {
   anthropicApiKey: string | null;
   geminiApiKey: string | null;
   copilotGithubToken: string | null;
+  /** Whether shot2code may reuse an existing Copilot/GitHub CLI login. */
+  copilotUseLoggedInUser?: boolean;
   /**
    * @deprecated Superseded by `selectedModels`, which holds the same ids for
    * every provider rather than Copilot alone.
@@ -151,7 +157,14 @@ export interface CodeGenerationParams {
   isAssetExtractionEnabled?: boolean;
 }
 export type FullGenerationSettings = CodeGenerationParams &
-  Omit<Settings, "copilotSdkByok" | "mcpServers"> & {
+  Omit<
+    Settings,
+    | "copilotSdkByok"
+    | "mcpServers"
+    | "screenshotOneApiKey"
+    | "figmaAccessToken"
+    | "stitchApiKey"
+  > & {
     designSystem?: string | null;
     /**
      * The authoritative selection: one entry per pick, in order, each naming

@@ -23,6 +23,13 @@ interface Shot2CodeMenuState {
   isChatPanelVisible: boolean;
 }
 
+interface Shot2CodeStitchResult {
+  projectId: string;
+  screenId: string;
+  html: string;
+  image: string;
+}
+
 interface Window {
   __SHOT2CODE_BACKEND__?: {
     http?: string;
@@ -36,6 +43,24 @@ interface Window {
     }>;
     checkForUpdates: () => Promise<Shot2CodeUpdateState>;
     installUpdate: () => Promise<boolean>;
+    testStitchKey: (payload: { apiKey: string }) => Promise<{
+      ok: boolean;
+      toolCount: number;
+      message: string;
+    }>;
+    generateStitch: (payload: {
+      apiKey: string;
+      prompt: string;
+      deviceType?: "MOBILE" | "DESKTOP" | "TABLET" | "AGNOSTIC";
+    }) => Promise<Shot2CodeStitchResult>;
+    importStitch: (payload: {
+      apiKey: string;
+      url: string;
+    }) => Promise<Shot2CodeStitchResult>;
+    startGitHubOAuth: () => Promise<unknown>;
+    getGitHubOAuthStatus: () => Promise<unknown>;
+    cancelGitHubOAuth: () => Promise<unknown>;
+    disconnectGitHubOAuth: () => Promise<unknown>;
     onUpdateState: (
       callback: (state: Shot2CodeUpdateState) => void
     ) => () => void;

@@ -1,5 +1,15 @@
+import httpx
 import pytest
-from routes.screenshot import normalize_url
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from routes.screenshot import (
+    ScreenshotCaptureError,
+    capture_screenshot,
+    normalize_url,
+    router,
+)
 
 
 class TestNormalizeUrl:
@@ -57,3 +67,57 @@ class TestNormalizeUrl:
         assert normalize_url("example.com/path/to/page.html#section") == "https://example.com/path/to/page.html#section"
         assert normalize_url("user:pass@example.com") == "https://user:pass@example.com"
         assert normalize_url("example.com?q=search&lang=en") == "https://example.com?q=search&lang=en"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "message"),
+    [
+        (401, "rejected the API key"),
+        (402, "billing or available credits"),
+        (429, "rate-limited"),
+        (503, "unavailable right now"),
+    ],
+)
+async def test_capture_screenshot_reports_actionable_service_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    status_code: int,
+    message: str,
+) -> None:
+    async def fake_get(
+        _self: httpx.AsyncClient,
+        _url: str,
+        **_kwargs: object,
+    ) -> httpx.Response:
+        return httpx.Response(status_code, content=b"provider detail")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    with pytest.raises(ScreenshotCaptureError, match=message):
+        await capture_screenshot(
+            "https://example.com",
+            "secret-that-must-not-appear",
+        )
+
+
+def test_screenshot_key_check_reports_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_get(
+        _self: httpx.AsyncClient,
+        _url: str,
+        **_kwargs: object,
+    ) -> httpx.Response:
+        return httpx.Response(200)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    app = FastAPI()
+    app.include_router(router)
+
+    response = TestClient(app).post(
+        "/api/screenshot/test",
+        json={"apiKey": "screenshot-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True

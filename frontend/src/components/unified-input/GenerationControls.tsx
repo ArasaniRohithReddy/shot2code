@@ -31,6 +31,7 @@ interface Props {
   actionLabel?: string;
   loadingActionLabel?: string;
   isActionLoading?: boolean;
+  isActionDisabled?: boolean;
   actionTestId?: string;
 }
 
@@ -79,6 +80,7 @@ export default function GenerationControls({
   actionLabel = "Generate Code",
   loadingActionLabel = "Generating…",
   isActionLoading = false,
+  isActionDisabled = false,
   actionTestId = "upload-generate",
 }: Props) {
   const [instructionsOpen, setInstructionsOpen] = useState(false);
@@ -190,7 +192,7 @@ export default function GenerationControls({
           <div className="w-full sm:w-56">
             <Button
               onClick={onGenerate}
-              disabled={isActionLoading}
+              disabled={isActionLoading || isActionDisabled}
               className="w-full"
               size="lg"
               data-testid={actionTestId}
@@ -219,7 +221,7 @@ export default function GenerationControls({
                 </svg>
               )}
               {isActionLoading ? loadingActionLabel : actionLabel}
-              {!isActionLoading && (
+              {!isActionLoading && !isActionDisabled && (
                 <span className="ml-2 text-xs font-normal opacity-60">↵</span>
               )}
             </Button>

@@ -6,6 +6,8 @@ import {
   LuCreditCard,
   LuExternalLink,
   LuLoader,
+  LuPlus,
+  LuX,
   LuZap,
 } from "react-icons/lu";
 import { Input } from "../ui/input";
@@ -16,8 +18,10 @@ import {
   BYOK_WIRE_APIS,
   BYOK_WIRE_API_AUTOMATIC_LABEL,
   BYOK_WIRE_API_LABELS,
+  MAX_MODEL_SELECTIONS,
   byokCustomSelectionId,
   byokUnusableReason,
+  configuredWireModels,
   describeByokEndpoint,
   describeWireApiChoice,
   effectiveWireApi,
@@ -115,6 +119,7 @@ export default function CopilotSdkByokSettings({
   const [discovered, setDiscovered] = useState<string[]>(
     initialDiscoveredModels ?? []
   );
+  const [manualModel, setManualModel] = useState("");
 
   const errors = validateByokSettings(settings);
   const reason = byokUnusableReason(settings);
@@ -172,11 +177,41 @@ export default function CopilotSdkByokSettings({
   // Exercise the identity the user actually picked; otherwise let the backend
   // choose, so an unconfigured selection still gets a cheap reachability test.
   // A configured endpoint model wins: that is the identity that will really run.
-  const customId =
-    settings.wireModel && isValidWireModel(settings.wireModel)
-      ? byokCustomSelectionId(settings.provider, settings.wireModel.trim())
+  const endpointModels = configuredWireModels(settings);
+  const customIds = endpointModels
+    .filter(isValidWireModel)
+    .map((model) => byokCustomSelectionId(settings.provider, model));
+  const liveTestTarget = customIds[0] ?? selectedByokIds[0] ?? null;
+  const manualModelError =
+    manualModel.trim() && !isValidWireModel(manualModel)
+      ? "Use the exact model id reported by the endpoint, with no spaces."
       : null;
-  const liveTestTarget = customId ?? selectedByokIds[0] ?? null;
+
+  const setEndpointModels = (models: string[]) => {
+    const unique = [...new Set(models.map((model) => model.trim()).filter(Boolean))]
+      .slice(0, MAX_MODEL_SELECTIONS);
+    update({
+      wireModels: unique,
+      // Kept in sync for settings saved by older shot2code versions.
+      wireModel: unique[0] ?? null,
+    });
+  };
+
+  const toggleEndpointModel = (model: string, selected: boolean) => {
+    if (selected) {
+      if (endpointModels.length >= MAX_MODEL_SELECTIONS) return;
+      setEndpointModels([...endpointModels, model]);
+    } else {
+      setEndpointModels(endpointModels.filter((entry) => entry !== model));
+    }
+  };
+
+  const addManualModel = () => {
+    const model = manualModel.trim();
+    if (!isValidWireModel(model) || endpointModels.includes(model)) return;
+    setEndpointModels([...endpointModels, model]);
+    setManualModel("");
+  };
 
   // Only an OpenAI-compatible endpoint exposes `/models`; mirrors
   // `_supports_model_listing` in backend/provider_validation.py.
@@ -419,99 +454,152 @@ export default function CopilotSdkByokSettings({
             )}
 
             <div>
-              <label
-                className={LABEL_CLASS}
-                htmlFor={`${baseId}-wire-model`}
-              >
+              <p className={LABEL_CLASS}>
                 {settings.provider === "azure"
-                  ? "Deployment name (optional)"
-                  : "Endpoint model (optional)"}
-              </label>
+                  ? "Deployment names (optional)"
+                  : "Endpoint models (optional)"}
+              </p>
               <p className={HELP_CLASS} id={`${baseId}-wire-model-help`}>
                 {canDiscoverModels
-                  ? "The exact model id this endpoint serves, whatever it is called. Leave it empty to use the catalog models above instead. Run Test model access to list what the endpoint reports, or type the name yourself."
+                  ? "Choose any models this endpoint serves. Each becomes a separate option in Models. Leave the list empty to use the provider catalog instead."
                   : settings.provider === "azure"
-                    ? "The deployment name on your Azure OpenAI resource. Azure does not list deployments here, so type it exactly."
-                    : "The model name this endpoint serves. Anthropic does not list models here, so type it exactly."}
+                    ? "Add the deployment names from your Azure OpenAI resource. Azure does not list deployments here, so enter each one exactly."
+                    : "Add the model names this endpoint serves. Anthropic does not list models here, so enter each one exactly."}
               </p>
 
               {discovered.length > 0 && (
-                <div className="mt-2">
-                  <label
-                    className="text-xs font-medium text-gray-600 dark:text-zinc-400"
-                    htmlFor={`${baseId}-discovered`}
-                  >
+                <fieldset
+                  className="mt-3 rounded-lg border border-gray-200 p-3 dark:border-zinc-700"
+                  data-testid="byok-discovered-models"
+                >
+                  <legend className="px-1 text-xs font-medium text-gray-600 dark:text-zinc-400">
                     Models this endpoint reports ({discovered.length})
-                  </label>
-                  <select
-                    id={`${baseId}-discovered`}
-                    data-testid="byok-discovered-models"
-                    className={SELECT_CLASS}
-                    value={
-                      settings.wireModel &&
-                      discovered.includes(settings.wireModel)
-                        ? settings.wireModel
-                        : ""
-                    }
-                    onChange={(event) =>
-                      setText("wireModel", event.target.value)
-                    }
-                    aria-describedby={`${baseId}-discovered-help`}
-                  >
-                    <option value="">Choose a model…</option>
+                  </legend>
+                  <div className="mt-1 max-h-48 space-y-1 overflow-y-auto">
                     {discovered.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
+                      <label
+                        key={model}
+                        className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={endpointModels.includes(model)}
+                          disabled={
+                            !endpointModels.includes(model) &&
+                            endpointModels.length >= MAX_MODEL_SELECTIONS
+                          }
+                          onChange={(event) =>
+                            toggleEndpointModel(model, event.target.checked)
+                          }
+                          className="h-4 w-4 accent-violet-600"
+                        />
+                        <span className="notranslate break-all" translate="no">
+                          {model}
+                        </span>
+                      </label>
                     ))}
-                  </select>
+                  </div>
                   <p
                     className={HELP_CLASS}
                     id={`${baseId}-discovered-help`}
                   >
-                    This is the list of ids the endpoint returned. It does
-                    not say which of them can read images or call tools —
-                    only the endpoint's documentation can. You can also
-                    type a name below.
+                    Select more than one to compare them in the same generation.
+                    The list does not prove image or tool support; check the
+                    endpoint's documentation.
                   </p>
+                </fieldset>
+              )}
+
+              <div className="mt-3 flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <label
+                    className="text-xs font-medium text-gray-600 dark:text-zinc-400"
+                    htmlFor={`${baseId}-wire-model`}
+                  >
+                    Add a model manually
+                  </label>
+                  <Input
+                    id={`${baseId}-wire-model`}
+                    className="mt-1"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={
+                      settings.provider === "azure"
+                        ? "your-deployment-name"
+                        : "your-model-id"
+                    }
+                    value={manualModel}
+                    onChange={(event) => setManualModel(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addManualModel();
+                      }
+                    }}
+                    aria-describedby={`${baseId}-wire-model-help`}
+                    aria-invalid={manualModelError ? true : undefined}
+                  />
+                  {manualModelError && (
+                    <p role="alert" className={ERROR_CLASS}>
+                      {manualModelError}
+                    </p>
+                  )}
                 </div>
-              )}
+                <button
+                  type="button"
+                  onClick={addManualModel}
+                  disabled={
+                    !manualModel.trim() ||
+                    Boolean(manualModelError) ||
+                    endpointModels.includes(manualModel.trim()) ||
+                    endpointModels.length >= MAX_MODEL_SELECTIONS
+                  }
+                  className="mt-6 flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  <LuPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                  Add
+                </button>
+              </div>
 
-              <Input
-                id={`${baseId}-wire-model`}
-                className={FIELD_CLASS}
-                autoComplete="off"
-                spellCheck={false}
-                placeholder={
-                  settings.provider === "azure"
-                    ? "your-deployment-name"
-                    : "your-model-id"
-                }
-                value={settings.wireModel ?? ""}
-                onChange={(event) =>
-                  setText("wireModel", event.target.value)
-                }
-                aria-describedby={`${baseId}-wire-model-help`}
-                aria-invalid={errors.wireModel ? true : undefined}
-              />
-              {errors.wireModel && (
-                <p role="alert" className={ERROR_CLASS}>
-                  {errors.wireModel}
-                </p>
-              )}
-
-              {customId && (
+              {endpointModels.length > 0 && (
                 <p
                   data-testid="byok-custom-entry-note"
                   className="mt-2 rounded-md border border-gray-200 p-2 text-xs leading-5 text-gray-600 dark:border-zinc-700 dark:text-zinc-300"
                 >
-                  Models will show one option for this connection:{" "}
-                  <span className="font-medium notranslate" translate="no">
-                    {settings.wireModel} via {settings.provider}
-                  </span>
-                  . The catalog models are replaced, because this endpoint
-                  serves its own model and listing shot2code's catalog names
-                  for it would be untrue. No thinking level is sent for it.
+                  Models will show {endpointModels.length} separate option
+                  {endpointModels.length === 1 ? "" : "s"} for this connection.
+                  The provider catalog is replaced because only the endpoint
+                  can truthfully say what it serves. No thinking level is
+                  inferred for an unknown model.
+                </p>
+              )}
+
+              {endpointModels.length > 0 && (
+                <ul className="mt-2 flex flex-wrap gap-2" aria-label="Configured endpoint models">
+                  {endpointModels.map((model) => (
+                    <li
+                      key={model}
+                      className="flex min-h-9 items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 pl-3 pr-1 text-xs text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                    >
+                      <span className="notranslate max-w-64 truncate" translate="no">
+                        {model}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => toggleEndpointModel(model, false)}
+                        aria-label={`Remove ${model}`}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+                      >
+                        <LuX className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {(errors.wireModel || errors.wireModels) && (
+                <p role="alert" className={ERROR_CLASS}>
+                  {errors.wireModel ?? errors.wireModels}
                 </p>
               )}
 

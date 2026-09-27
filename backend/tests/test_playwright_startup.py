@@ -3,7 +3,14 @@ import asyncio
 import pytest
 
 from preview_screenshot import playwright_backend
-from preview_screenshot.playwright_backend import PlaywrightBackend
+from preview_screenshot.playwright_backend import (
+    BROWSER_LAUNCH_TIMEOUT_SECONDS,
+    PlaywrightBackend,
+)
+
+
+def test_packaged_first_run_has_a_realistic_chromium_launch_budget() -> None:
+    assert BROWSER_LAUNCH_TIMEOUT_SECONDS >= 120
 
 
 @pytest.mark.asyncio

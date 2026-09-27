@@ -57,6 +57,27 @@ export interface HorizontalOverflowMetrics {
   horizontalOverflow: boolean;
 }
 
+export type ReviewSeverityFilter = AuditSeverity | "all";
+
+export function filterReviewFindings(
+  findings: readonly AuditFinding[],
+  severity: ReviewSeverityFilter,
+  query: string
+): AuditFinding[] {
+  const needle = query.trim().toLowerCase();
+  return findings.filter((finding) => {
+    if (severity !== "all" && finding.severity !== severity) return false;
+    if (!needle) return true;
+    return [
+      finding.ruleId,
+      finding.message,
+      finding.evidence,
+      finding.affectedFile,
+      finding.guidance,
+    ].some((value) => value.toLowerCase().includes(needle));
+  });
+}
+
 export type ReviewWidthValidation =
   | { valid: true; width: number }
   | { valid: false; message: string };

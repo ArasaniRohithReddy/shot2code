@@ -12,6 +12,7 @@ import {
   LuInfo,
   LuListChecks,
   LuPlay,
+  LuSearch,
   LuTrash2,
 } from "react-icons/lu";
 import { usePersistedState } from "../../hooks/usePersistedState";
@@ -25,12 +26,15 @@ import {
   createReviewBinding,
   createReviewViewportPreset,
   formatHorizontalOverflowMessage,
+  filterReviewFindings,
   getReviewViewportDimensions,
   isReviewRunStale,
   normalizeReviewViewportPresets,
   serializeReviewReport,
   validateReviewWidth,
   type ReviewRun,
+  type ReviewBinding,
+  type ReviewSeverityFilter,
 } from "../../lib/review";
 import {
   auditComposedPreviewSource,
@@ -38,8 +42,11 @@ import {
   type AuditSeverity,
 } from "../../lib/source-audit";
 import type { PreviewRuntimeMetrics } from "../../lib/preview-bridge";
+import { requestAiReview, type AiReviewFinding } from "../../lib/ai-review";
+import type { Settings } from "../../types";
 import { Button } from "../ui/button";
 import SandboxedPreviewFrame from "./SandboxedPreviewFrame";
+import DesignInspectorPanel from "./DesignInspectorPanel";
 
 interface Props {
   active: boolean;
@@ -49,7 +56,12 @@ interface Props {
   commitHash: string | null;
   variantIndex: number;
   refreshToken: number;
-  onFixSelectedFindings: (instruction: string) => void;
+  modelId?: string | null;
+  settings: Settings;
+  onFixSelectedFindings: (
+    instruction: string,
+    binding: ReviewBinding
+  ) => void;
 }
 
 function SeverityIcon({ severity }: { severity: AuditSeverity }) {
@@ -148,6 +160,8 @@ function ReviewWorkspace({
   commitHash,
   variantIndex,
   refreshToken,
+  modelId,
+  settings,
   onFixSelectedFindings,
 }: Props) {
   const [storedPresets, setStoredPresets] = usePersistedState(
@@ -170,6 +184,16 @@ function ReviewWorkspace({
   const [announcement, setAnnouncement] = useState(
     "Review has not been run."
   );
+  const [severityFilter, setSeverityFilter] =
+    useState<ReviewSeverityFilter>("all");
+  const [findingQuery, setFindingQuery] = useState("");
+  const [aiFindings, setAiFindings] = useState<AiReviewFinding[]>([]);
+  const [selectedAiFindingIds, setSelectedAiFindingIds] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [aiReviewModel, setAiReviewModel] = useState<string | null>(null);
+  const [aiReviewError, setAiReviewError] = useState<string | null>(null);
+  const [isAiReviewing, setIsAiReviewing] = useState(false);
 
   const viewportWidths = useMemo(
     () => presets.map((preset) => preset.width),
@@ -193,6 +217,15 @@ function ReviewWorkspace({
         selectedFindingIds.has(finding.id)
       ) ?? [],
     [run, selectedFindingIds]
+  );
+  const filteredFindings = useMemo(
+    () =>
+      filterReviewFindings(
+        run?.findings ?? [],
+        severityFilter,
+        findingQuery
+      ),
+    [findingQuery, run, severityFilter]
   );
 
   useEffect(() => {
@@ -272,14 +305,15 @@ function ReviewWorkspace({
   };
 
   const fixSelected = () => {
-    if (stale || selectedFindings.length === 0) return;
+    if (!run || stale || selectedFindings.length === 0) return;
     onFixSelectedFindings(
-      buildFixFindingsInstruction(selectedFindings, viewportWidths)
+      buildFixFindingsInstruction(selectedFindings, viewportWidths),
+      run.binding
     );
     setAnnouncement(
-      `Added ${selectedFindings.length} selected review finding${
+      `Started fixing ${selectedFindings.length} selected review finding${
         selectedFindings.length === 1 ? "" : "s"
-      } to Chat without sending.`
+      } in Chat.`
     );
   };
 
@@ -292,6 +326,65 @@ function ReviewWorkspace({
       console.error("Failed to download review report", error);
       setAnnouncement("The review report could not be downloaded.");
     }
+  };
+
+  const runAiReview = async () => {
+    if (!modelId) {
+      setAiReviewError(
+        "This option does not record a model identity. Retry it before using AI review."
+      );
+      return;
+    }
+    setIsAiReviewing(true);
+    setAiReviewError(null);
+    try {
+      const result = await requestAiReview({
+        source: html,
+        sourcePath,
+        viewportWidths,
+        model: modelId,
+        settings,
+      });
+      setAiFindings(result.findings);
+      setAiReviewModel(result.model);
+      setSelectedAiFindingIds(
+        new Set(result.findings.map((_finding, index) => index))
+      );
+      setAnnouncement(
+        `AI review returned ${result.findings.length} finding${
+          result.findings.length === 1 ? "" : "s"
+        } using ${result.model}.`
+      );
+    } catch (caught) {
+      setAiReviewError(
+        caught instanceof Error ? caught.message : "AI review could not run."
+      );
+    } finally {
+      setIsAiReviewing(false);
+    }
+  };
+
+  const fixSelectedAiFindings = () => {
+    const selected = aiFindings.filter((_finding, index) =>
+      selectedAiFindingIds.has(index)
+    );
+    if (selected.length === 0) return;
+    const instruction = [
+      `Fix the ${selected.length} selected finding${
+        selected.length === 1 ? "" : "s"
+      } from the bounded AI review performed by ${aiReviewModel ?? modelId}.`,
+      "Preserve unrelated behavior and styling. Verify every change in the local deterministic Review afterward.",
+      ...selected.map(
+        (finding) =>
+          `- [${finding.severity}] ${finding.title}: ${finding.evidence}. ${finding.guidance}`
+      ),
+      `Verify at ${viewportWidths
+        .slice()
+        .sort((left, right) => right - left)
+        .map((width) => `${width}px`)
+        .join(", ")}.`,
+    ].join("\n");
+    onFixSelectedFindings(instruction, currentBinding);
   };
 
   return (
@@ -554,6 +647,16 @@ function ReviewWorkspace({
                       option {run.binding.variantIndex + 1}, code{" "}
                       <code>{run.binding.codeHash}</code>, at{" "}
                       {run.binding.viewportWidths.join(", ")}px.
+                      {modelId && (
+                        <>
+                          {" "}
+                          Model{" "}
+                          <code className="notranslate" translate="no">
+                            {modelId}
+                          </code>
+                          .
+                        </>
+                      )}
                     </span>
                   )}
                 </div>
@@ -562,31 +665,87 @@ function ReviewWorkspace({
                   className="mt-3 grid grid-cols-3 gap-2"
                   aria-label={`${run.counts.error} errors, ${run.counts.warning} warnings, ${run.counts.info} informational findings`}
                 >
-                  <div className="rounded-lg border border-red-200 p-2 text-center dark:border-red-900">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSeverityFilter((current) =>
+                        current === "error" ? "all" : "error"
+                      )
+                    }
+                    aria-pressed={severityFilter === "error"}
+                    className={`rounded-lg border p-2 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 ${
+                      severityFilter === "error"
+                        ? "border-red-500 bg-red-50 dark:bg-red-950/30"
+                        : "border-red-200 dark:border-red-900"
+                    }`}
+                  >
                     <span className="block text-lg font-bold tabular-nums text-red-700 dark:text-red-300">
                       {run.counts.error}
                     </span>
                     <span className="text-[11px] font-semibold uppercase text-gray-600 dark:text-zinc-300">
                       Errors
                     </span>
-                  </div>
-                  <div className="rounded-lg border border-amber-200 p-2 text-center dark:border-amber-900">
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSeverityFilter((current) =>
+                        current === "warning" ? "all" : "warning"
+                      )
+                    }
+                    aria-pressed={severityFilter === "warning"}
+                    className={`rounded-lg border p-2 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${
+                      severityFilter === "warning"
+                        ? "border-amber-500 bg-amber-50 dark:bg-amber-950/30"
+                        : "border-amber-200 dark:border-amber-900"
+                    }`}
+                  >
                     <span className="block text-lg font-bold tabular-nums text-amber-700 dark:text-amber-300">
                       {run.counts.warning}
                     </span>
                     <span className="text-[11px] font-semibold uppercase text-gray-600 dark:text-zinc-300">
                       Warnings
                     </span>
-                  </div>
-                  <div className="rounded-lg border border-blue-200 p-2 text-center dark:border-blue-900">
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSeverityFilter((current) =>
+                        current === "info" ? "all" : "info"
+                      )
+                    }
+                    aria-pressed={severityFilter === "info"}
+                    className={`rounded-lg border p-2 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                      severityFilter === "info"
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
+                        : "border-blue-200 dark:border-blue-900"
+                    }`}
+                  >
                     <span className="block text-lg font-bold tabular-nums text-blue-700 dark:text-blue-300">
                       {run.counts.info}
                     </span>
                     <span className="text-[11px] font-semibold uppercase text-gray-600 dark:text-zinc-300">
                       Info
                     </span>
-                  </div>
+                  </button>
                 </div>
+
+                {run.findings.length > 0 && (
+                  <label className="relative mt-3 block">
+                    <span className="sr-only">Search audit findings</span>
+                    <LuSearch
+                      className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-gray-400"
+                      aria-hidden="true"
+                    />
+                    <input
+                      type="search"
+                      value={findingQuery}
+                      onChange={(event) => setFindingQuery(event.target.value)}
+                      placeholder="Search rule, file, evidence or fix"
+                      className="h-11 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:ring-violet-950"
+                    />
+                  </label>
+                )}
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Button
@@ -617,13 +776,32 @@ function ReviewWorkspace({
                       onClick={() =>
                         setSelectedFindingIds(
                           new Set(
-                            run.findings.map((finding) => finding.id)
+                            filteredFindings.map((finding) => finding.id)
                           )
                         )
                       }
                       className="min-h-11 rounded-lg px-3 text-xs font-semibold text-violet-700 hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-violet-300 dark:hover:bg-violet-950/30"
                     >
-                      Select all
+                      Select visible ({filteredFindings.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedFindingIds(
+                          new Set(
+                            run.findings
+                              .filter(
+                                (finding) =>
+                                  finding.severity === "error" ||
+                                  finding.severity === "warning"
+                              )
+                              .map((finding) => finding.id)
+                          )
+                        )
+                      }
+                      className="min-h-11 rounded-lg px-3 text-xs font-semibold text-amber-700 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:text-amber-300 dark:hover:bg-amber-950/30"
+                    >
+                      Select errors + warnings
                     </button>
                     <button
                       type="button"
@@ -646,9 +824,13 @@ function ReviewWorkspace({
                       experience manually too.
                     </p>
                   </div>
+                ) : filteredFindings.length === 0 ? (
+                  <div className="mt-3 rounded-lg border border-dashed border-gray-300 p-3 text-sm text-gray-600 dark:border-zinc-700 dark:text-zinc-300">
+                    No findings match the current filter.
+                  </div>
                 ) : (
                   <ul className="mt-3 space-y-2" aria-label="Audit findings">
-                    {run.findings.map((finding) => (
+                    {filteredFindings.map((finding) => (
                       <FindingCard
                         key={finding.id}
                         finding={finding}
@@ -670,6 +852,97 @@ function ReviewWorkspace({
               </div>
             )}
           </div>
+          <DesignInspectorPanel html={html} sourcePath={sourcePath} />
+          <section
+            className="border-t border-gray-200 px-3 py-4 dark:border-zinc-800 sm:px-4"
+            aria-labelledby="ai-review-heading"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2
+                  id="ai-review-heading"
+                  className="text-sm font-semibold text-gray-950 dark:text-zinc-50"
+                >
+                  AI-assisted review
+                </h2>
+                <p className="mt-1 text-xs leading-5 text-gray-600 dark:text-zinc-300">
+                  Uses the exact model recorded for this option. No tools, MCP,
+                  skills, web search, or writes are available. This may consume
+                  provider quota.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                disabled={isAiReviewing || !modelId}
+                onClick={() => void runAiReview()}
+              >
+                {isAiReviewing ? "Reviewing…" : "Review with AI"}
+              </Button>
+            </div>
+
+            {aiReviewError && (
+              <p
+                role="alert"
+                className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
+              >
+                {aiReviewError}
+              </p>
+            )}
+
+            {aiFindings.length > 0 && (
+              <>
+                <p className="notranslate mt-3 text-[11px] text-gray-500 dark:text-zinc-400" translate="no">
+                  Reviewed by {aiReviewModel ?? modelId}
+                </p>
+                <ul className="mt-2 space-y-2">
+                  {aiFindings.map((finding, index) => (
+                    <li key={`${finding.title}-${index}`}>
+                      <label
+                        className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${severityClasses(
+                          finding.severity
+                        )}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedAiFindingIds.has(index)}
+                          onChange={(event) =>
+                            setSelectedAiFindingIds((current) => {
+                              const next = new Set(current);
+                              if (event.target.checked) next.add(index);
+                              else next.delete(index);
+                              return next;
+                            })
+                          }
+                          className="mt-0.5 h-5 w-5 accent-violet-600"
+                        />
+                        <span className="min-w-0">
+                          <strong className="block text-sm">
+                            {finding.title}
+                          </strong>
+                          <span className="mt-1 block text-xs">
+                            {finding.evidence}
+                          </span>
+                          <span className="mt-1 block text-xs">
+                            <strong>Fix:</strong> {finding.guidance}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  type="button"
+                  onClick={fixSelectedAiFindings}
+                  disabled={selectedAiFindingIds.size === 0}
+                  className="mt-3 min-h-11 w-full bg-violet-600 text-white hover:bg-violet-700"
+                >
+                  Fix selected AI findings ({selectedAiFindingIds.size})
+                </Button>
+              </>
+            )}
+          </section>
         </aside>
       </div>
 

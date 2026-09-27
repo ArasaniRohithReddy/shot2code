@@ -1,3 +1,4 @@
+import base64
 import json
 from io import BytesIO
 from zipfile import ZipFile
@@ -13,6 +14,7 @@ from routes.export import (
     export_archive_filename,
     export_code,
     parse_srcset,
+    preview_export,
 )
 from tests.export_stack_fixtures import (
     DATA_IMAGE,
@@ -156,6 +158,41 @@ async def test_project_export_matrix_has_working_structure(stack: str) -> None:
         assert stack in decoded(files, "script.js")
         assert 'href="styles.css"' in index_html
         assert 'src="script.js"' in index_html
+
+
+@pytest.mark.asyncio
+async def test_export_preview_matches_project_archive_text_files_and_assets() -> None:
+    request = ExportRequest(
+        code=STACK_FIXTURES["react_tailwind"],
+        stack="react_tailwind",
+        splitFiles=True,
+    )
+
+    preview = await preview_export(request)
+    response = await export_code(request)
+    names, archived_files = archive_files(response.body)
+
+    preview_files = {
+        file.path: file.content.encode("utf-8") for file in preview.files
+    }
+    preview_assets = {asset.path: asset.size for asset in preview.assets}
+
+    assert preview.entryPoint == "index.html"
+    assert preview.projectKind == "vite_react"
+    assert set(preview_files) | set(preview_assets) == names
+    assert preview_files == {
+        path: content
+        for path, content in archived_files.items()
+        if path not in preview_assets
+    }
+    assert preview_assets == {
+        path: len(content)
+        for path, content in archived_files.items()
+        if path in preview_assets
+    }
+    for asset in preview.assets:
+        assert asset.contentBase64 is not None
+        assert base64.b64decode(asset.contentBase64) == archived_files[asset.path]
 
 
 @pytest.mark.parametrize(

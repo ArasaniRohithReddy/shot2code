@@ -360,6 +360,7 @@ class ByokConnectionSummary:
     base_provider: ModelProvider
     wire_api: WireApi
     wire_model: str | None
+    wire_models: tuple[str, ...]
     base_url_host: str | None
     has_api_key: bool
     has_bearer_token: bool
@@ -368,6 +369,7 @@ class ByokConnectionSummary:
     reason: str | None
     # Set when the endpoint serves its own model rather than a catalog one.
     custom_selection_id: str | None = None
+    custom_selection_ids: tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -376,6 +378,7 @@ class ByokConnectionSummary:
             "baseProvider": self.base_provider,
             "wireApi": self.wire_api,
             "wireModel": self.wire_model,
+            "wireModels": list(self.wire_models),
             "baseUrlHost": self.base_url_host,
             "hasApiKey": self.has_api_key,
             "hasBearerToken": self.has_bearer_token,
@@ -383,6 +386,7 @@ class ByokConnectionSummary:
             "usable": self.usable,
             "reason": self.reason,
             "customSelectionId": self.custom_selection_id,
+            "customSelectionIds": list(self.custom_selection_ids),
         }
 
 
@@ -404,6 +408,7 @@ class ByokConnection:
     api_key: str | None = None
     bearer_token: str | None = None
     wire_model: str | None = None
+    wire_models: tuple[str, ...] = field(default_factory=tuple)
     azure_api_version: str | None = None
 
     @property
@@ -425,19 +430,40 @@ class ByokConnection:
     @property
     def has_custom_model(self) -> bool:
         """Whether the endpoint was pointed at a model shot2code does not know."""
-        return bool(self.wire_model) and model_from_value(self.wire_model) is None
+        return any(
+            model_from_value(model) is None
+            for model in self.configured_wire_models
+        )
+
+    @property
+    def configured_wire_models(self) -> tuple[str, ...]:
+        """Endpoint model ids, preserving order and legacy ``wireModel``."""
+        values: list[str] = []
+        if self.wire_model:
+            values.append(self.wire_model)
+        for model in self.wire_models:
+            if model not in values:
+                values.append(model)
+        return tuple(values)
+
+    @property
+    def custom_selections(self) -> tuple["ByokSelection", ...]:
+        """One truthful run identity for every configured endpoint model."""
+        return tuple(
+            byok_custom_selection(self.provider, model)
+            for model in self.configured_wire_models
+        )
 
     @property
     def custom_selection(self) -> "ByokSelection | None":
-        """The single truthful selection a custom endpoint model produces.
+        """The first endpoint selection, retained for older callers.
 
-        When the user names a ``wireModel``, that one model is what the
-        endpoint serves - so the catalog offers exactly it, under its real
-        name, instead of pretending the endpoint hosts a whole GPT family.
+        New callers should use :attr:`custom_selections`; the singular property
+        keeps persisted settings and integrations written before multi-model
+        discovery working unchanged.
         """
-        if not self.wire_model:
-            return None
-        return byok_custom_selection(self.provider, self.wire_model)
+        selections = self.custom_selections
+        return selections[0] if selections else None
 
     @property
     def unusable_reason(self) -> str | None:
@@ -465,12 +491,18 @@ class ByokConnection:
     def summary(self) -> ByokConnectionSummary:
         reason = self.unusable_reason
         custom = self.custom_selection
+        custom_selections = self.custom_selections
         return ByokConnectionSummary(
             enabled=self.enabled,
             provider=self.provider,
             base_provider=self.base_provider,
             wire_api=self.wire_api,
-            wire_model=self.wire_model,
+            wire_model=(
+                self.configured_wire_models[0]
+                if self.configured_wire_models
+                else None
+            ),
+            wire_models=self.configured_wire_models,
             base_url_host=_host_of(self.base_url) if self.base_url else None,
             has_api_key=bool(self.api_key),
             has_bearer_token=bool(self.bearer_token),
@@ -478,6 +510,9 @@ class ByokConnection:
             usable=reason is None,
             reason=reason,
             custom_selection_id=custom.selection_id if custom is not None else None,
+            custom_selection_ids=tuple(
+                selection.selection_id for selection in custom_selections
+            ),
         )
 
     def safe_metadata(self) -> dict[str, Any]:
@@ -602,9 +637,11 @@ class IntegrationSettings:
         if connection is None or connection.provider != parsed.provider:
             return None
         if parsed.is_custom:
-            if connection.wire_model != parsed.wire_model:
+            if parsed.wire_model not in connection.configured_wire_models:
                 return None
             return parsed
+        if connection.configured_wire_models:
+            return None
         if not connection.serves(parsed.base_model):
             return None
         return parsed
@@ -707,6 +744,13 @@ def _parse_byok(
             f"'{wire_model}' is not a usable endpoint model name. Use the id the "
             "endpoint itself reports, with no spaces."
         )
+    wire_models = _parse_string_list(
+        payload.get("wireModels"),
+        "copilotSdkByok.wireModels",
+        MAX_MODEL_SELECTIONS,
+        MAX_WIRE_MODEL_LENGTH,
+        pattern=_WIRE_MODEL,
+    )
 
     connection = ByokConnection(
         enabled=enabled,
@@ -726,6 +770,7 @@ def _parse_byok(
         )
         or None,
         wire_model=wire_model or None,
+        wire_models=wire_models,
         azure_api_version=azure_api_version or None,
     )
 

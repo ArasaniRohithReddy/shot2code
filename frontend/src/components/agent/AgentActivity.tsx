@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
 import { useProjectStore } from "../../store/project-store";
 import { useAppStore } from "../../store/app-store";
 import { AppState } from "../../types";
@@ -23,7 +28,10 @@ import {
 } from "react-icons/bs";
 import { parseMcpToolName } from "../../lib/integrations";
 import ReactMarkdown from "react-markdown";
-import { Light as SyntaxHighlighterBase } from "react-syntax-highlighter";
+import {
+  Light as SyntaxHighlighterBase,
+  type SyntaxHighlighterProps,
+} from "react-syntax-highlighter";
 import html from "react-syntax-highlighter/dist/esm/languages/hljs/xml";
 import { vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import WorkingPulse from "../core/WorkingPulse";
@@ -34,7 +42,8 @@ import {
 } from "./generation-time";
 
 SyntaxHighlighterBase.registerLanguage("html", html);
-const SyntaxHighlighter = SyntaxHighlighterBase as any;
+const SyntaxHighlighter =
+  SyntaxHighlighterBase as unknown as ComponentType<SyntaxHighlighterProps>;
 
 function ExpandablePrompt({ prompt }: { prompt: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -122,6 +131,27 @@ function getArrayField(value: unknown, field: string): unknown[] | null {
   if (!value || typeof value !== "object") return null;
   const fieldValue = (value as Record<string, unknown>)[field];
   return Array.isArray(fieldValue) ? fieldValue : null;
+}
+
+function getStringField(value: unknown, field: string): string | null {
+  const record = getRecord(value);
+  const fieldValue = record?.[field];
+  return typeof fieldValue === "string" ? fieldValue : null;
+}
+
+function getNumberField(value: unknown, field: string): number | null {
+  const record = getRecord(value);
+  const fieldValue = record?.[field];
+  return typeof fieldValue === "number" ? fieldValue : null;
+}
+
+function getStringArrayField(value: unknown, field: string): string[] | null {
+  const values = getArrayField(value, field);
+  if (!values) return null;
+  const strings = values.filter(
+    (item): item is string => typeof item === "string"
+  );
+  return strings.length === values.length ? strings : null;
 }
 
 function getRecord(value: unknown): Record<string, unknown> | null {
@@ -213,18 +243,20 @@ function getEventTitle(event: AgentEvent): string {
       return event.status === "running" ? "Editing file" : "Edited file";
     }
     if (event.toolName === "generate_images") {
-      const input = event.input as any;
-      const output = event.output as any;
-      const count = output?.images?.length || input?.count || 0;
+      const count =
+        getArrayField(event.output, "images")?.length ||
+        getNumberField(event.input, "count") ||
+        0;
       if (event.status === "running") {
         return count ? `Generating ${count} image${count !== 1 ? "s" : ""}` : "Generating images";
       }
       return count ? `Generated ${count} image${count !== 1 ? "s" : ""}` : "Generated images";
     }
     if (event.toolName === "remove_backgrounds") {
-      const rbInput = event.input as any;
-      const rbOutput = event.output as any;
-      const rbCount = rbOutput?.images?.length || rbInput?.image_urls?.length || 0;
+      const rbCount =
+        getArrayField(event.output, "images")?.length ||
+        getArrayField(event.input, "image_urls")?.length ||
+        0;
       if (event.status === "running") {
         return rbCount > 1 ? `Removing ${rbCount} backgrounds` : "Removing background";
       }
@@ -250,9 +282,10 @@ function getEventTitle(event: AgentEvent): string {
         : "Retrieved option";
     }
     if (event.toolName === "save_assets") {
-      const saveInput = event.input as any;
-      const saveOutput = event.output as any;
-      const saveCount = saveOutput?.images?.length || saveInput?.asset_ids?.length || 0;
+      const saveCount =
+        getArrayField(event.output, "images")?.length ||
+        getArrayField(event.input, "asset_ids")?.length ||
+        0;
       if (event.status === "running") {
         return saveCount > 1 ? `Saving ${saveCount} assets` : "Saving asset";
       }
@@ -324,25 +357,28 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
     );
   };
 
-  const output = event.output as any;
-  const input = event.input as any;
-  const hasError = Boolean(output?.error);
-  const images =
-    output && Array.isArray(output.images) ? (output.images as Array<any>) : null;
-  const edits =
-    output && Array.isArray(output.edits) ? (output.edits as Array<any>) : null;
-  const extractedAssets =
-    output && Array.isArray(output.assets) ? (output.assets as Array<unknown>) : null;
+  const output = getRecord(event.output);
+  const input = getRecord(event.input);
+  const error = getStringField(output, "error");
+  const hasError = Boolean(error);
+  const images = getArrayField(output, "images");
+  const edits = getArrayField(output, "edits");
+  const extractedAssets = getArrayField(output, "assets");
   const successfulExtractedAssets =
     extractedAssets?.filter(isSuccessfulExtractedAsset) || null;
   const visibleExtractedAssets =
     hasError && successfulExtractedAssets
       ? successfulExtractedAssets
       : extractedAssets;
-  const screenshotPreviews =
-    output && Array.isArray(output.screenshots)
-      ? (output.screenshots as Array<unknown>)
-      : [];
+  const screenshotPreviews = getArrayField(output, "screenshots") ?? [];
+  const prompts = getStringArrayField(input, "prompts");
+  const sourceImageUrls = getStringArrayField(input, "image_urls");
+  const assetIds = getStringArrayField(input, "asset_ids");
+  const assetDescriptions = getStringArrayField(
+    input,
+    "asset_descriptions"
+  );
+  const requestedEdits = getArrayField(input, "edits");
 
   return (
     <div className="text-sm text-gray-700 dark:text-gray-200">
@@ -350,7 +386,7 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
         <div className="rounded-md border border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/30 p-3">
           <div className="text-xs uppercase tracking-wide text-red-500">Error</div>
           <div className="mt-1 text-sm text-red-700 dark:text-red-200">
-            {output?.error}
+            {error}
           </div>
           {event.input && (
             <div className="mt-2">
@@ -368,44 +404,50 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
 
       {event.toolName === "edit_file" && edits && !hasError && (
         <div className="space-y-2">
-          {edits.map((edit, index) => (
-            <div
-              key={`${edit.old_text}-${index}`}
-              className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/60 p-3"
-            >
-              <div className="text-xs uppercase tracking-wide text-gray-400">
-                Edit {index + 1}
-              </div>
-              <div className="mt-2 grid gap-2">
-                <div>
-                  <div className="text-xs text-gray-500">Old</div>
-                  <div className="mt-1 rounded bg-red-50 dark:bg-red-900/30 p-2 text-xs font-mono text-red-700 dark:text-red-200 break-all">
-                    {edit.old_text}
+          {edits.map((rawEdit, index) => {
+            const edit = getRecord(rawEdit);
+            const oldText = getStringField(edit, "old_text") ?? "";
+            const newText = getStringField(edit, "new_text") ?? "";
+            const replaced = getNumberField(edit, "replaced");
+            return (
+              <div
+                key={`${oldText}-${index}`}
+                className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/60 p-3"
+              >
+                <div className="text-xs uppercase tracking-wide text-gray-400">
+                  Edit {index + 1}
+                </div>
+                <div className="mt-2 grid gap-2">
+                  <div>
+                    <div className="text-xs text-gray-500">Old</div>
+                    <div className="mt-1 rounded bg-red-50 dark:bg-red-900/30 p-2 text-xs font-mono text-red-700 dark:text-red-200 break-all">
+                      {oldText}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500">New</div>
+                    <div className="mt-1 rounded bg-emerald-50 dark:bg-emerald-900/30 p-2 text-xs font-mono text-emerald-700 dark:text-emerald-200 break-all">
+                      {newText}
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div className="text-xs text-gray-500">New</div>
-                  <div className="mt-1 rounded bg-emerald-50 dark:bg-emerald-900/30 p-2 text-xs font-mono text-emerald-700 dark:text-emerald-200 break-all">
-                    {edit.new_text}
+                {replaced !== null && (
+                  <div className="mt-2 text-xs text-gray-500">
+                    Replaced {replaced} time{replaced === 1 ? "" : "s"}
                   </div>
-                </div>
+                )}
               </div>
-              {edit.replaced !== undefined && (
-                <div className="mt-2 text-xs text-gray-500">
-                  Replaced {edit.replaced} time{edit.replaced === 1 ? "" : "s"}
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {event.toolName === "generate_images" && !hasError && (
         <div>
           {/* While running: show prompts with dividers */}
-          {event.status === "running" && input?.prompts && Array.isArray(input.prompts) && (
+          {event.status === "running" && prompts && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {input.prompts.map((prompt: string, index: number) => (
+              {prompts.map((prompt, index) => (
                 <div key={index} className="text-xs text-gray-600 dark:text-gray-400 py-1.5">
                   {prompt}
                 </div>
@@ -415,27 +457,32 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
           {/* After complete: 50/50 image left, prompt right */}
           {event.status !== "running" && images && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {images.map((item, index) => (
-                <div key={`${item.prompt}-${index}`} className="flex gap-3 py-2">
-                  <div className="w-1/2 shrink-0">
-                    {item.url ? (
-                      <img
-                        src={item.url}
-                        alt={item.prompt || `Generated image ${index + 1}`}
-                        className="w-full rounded object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="aspect-square rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400">
-                        Failed
-                      </div>
-                    )}
+              {images.map((rawItem, index) => {
+                const item = getRecord(rawItem);
+                const prompt = getStringField(item, "prompt") ?? "";
+                const url = getStringField(item, "url");
+                return (
+                  <div key={`${prompt}-${index}`} className="flex gap-3 py-2">
+                    <div className="w-1/2 shrink-0">
+                      {url ? (
+                        <img
+                          src={url}
+                          alt={prompt || `Generated image ${index + 1}`}
+                          className="w-full rounded object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="aspect-square rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400">
+                          Failed
+                        </div>
+                      )}
+                    </div>
+                    <div className="w-1/2 text-xs text-gray-600 dark:text-gray-400 self-center">
+                      {prompt}
+                    </div>
                   </div>
-                  <div className="w-1/2 text-xs text-gray-600 dark:text-gray-400 self-center">
-                    {item.prompt}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -444,9 +491,9 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
       {event.toolName === "remove_backgrounds" && !hasError && (
         <div>
           {/* While running: show the source images */}
-          {event.status === "running" && input?.image_urls && Array.isArray(input.image_urls) && (
+          {event.status === "running" && sourceImageUrls && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {input.image_urls.map((url: string, index: number) => (
+              {sourceImageUrls.map((url, index) => (
                 <div key={index} className="py-2">
                   <img
                     src={url}
@@ -459,47 +506,54 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
             </div>
           )}
           {/* After complete: before/after side by side for each image */}
-          {event.status !== "running" && output?.images && Array.isArray(output.images) && (
+          {event.status !== "running" && images && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {output.images.map((item: any, index: number) => (
-                <div key={`${item.image_url}-${index}`} className="flex gap-2 py-2">
-                  <div className="w-1/2">
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Before</div>
-                    <img
-                      src={item.image_url}
-                      alt={`Original image ${index + 1}`}
-                      className="w-full rounded object-cover"
-                      loading="lazy"
-                    />
-                  </div>
-                  <div className="w-1/2">
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">After</div>
-                    {item.result_url ? (
-                      <div className="relative">
-                        <div
-                          className="absolute inset-0 rounded"
-                          style={{
-                            backgroundImage:
-                              "linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)",
-                            backgroundSize: "10px 10px",
-                            backgroundPosition: "0 0, 0 5px, 5px -5px, -5px 0px",
-                          }}
-                        />
+              {images.map((rawItem, index) => {
+                const item = getRecord(rawItem);
+                const imageUrl = getStringField(item, "image_url");
+                const resultUrl = getStringField(item, "result_url");
+                return (
+                  <div key={`${imageUrl}-${index}`} className="flex gap-2 py-2">
+                    <div className="w-1/2">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Before</div>
+                      {imageUrl ? (
                         <img
-                          src={item.result_url}
-                          alt="Background removed"
-                          className="relative w-full rounded"
+                          src={imageUrl}
+                          alt={`Original image ${index + 1}`}
+                          className="w-full rounded object-cover"
                           loading="lazy"
                         />
-                      </div>
-                    ) : (
-                      <div className="aspect-square rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400">
-                        Failed
-                      </div>
-                    )}
+                      ) : null}
+                    </div>
+                    <div className="w-1/2">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">After</div>
+                      {resultUrl ? (
+                        <div className="relative">
+                          <div
+                            className="absolute inset-0 rounded"
+                            style={{
+                              backgroundImage:
+                                "linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)",
+                              backgroundSize: "10px 10px",
+                              backgroundPosition: "0 0, 0 5px, 5px -5px, -5px 0px",
+                            }}
+                          />
+                          <img
+                            src={resultUrl}
+                            alt="Background removed"
+                            className="relative w-full rounded"
+                            loading="lazy"
+                          />
+                        </div>
+                      ) : (
+                        <div className="aspect-square rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400">
+                          Failed
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -508,10 +562,9 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
       {event.toolName === "edit_images" && !hasError && (
         <div>
           {event.status === "running" &&
-            input?.edits &&
-            Array.isArray(input.edits) && (
+            requestedEdits && (
               <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                {input.edits.map((rawItem: unknown, index: number) => {
+                {requestedEdits.map((rawItem, index) => {
                   const item = getRecord(rawItem);
                   const imageUrls = (getArrayField(item, "image_urls") || []).filter(
                     (url): url is string => typeof url === "string"
@@ -565,14 +618,18 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
             )}
           {event.status !== "running" && images && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {images.map((item, index) => {
-                const imageUrls = Array.isArray(item?.image_urls)
-                  ? item.image_urls
-                  : [];
-                const prompt =
-                  typeof item?.prompt === "string" ? item.prompt : null;
+              {images.map((rawItem, index) => {
+                const item = getRecord(rawItem);
+                const imageUrls =
+                  getStringArrayField(item, "image_urls") ?? [];
+                const prompt = getStringField(item, "prompt");
+                const status = getStringField(item, "status");
+                const resultUrl = getStringField(item, "result_url");
+                const aspectRatio =
+                  getStringField(item, "aspect_ratio") ?? "match input";
+                const itemError = getStringField(item, "error");
                 const succeeded =
-                  item?.status === "ok" && typeof item?.result_url === "string";
+                  status === "ok" && resultUrl !== null;
                 return (
                   <div key={`${prompt || "edit"}-${index}`} className="space-y-3 py-3">
                     <div className="flex items-center justify-between gap-2">
@@ -581,7 +638,7 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500 dark:bg-gray-800 dark:text-gray-300">
-                          {item?.aspect_ratio || "match input"}
+                          {aspectRatio}
                         </span>
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] ${
@@ -619,7 +676,7 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
                         </div>
                         {succeeded ? (
                           <img
-                            src={item.result_url}
+                            src={resultUrl}
                             alt={`Edited image ${index + 1}`}
                             className="aspect-square w-full rounded object-contain bg-gray-50 dark:bg-gray-800"
                             loading="lazy"
@@ -651,9 +708,9 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
                         </div>
                       </div>
                     )}
-                    {item?.error && (
+                    {itemError && (
                       <div className="rounded bg-red-50 p-2 text-xs text-red-600 dark:bg-red-900/30 dark:text-red-200">
-                        {item.error}
+                        {itemError}
                       </div>
                     )}
                     {succeeded && (
@@ -662,7 +719,7 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
                           Result URL
                         </div>
                         <div className="mt-1 break-all rounded bg-gray-50 p-2 font-mono text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                          {item.result_url}
+                          {resultUrl}
                         </div>
                       </div>
                     )}
@@ -676,9 +733,9 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
 
       {event.toolName === "save_assets" && !hasError && (
         <div className="space-y-3">
-          {event.status === "running" && input?.asset_ids && Array.isArray(input.asset_ids) && (
+          {event.status === "running" && assetIds && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {input.asset_ids.map((assetId: string, index: number) => (
+              {assetIds.map((assetId, index) => (
                 <div key={`${assetId}-${index}`} className="py-2">
                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
                     Asset ID
@@ -690,37 +747,42 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
               ))}
             </div>
           )}
-          {event.status !== "running" && output?.images && Array.isArray(output.images) && (
+          {event.status !== "running" && images && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {output.images.map((item: any, index: number) => (
-                <div key={`${item.asset_id}-${index}`} className="flex gap-3 py-2">
-                  <div className="w-1/2">
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Saved asset
-                    </div>
-                    {item.public_url ? (
-                      <img
-                        src={item.public_url}
-                        alt={`Saved uploaded asset ${index + 1}`}
-                        className="w-full rounded object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="aspect-square rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400">
-                        Failed
+              {images.map((rawItem, index) => {
+                const item = getRecord(rawItem);
+                const assetId = getStringField(item, "asset_id") ?? "asset";
+                const publicUrl = getStringField(item, "public_url");
+                return (
+                  <div key={`${assetId}-${index}`} className="flex gap-3 py-2">
+                    <div className="w-1/2">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Saved asset
                       </div>
-                    )}
-                  </div>
-                  <div className="w-1/2 self-center">
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      Permanent URL
+                      {publicUrl ? (
+                        <img
+                          src={publicUrl}
+                          alt={`Saved uploaded asset ${index + 1}`}
+                          className="w-full rounded object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="aspect-square rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400">
+                          Failed
+                        </div>
+                      )}
                     </div>
-                    <div className="mt-1 break-all rounded bg-gray-50 p-2 font-mono text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-                      {item.public_url}
+                    <div className="w-1/2 self-center">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        Permanent URL
+                      </div>
+                      <div className="mt-1 break-all rounded bg-gray-50 p-2 font-mono text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                        {publicUrl}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -731,10 +793,9 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
           <div>
             {!hasError &&
               event.status === "running" &&
-              input?.asset_descriptions &&
-              Array.isArray(input.asset_descriptions) && (
+              assetDescriptions && (
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {input.asset_descriptions.map((description: string, index: number) => (
+                  {assetDescriptions.map((description, index) => (
                     <div key={`${description}-${index}`} className="py-2">
                       <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
                         Asset {index + 1}

@@ -28,6 +28,19 @@ export function getSelectedVariantState(
   };
 }
 
+export function getCompletedVariantIndex(
+  commit: Commit | null | undefined
+): number | null {
+  if (!commit) return null;
+  if (commit.variants[commit.selectedVariantIndex]?.status === "complete") {
+    return commit.selectedVariantIndex;
+  }
+  const completedIndex = commit.variants.findIndex(
+    (variant) => variant.status === "complete"
+  );
+  return completedIndex >= 0 ? completedIndex : null;
+}
+
 export function getVariantStatusLabel(
   status: VariantStatus | undefined
 ): string {

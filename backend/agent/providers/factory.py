@@ -39,6 +39,7 @@ from llm import (
 )
 from model_catalog import PROVIDER_CREDENTIAL_LABELS, PROVIDER_LABELS
 from preview_screenshot import is_screenshot_preview_available
+from skills.store import enabled_skill_directories
 
 
 class MissingProviderCredentialError(Exception):
@@ -85,19 +86,35 @@ def create_provider_session(
     should_extract_assets: bool = True,
     recorder: Optional[AgentRunRecorder] = None,
     copilot_github_token: Optional[str] = None,
+    copilot_use_logged_in_user: bool = True,
     integrations: Optional[IntegrationSettings] = None,
     byok_connection: Optional[ByokConnection] = None,
     byok_wire_model: Optional[str] = None,
+    copilot_web_search_enabled: bool = False,
+    canonical_tools_override: Optional[list[CanonicalToolDefinition]] = None,
+    copilot_skills_enabled: bool = True,
 ) -> ProviderSession:
     settings = integrations or EMPTY_INTEGRATIONS
-    canonical_tools = canonical_tool_definitions(
-        image_generation_enabled=should_generate_images,
-        # The edit_images tool calls Replicate, so don't offer it without a key.
-        image_editing_enabled=bool(replicate_api_key or REPLICATE_API_KEY),
-        # The extract_assets tool calls Gemini, so don't offer it without a key.
-        asset_extraction_enabled=should_extract_assets and bool(gemini_api_key),
-        # screenshot_preview needs headless Chromium; skip it if it can't launch.
-        screenshot_enabled=is_screenshot_preview_available(),
+    effective_image_generation = should_generate_images and bool(
+        replicate_api_key or REPLICATE_API_KEY
+    )
+    canonical_tools = (
+        list(canonical_tools_override)
+        if canonical_tools_override is not None
+        else canonical_tool_definitions(
+            # generate_images is Replicate-backed. Never tell a model that the tool
+            # exists when the request cannot execute it.
+            image_generation_enabled=effective_image_generation,
+            # The edit_images tool calls Replicate, so don't offer it without a key.
+            image_editing_enabled=bool(replicate_api_key or REPLICATE_API_KEY),
+            # The extract_assets tool calls Gemini, so don't offer it without a key.
+            asset_extraction_enabled=should_extract_assets and bool(gemini_api_key),
+            # screenshot_preview needs headless Chromium; skip it if it can't launch.
+            screenshot_enabled=is_screenshot_preview_available(),
+        )
+    )
+    skill_directories = (
+        enabled_skill_directories() if copilot_skills_enabled else []
     )
 
     # The Copilot SDK BYOK runtime is only ever entered by a selection that
@@ -113,6 +130,8 @@ def create_provider_session(
             canonical_tools=canonical_tools,
             recorder=recorder,
             wire_model=byok_wire_model,
+            copilot_web_search_enabled=copilot_web_search_enabled,
+            skill_directories=skill_directories,
         )
 
     provider = provider_for_model(model)
@@ -163,7 +182,7 @@ def create_provider_session(
         # it for video runs specifically.
         if _contains_video(prompt_messages):
             canonical_tools = canonical_tool_definitions(
-                image_generation_enabled=should_generate_images,
+                image_generation_enabled=effective_image_generation,
                 image_editing_enabled=bool(replicate_api_key or REPLICATE_API_KEY),
                 asset_extraction_enabled=should_extract_assets and bool(gemini_api_key),
                 screenshot_enabled=False,
@@ -172,9 +191,15 @@ def create_provider_session(
         # No key check: an explicit token is optional. Without one the SDK
         # discovers credentials itself (stored Copilot CLI login, then gh CLI),
         # which is the documented way to reuse an existing GitHub sign-in.
+        effective_copilot_token = copilot_github_token or (
+            COPILOT_GITHUB_TOKEN if copilot_use_logged_in_user else None
+        )
         copilot_client = copilot.CopilotClient(
-            github_token=copilot_github_token or COPILOT_GITHUB_TOKEN,
-            use_logged_in_user=not (copilot_github_token or COPILOT_GITHUB_TOKEN),
+            github_token=effective_copilot_token,
+            use_logged_in_user=(
+                copilot_use_logged_in_user
+                and not effective_copilot_token
+            ),
             log_level="error",
         )
         mcp_servers = build_mcp_servers(settings.active_mcp_servers)
@@ -190,6 +215,8 @@ def create_provider_session(
                 if mcp_servers
                 else None
             ),
+            allow_web_search=copilot_web_search_enabled,
+            skill_directories=skill_directories,
         )
 
     raise ValueError(f"Unsupported model: {model.value}")
@@ -203,6 +230,8 @@ def _create_byok_session(
     canonical_tools: list[CanonicalToolDefinition],
     recorder: Optional[AgentRunRecorder],
     wire_model: Optional[str] = None,
+    copilot_web_search_enabled: bool = False,
+    skill_directories: Optional[list[str]] = None,
 ) -> ProviderSession:
     """Run one explicitly selected BYOK identity through the Copilot SDK.
 
@@ -249,4 +278,6 @@ def _create_byok_session(
             None if is_custom else get_copilot_sdk_reasoning_effort(model)
         ),
         allow_reasoning_effort=not is_custom,
+        allow_web_search=copilot_web_search_enabled,
+        skill_directories=skill_directories or [],
     )

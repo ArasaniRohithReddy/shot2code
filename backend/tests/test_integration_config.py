@@ -119,6 +119,22 @@ class TestConnectionValidation:
         assert connection.wire_model == "my-deployment"
         assert settings.usable_byok is connection
 
+    def test_multiple_endpoint_models_are_preserved_in_order(self) -> None:
+        settings = parse_integration_settings(
+            byok(
+                wireModel=None,
+                wireModels=["vision-a", "org/vision-b:latest", "vision-a"],
+            )
+        )
+
+        connection = settings.byok
+        assert connection is not None
+        assert connection.configured_wire_models == (
+            "vision-a",
+            "org/vision-b:latest",
+        )
+        assert connection.summary().wire_models == connection.configured_wire_models
+
     def test_the_provider_decides_which_base_models_it_serves(self) -> None:
         openai_side = parse_integration_settings(byok(provider="azure")).byok
         anthropic_side = parse_integration_settings(

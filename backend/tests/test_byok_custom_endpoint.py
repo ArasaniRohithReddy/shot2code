@@ -146,6 +146,28 @@ class TestCatalogHonesty:
         assert entry.wire_model == CUSTOM_MODEL
         assert entry.runtime == "copilot-byok"
 
+    def test_every_configured_endpoint_model_gets_its_own_entry(self) -> None:
+        second = "other-org/vision-model:latest"
+        catalog = build_catalog(
+            ProviderCredentials(
+                byok=settings_for(
+                    wireModel=None,
+                    wireModels=[CUSTOM_MODEL, second],
+                ).byok_summary
+            )
+        )
+
+        models = next(
+            provider
+            for provider in catalog.providers
+            if provider.id == "sdk-byok"
+        ).models
+        assert [model.wire_model for model in models] == [CUSTOM_MODEL, second]
+        assert [model.id for model in models] == [
+            byok_custom_selection_id("openai", CUSTOM_MODEL),
+            byok_custom_selection_id("openai", second),
+        ]
+
     def test_no_gpt_aliases_are_invented_for_a_custom_endpoint(self) -> None:
         catalog = build_catalog(
             ProviderCredentials(byok=settings_for().byok_summary)
@@ -257,6 +279,18 @@ class TestSelectionRoundTrip:
         assert selection is not None
         assert selection.wire_model == CUSTOM_MODEL
         assert settings.byok_for(CUSTOM_ID) is not None
+
+    def test_each_model_in_a_multi_model_connection_resolves(self) -> None:
+        second = "other-custom-model"
+        settings = settings_for(
+            wireModel=None,
+            wireModels=[CUSTOM_MODEL, second],
+        )
+
+        assert settings.byok_for(CUSTOM_ID) is not None
+        assert settings.byok_for(
+            byok_custom_selection_id("openai", second)
+        ) is not None
 
 
 class TestWireContract:

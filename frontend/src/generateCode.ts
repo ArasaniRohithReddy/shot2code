@@ -6,8 +6,25 @@ import {
 } from "./constants";
 import { FullGenerationSettings } from "./types";
 
+type GenerationEventPayload =
+  | string
+  | number
+  | boolean
+  | null
+  | GenerationEventPayload[]
+  | { [key: string]: GenerationEventPayload };
+
+type GenerationToolEventData = {
+  name?: string;
+  input?: GenerationEventPayload;
+  ok?: boolean;
+  output?: GenerationEventPayload;
+  models?: string[];
+  notice?: string;
+};
+
 const ERROR_MESSAGE =
-  "Error generating code. Check the Developer Console AND the backend logs for details. Feel free to open a Github issue.";
+  "The local generation connection closed before the backend returned a diagnosis. Retry once; if it happens again, open Help → Diagnostic logs.";
 
 const CANCEL_MESSAGE = "Code generation cancelled";
 
@@ -53,9 +70,10 @@ type WebSocketResponse = {
     | "thinking"
     | "assistant"
     | "toolStart"
-    | "toolResult";
+    | "toolResult"
+    | "heartbeat";
   value?: string;
-  data?: any;
+  data?: GenerationToolEventData;
   eventId?: string;
   variantIndex: number;
 };
@@ -70,8 +88,16 @@ interface CodeGenerationCallbacks {
   onVariantModels: (models: string[], notice?: string) => void;
   onThinking: (content: string, variantIndex: number, eventId?: string) => void;
   onAssistant: (content: string, variantIndex: number, eventId?: string) => void;
-  onToolStart: (data: any, variantIndex: number, eventId?: string) => void;
-  onToolResult: (data: any, variantIndex: number, eventId?: string) => void;
+  onToolStart: (
+    data: GenerationToolEventData | undefined,
+    variantIndex: number,
+    eventId?: string
+  ) => void;
+  onToolResult: (
+    data: GenerationToolEventData | undefined,
+    variantIndex: number,
+    eventId?: string
+  ) => void;
   onCancel: (
     reason: "user_cancelled" | "request_failed" | "connection_error",
     errorMessage?: string
@@ -93,6 +119,9 @@ export function generateCode(
   // The last diagnosis the backend actually sent, kept so a close frame that
   // arrives empty or truncated cannot downgrade it to the generic message.
   let lastServerError: string | null = null;
+  let expectedVariantCount = 1;
+  const terminalVariants = new Set<number>();
+  let completionDelivered = false;
 
   ws.addEventListener("open", () => {
     ws.send(JSON.stringify(params));
@@ -107,11 +136,14 @@ export function generateCode(
     } else if (response.type === "setCode") {
       callbacks.onSetCode(response.value || "", response.variantIndex);
     } else if (response.type === "variantComplete") {
+      terminalVariants.add(response.variantIndex);
       callbacks.onVariantComplete(response.variantIndex);
     } else if (response.type === "variantError") {
+      terminalVariants.add(response.variantIndex);
       callbacks.onVariantError(response.variantIndex, response.value || "");
     } else if (response.type === "variantCount") {
-      callbacks.onVariantCount(parseInt(response.value || "1"));
+      expectedVariantCount = Math.max(1, parseInt(response.value || "1"));
+      callbacks.onVariantCount(expectedVariantCount);
     } else if (response.type === "variantModels") {
       // The backend drops picks it cannot run (no key, retired model) and says
       // so here, so a silently shorter option list always has an explanation.
@@ -129,6 +161,8 @@ export function generateCode(
       callbacks.onToolStart(response.data, response.variantIndex, response.eventId);
     } else if (response.type === "toolResult") {
       callbacks.onToolResult(response.data, response.variantIndex, response.eventId);
+    } else if (response.type === "heartbeat") {
+      // Application-level keepalive for long Copilot turns.
     } else if (response.type === "error") {
       console.error("Error generating code", response.value);
       if (response.value) lastServerError = response.value;
@@ -141,7 +175,18 @@ export function generateCode(
     if (event.code === USER_CLOSE_WEB_SOCKET_CODE) {
       toast.success(CANCEL_MESSAGE);
       callbacks.onCancel("user_cancelled");
-    } else if (event.code === APP_ERROR_WEB_SOCKET_CODE) {
+      return;
+    }
+    const allVariantsFinished =
+      terminalVariants.size >= expectedVariantCount && !lastServerError;
+    if (allVariantsFinished) {
+      if (!completionDelivered) {
+        completionDelivered = true;
+        callbacks.onComplete();
+      }
+      return;
+    }
+    if (event.code === APP_ERROR_WEB_SOCKET_CODE) {
       console.error("Known server error", event);
       callbacks.onCancel(
         "request_failed",
@@ -157,7 +202,10 @@ export function generateCode(
         resolveGenerationError(event.reason, lastServerError)
       );
     } else {
-      callbacks.onComplete();
+      if (!completionDelivered) {
+        completionDelivered = true;
+        callbacks.onComplete();
+      }
     }
   });
 

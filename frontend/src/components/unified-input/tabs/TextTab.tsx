@@ -11,6 +11,8 @@ import { Stack } from "../../../lib/stacks";
 
 interface Props {
   doCreateFromText: (text: string) => void;
+  importFromCode: (code: string, stack: Stack, instruction?: string) => void;
+  stitchApiKey: string | null;
   stack: Stack;
   setStack: (stack: Stack) => void;
   designSystem: DesignSystemSelectorProps;
@@ -24,8 +26,17 @@ const EXAMPLE_PROMPTS = [
   "A music streaming app with now-playing, recommended playlists, and recent listens",
 ];
 
-function TextTab({ doCreateFromText, stack, setStack, designSystem, modelSelector }: Props) {
+function TextTab({
+  doCreateFromText,
+  importFromCode,
+  stitchApiKey,
+  stack,
+  setStack,
+  designSystem,
+  modelSelector,
+}: Props) {
   const [text, setText] = useState("");
+  const [isGeneratingWithStitch, setIsGeneratingWithStitch] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -50,6 +61,35 @@ function TextTab({ doCreateFromText, stack, setStack, designSystem, modelSelecto
   const handleExampleClick = (example: string) => {
     setText(example);
     textareaRef.current?.focus();
+  };
+
+  const handleStitchGenerate = async () => {
+    if (!text.trim()) {
+      toast.error("Please enter a description");
+      return;
+    }
+    const desktop = window.__SHOT2CODE_APP__;
+    if (!desktop?.generateStitch || !stitchApiKey?.trim()) {
+      toast.error("Add a Stitch API key in Settings in the desktop app.");
+      return;
+    }
+    setIsGeneratingWithStitch(true);
+    try {
+      const result = await desktop.generateStitch({
+        apiKey: stitchApiKey,
+        prompt: text.trim(),
+        deviceType: "DESKTOP",
+      });
+      importFromCode(result.html, Stack.HTML_CSS);
+    } catch (caught) {
+      toast.error(
+        caught instanceof Error
+          ? caught.message
+          : "Stitch could not generate the screen."
+      );
+    } finally {
+      setIsGeneratingWithStitch(false);
+    }
   };
 
   return (
@@ -124,6 +164,22 @@ function TextTab({ doCreateFromText, stack, setStack, designSystem, modelSelecto
             >
               Generate
             </Button>
+
+            {window.__SHOT2CODE_APP__?.generateStitch && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleStitchGenerate()}
+                disabled={isGeneratingWithStitch || !stitchApiKey?.trim()}
+                className="w-full"
+                size="lg"
+                data-testid="stitch-generate"
+              >
+                {isGeneratingWithStitch
+                  ? "Generating with Stitch…"
+                  : "Generate with Google Stitch SDK"}
+              </Button>
+            )}
 
             <p className="text-xs text-gray-400 dark:text-zinc-500 text-center">
               Press Cmd/Ctrl + Enter to generate

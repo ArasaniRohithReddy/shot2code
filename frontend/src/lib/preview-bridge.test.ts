@@ -41,6 +41,8 @@ describe("preview sandbox document", () => {
     );
     expect(result.html).toContain("window.parent.postMessage");
     expect(result.html).toContain("request-runtime-metrics");
+    expect(result.html).toContain('href.startsWith("#")');
+    expect(result.html).toContain("scrollIntoView");
     expect(result.html).not.toContain("window.parent.document");
   });
 

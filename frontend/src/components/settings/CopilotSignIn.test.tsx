@@ -32,15 +32,13 @@ describe("the idle state", () => {
     expect(html).not.toContain("disabled=\"\"");
   });
 
-  it("says the official CLI stores the credential and shot2code never sees it", () => {
+  it("explains browser sign-in and secure credential storage", () => {
     const html = render();
 
     expect(html).toContain("official");
-    expect(html).toContain("GitHub Copilot CLI");
+    expect(html).toContain("GitHub");
     expect(html).toContain("in your browser");
-    expect(html).toContain(
-      "shot2code never receives or saves your token"
-    );
+    expect(html).toContain("encrypted with the operating system");
   });
 
   it("shows no progress or cancel control before anything starts", () => {
@@ -75,6 +73,22 @@ describe("while the flow is live", () => {
     // The named CLI is used in the explanation.
     expect(html).toContain("GitHub CLI");
     expect(html).toContain("Open the code page in your browser to continue.");
+  });
+
+  it("shows the GitHub device code without exposing a token", () => {
+    const html = render(
+      state({
+        status: "waiting",
+        method: "github-oauth",
+        canCancel: true,
+        userCode: "ABCD-EFGH",
+        verificationUri: "https://github.com/login/device",
+      })
+    );
+
+    expect(html).toContain("ABCD-EFGH");
+    expect(html).toContain("Open GitHub device activation");
+    expect(html).not.toMatch(/gho_|github_pat_/);
   });
 
   it("hides Cancel when the backend says the flow cannot be cancelled", () => {

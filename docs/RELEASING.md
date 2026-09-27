@@ -44,7 +44,7 @@ cd ..\frontend
 pnpm install
 pnpm test
 pnpm exec tsc --noEmit
-pnpm lint            # pre-existing baseline errors are expected
+pnpm lint
 pnpm build
 
 cd ..\desktop

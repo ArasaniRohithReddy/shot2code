@@ -4,6 +4,7 @@ import {
   buildFixFindingsInstruction,
   classifyAuditFindings,
   createReviewBinding,
+  filterReviewFindings,
   formatHorizontalOverflowMessage,
   getReviewViewportDimensions,
   hashReviewProjectFiles,
@@ -56,6 +57,37 @@ describe("review viewport preferences", () => {
     expect(validateReviewWidth("768", [1440, 768, 390])).toEqual({
       valid: false,
       message: "768px is already in this review.",
+    });
+  });
+
+  describe("review finding filters", () => {
+    const findings = [
+      finding("error", "image-alt"),
+      {
+        ...finding("warning", "fixed-width"),
+        affectedFile: "src/card.css",
+        evidence: "width: 900px at line 20",
+        guidance: "Use max-width: 100%.",
+      },
+      {
+        ...finding("info", "table-caption"),
+        guidance: "Add a descriptive table caption.",
+      },
+    ];
+
+    test("filters by severity", () => {
+      expect(filterReviewFindings(findings, "warning", "")).toHaveLength(1);
+      expect(filterReviewFindings(findings, "warning", "")[0].ruleId).toBe(
+        "fixed-width"
+      );
+    });
+
+    test("searches rule, evidence, guidance and affected file", () => {
+      expect(filterReviewFindings(findings, "all", "card.css")).toHaveLength(1);
+      expect(filterReviewFindings(findings, "all", "900px")).toHaveLength(1);
+      expect(filterReviewFindings(findings, "all", "decorative")).toHaveLength(
+        1
+      );
     });
   });
 

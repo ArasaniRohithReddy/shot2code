@@ -57,6 +57,7 @@ Download the latest build from
 
 Because there is no signature to check, verify the download instead. Published
 SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
+[v0.5.0](docs/releases/v0.5.0/SHA256SUMS.txt),
 [v0.4.0](docs/releases/v0.4.0/SHA256SUMS.txt),
 [v0.3.3](docs/releases/v0.3.3/SHA256SUMS.txt),
 [v0.3.2](docs/releases/v0.3.2/SHA256SUMS.txt),
@@ -64,7 +65,7 @@ SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
 [v0.3.0](docs/releases/v0.3.0/SHA256SUMS.txt):
 
 ```powershell
-Get-FileHash .\shot2code-0.3.1-x64.exe -Algorithm SHA256
+Get-FileHash .\shot2code-0.5.0-x64.exe -Algorithm SHA256
 ```
 
 First launch takes about a minute while the bundled backend starts. Later
@@ -106,25 +107,45 @@ Other things it can do:
 
 - **Select an element and edit it** by describing the change
 - **History** — every generation is a commit you can step back through, and
-  retried versions keep a link to the version they re-roll. Open it from the
+  retried versions keep a link to the version they re-roll. Each version records
+  the exact model/run identity, and Chat reconstructs both the user's prompts
+  and the saved assistant responses for the selected branch. Open History from the
   **History** button in the preview toolbar, the app rail, the tablet/mobile
   header, or with **Ctrl+4**.
 - **Projects are saved on your machine** — a local SQLite database
   (`history.sqlite3` under `%LOCALAPPDATA%\shot2code\`) keeps your projects,
   versions and prompts, so **Recent projects** can pick up where you left off.
-  Deleting a project removes it and its versions from the device.
+  Installing an update reuses that same database, so old projects remain
+  available. Deleting a project removes it and its versions from the device.
 - **Screenshot preview** — the agent renders its own output in a headless
   browser and visually checks its work. Settings shows whether it is available
   and offers **Check again** after you install the browser, so you do not have
   to restart the app.
 - **Responsive Review** — compare two to four real viewport widths at once,
   measure horizontal overflow, and run a deterministic local semantic and
-  accessibility source audit. Selected findings can be inserted into Chat
-  without being sent automatically.
+  accessibility source audit. Filter/search findings, run a bounded no-tools AI
+  review with the option's recorded model, and send selected fixes directly
+  through Chat.
+- **Design Inspector** — extract repeated colors, CSS variables, typography,
+  spacing, radii, shadows, motion and component patterns from the composed
+  preview, then download `DESIGN.md`, `SKILL.md`, or a palette PNG.
 - **MCP tools for Copilot runtimes** — connect bounded stdio, HTTP or SSE
   servers. A server must be enabled and trusted, stays read-only unless write
   tools are explicitly allowed, and is never exposed to native OpenAI,
-  Anthropic or Gemini variants.
+  Anthropic or Gemini variants. Browse the official MCP Registry in Settings;
+  Figma Desktop, Figma Remote and Google Stitch are featured reviewed templates
+  and are added disabled and untrusted.
+- **Agent Skills** — import a local skill folder or a public GitHub skill folder.
+  Every skill is validated, stored locally, disabled until explicitly enabled,
+  and available only to Copilot runtimes. Skill scripts are resources only:
+  shot2code does not enable shell execution.
+- **Figma import** — use Figma Desktop MCP, the hosted Figma MCP where the
+  account/client is eligible, or a personal access token with
+  `file_content:read` to render a Figma frame through the official REST API.
+- **Google Stitch** — the Windows desktop bundles the experimental,
+  Apache-2.0 `@google/stitch-sdk` to generate or import Stitch screens with the
+  user's API key; the official hosted Stitch MCP remains available as a
+  separately trusted server.
 - **Asset extraction** — reuses the real logos and images from your screenshot
   (needs a Gemini key)
 - **Image generation and editing** (needs a Replicate key)
@@ -158,8 +179,8 @@ changelog, release and contributing documents), **Support** (FAQ,
 troubleshooting, the issue tracker, and the source repository), and **Keyboard
 shortcuts**. Every link opens in your browser and points at the
 [shot2code product page](https://arasanirohithreddy.github.io/app-releases/shot2code/)
-or its documents in the
-[release hub](https://github.com/ArasaniRohithReddy/app-releases/blob/main/products/shot2code/).
+or its rendered
+[documentation site](https://arasanirohithreddy.github.io/app-releases/shot2code/docs/).
 In the desktop app, Support also offers **Open diagnostic logs**, which opens the
 log the shell writes for backend startup, renderer crashes and console errors —
 the first thing to attach to a bug report. The browser build has no log file and
@@ -207,13 +228,29 @@ browser and point at the same published pages the Help centre uses.
 
 ### Preview and CodePen
 
-The file tree in the Code tab is always the authoritative project source. The
-in-app preview is a derived, self-contained HTML artifact: browser-ready local
-CSS, JavaScript, images, SVGs and encoded fonts are embedded when possible. If
-a framework build or local asset cannot be represented safely, the preview
-shows a deterministic fallback/diagnostic while leaving every source file
-available for editing and project download. Generated preview documents run in
-an opaque-origin sandbox with a restrictive CSP; select-and-edit communicates
+The Code tab keeps the authoritative **Current code** view and adds an
+**Export project** view. Export project is read-only and is produced by the
+same stack-aware backend path as the downloaded ZIP, so users can inspect the
+generated `package.json`, Vite configuration, framework entry files, styles,
+scripts, README, and downloaded-asset manifest before exporting. Switching
+views does not replace or modify the current source, selected file, or History.
+
+The in-app preview keeps **HTML** as its default and adds a separate **Stack**
+option. HTML renders the existing derived, self-contained artifact. Stack loads
+the generated export files and safely projects the supported Vite HTML, React,
+and Preact layouts back into the existing browser sandbox. It never runs
+`npm`, package scripts, Vite configuration, imported project configuration, or
+host filesystem code. Projects outside the controlled runtime shape receive an
+explicit limited/unavailable diagnostic and can still use the original HTML
+preview.
+
+Browser-ready local CSS, JavaScript, images, SVGs and encoded fonts are embedded
+when possible. Export-preview assets are bounded before being sent to the
+renderer; oversized assets remain listed but are not embedded. If a framework
+runtime or local asset cannot be represented safely, the preview shows a
+deterministic fallback/diagnostic while leaving every source file available for
+editing and project download. Generated preview documents run in an
+opaque-origin sandbox with a restrictive CSP; select-and-edit communicates
 through validated, per-preview messages instead of direct parent-window access.
 
 The preview renders a fixed-width canvas — 1366px for desktop, 375px for mobile
@@ -234,7 +271,9 @@ build-dependent projects, use **Project folder** download instead.
 
 Single-HTML exports keep the generated document intact, pin the working Babel
 runtime, and bundle downloaded images/fonts under `assets/`. Project exports
-use the following explicit strategies:
+use the following explicit strategies. `POST /api/export/preview` exposes the
+same bounded text-file projection and asset manifest used by the Code and Stack
+preview controls; `POST /api/export` packages that projection as the ZIP.
 
 | Stack | Single HTML | Project folder |
 |---|---|---|
@@ -303,11 +342,15 @@ You need **one** provider. GitHub Copilot is easiest because it needs no API key
 | Anthropic | API key | |
 | OpenAI | API key | |
 | Replicate | API key | Image generation, editing, background removal |
+| ScreenshotOne | API key | Captures public URLs; the URL tab can test the key with one minimal request |
+| Figma | Personal access token or MCP | Imports selected frames; OAuth requires a separately approved Figma app |
+| Google Stitch | Stitch API key or MCP | Desktop SDK generation/import; experimental Google Labs package |
 
 Keys go in **Settings** (gear icon) and are stored on your device only.
-Replicate is the exception — it must be set in `backend/.env`. Every key is
-masked in the UI and is never echoed back by a diagnostic, a validation
-response, a log line, project history or an exported report.
+Every key is masked in the UI and is never echoed back by a diagnostic, a
+validation response, a log line, project history or an exported report.
+Capture-only Figma, Stitch and ScreenshotOne credentials are removed before a
+model-generation request is built.
 
 ### Checking a provider before you generate
 
@@ -360,21 +403,17 @@ So if you already use the GitHub CLI, it just works — Settings shows which
 account was picked up. Otherwise create a fine-grained token with the
 **Copilot Requests** permission.
 
-**Sign in with GitHub** in Settings does the same thing without a terminal. It
-runs the *official* Copilot CLI's own browser sign-in (`copilot login`), falling
-back to `gh auth login` when only the GitHub CLI is installed. shot2code never
-implements its own OAuth flow and never registers a client id of its own: the
-CLI owns the browser handshake and stores the credential itself, so **no token
-passes through shot2code**. The command line is fixed — nothing you type
-influences it — the process is launched directly rather than through a shell,
-its output is never shown or logged, and it is bounded by a timeout, cancellable
-and killed if the app exits. When the CLI finishes, shot2code simply re-runs the
-credential check above.
+**Sign in with GitHub** in the Windows desktop uses shot2code's registered OAuth
+device flow. GitHub opens in the system browser, the one-time code is shown in
+Settings, and expiring access/refresh tokens are encrypted with Electron
+`safeStorage`. No client secret ships in the app. The backend is restarted on
+the same local port with the refreshed token, so it never needs to be written
+to browser storage. Source/browser builds retain the official `copilot login`
+or `gh auth login` fallback and the optional token field.
 
-If neither CLI is installed, Settings says so and links to GitHub's install
-instructions rather than pretending to sign you in. Starting or cancelling a
-sign-in is accepted only from shot2code's own window on this machine, so a web
-page you happen to have open cannot trigger it.
+**Disconnect GitHub from shot2code** removes only shot2code's encrypted OAuth
+credential and stops reuse of the local CLI session for this browser. It never
+signs the user out of GitHub CLI or Copilot CLI globally.
 
 ### GitHub Copilot SDK BYOK
 
@@ -386,22 +425,21 @@ OpenAI-compatible endpoint on `localhost` may be credentialless; every other
 endpoint needs its own. Base URLs must be `https` unless they point at loopback,
 and may not embed credentials. The SDK has no native Gemini BYOK provider.
 
-**Finding the model.** For an OpenAI-compatible connection, **Validate** asks
+**Finding the models.** For an OpenAI-compatible connection, **Validate** asks
 the endpoint what it serves at `/models` and lists what comes back (bounded, and
-only ids it could actually select). That route is optional in practice: if the
-endpoint does not implement it, shot2code says so and you name the model
-yourself. Azure OpenAI and Anthropic do not expose an equivalent list, so their
-model name is always set by hand. A listing that fails for a real reason — a
-rejected key, an unreachable host — is reported as such; shot2code never invents
-a model list.
+only ids it could actually select). Select several discovered ids to publish
+separate BYOK options in one run. That route is optional in practice: if the
+endpoint does not implement it, shot2code says so and you add model names by
+hand. Azure OpenAI and Anthropic do not expose an equivalent list. A listing
+that fails for a real reason is reported; no model list is invented.
 
 **Wire API.** Chat Completions is what every compatible endpoint implements, so
 a connection with its own base URL defaults to it; a vendor connection with no
 base URL of its own defaults to Responses. Either can be chosen explicitly.
 
-**Your own model.** Name a model in **Model / deployment** and that single model
-is what the picker offers, under its real name — shot2code does not list a whole
-vendor family for an endpoint that serves one model. Its identity is
+**Your own models.** Add one or more model/deployment names and each is offered
+under its real name — shot2code does not list a whole vendor family for a custom
+endpoint. Each identity is
 `sdk-byok/<provider>/custom/<model>`, URL-encoded so a slash, colon or `@` in the
 name stays intact and can never collide with a catalog id. Model names are
 bounded to 128 characters. Internally the run borrows a neutral, non-reasoning
@@ -437,6 +475,9 @@ MCP tools.
 Environment values and request headers are masked and excluded from History,
 logs, validation responses and Review reports. Disabled, untrusted or
 incomplete drafts are reported as notices and do not block direct generations.
+The built-in Registry browser lists bounded HTTPS remote entries from the
+official Model Context Protocol Registry. Installing an entry never activates
+it: the user must still review it and separately enable and trust it.
 
 ### Responsive Review
 
@@ -448,10 +489,12 @@ overflow rather than estimating it from a screenshot.
 Beside the frames, a deterministic local audit checks generated source for
 semantic and accessibility problems. Results are bound to the version, option,
 source hash and viewport set, so changing any of them marks the report stale.
-Selected findings are inserted into Chat for review and editing but are never
-sent automatically. JSON reports contain findings and safe relative file
-labels, not source code or credentials. This is an automated source audit, not
-WCAG certification.
+Findings can be filtered and searched; selected fixes run against the exact
+reviewed version and option. An optional AI-assisted review uses the recorded
+model with **no tools, MCP, skills, web search or writes**, and may consume
+provider quota. JSON reports contain findings and safe relative file labels,
+not source code or credentials. This is an automated review, not WCAG
+certification.
 
 ## Running from source
 
