@@ -636,11 +636,33 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle("shot2code:stitch-test", (_event, payload) => {
       return testStitchKey(payload || {});
     });
-    ipcMain.handle("shot2code:stitch-generate", (_event, payload) => {
-      return generateStitchScreen(payload || {});
+    ipcMain.handle("shot2code:stitch-generate", (event, payload) => {
+      const requestId =
+        typeof payload?.requestId === "string" ? payload.requestId : "";
+      const startedAt = Date.now();
+      return generateStitchScreen(payload || {}, ({ phase, message }) => {
+        if (!requestId || event.sender.isDestroyed()) return;
+        event.sender.send("shot2code:stitch-progress", {
+          requestId,
+          phase,
+          message,
+          elapsedMs: Date.now() - startedAt,
+        });
+      });
     });
-    ipcMain.handle("shot2code:stitch-import", (_event, payload) => {
-      return importStitchScreen(payload || {});
+    ipcMain.handle("shot2code:stitch-import", (event, payload) => {
+      const requestId =
+        typeof payload?.requestId === "string" ? payload.requestId : "";
+      const startedAt = Date.now();
+      return importStitchScreen(payload || {}, ({ phase, message }) => {
+        if (!requestId || event.sender.isDestroyed()) return;
+        event.sender.send("shot2code:stitch-progress", {
+          requestId,
+          phase,
+          message,
+          elapsedMs: Date.now() - startedAt,
+        });
+      });
     });
     ipcMain.handle("shot2code:github-oauth-start", () => githubOAuth.start());
     ipcMain.handle("shot2code:github-oauth-status", async () => {

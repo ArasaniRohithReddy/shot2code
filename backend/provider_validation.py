@@ -644,11 +644,13 @@ async def _validate_byok(
     identity = selection.selection_id
     secrets = (connection.api_key, connection.bearer_token)
 
-    # Step one: prove the base URL and the dedicated credential work, and ask
-    # the endpoint what it serves. This is cheap, and it fails fast before the
-    # SDK runtime is booted.
+    # Step one: ask the endpoint what it serves. `/models` is advisory when the
+    # user already named a model: gateways commonly expose chat completions but
+    # not model discovery, and a broken discovery route must not prevent the
+    # configured model from being tested directly through the SDK.
     discovered: tuple[str, ...] = ()
     listing_supported = _supports_model_listing(connection)
+    listing_note = ""
     credential = connection.bearer_token or connection.api_key
     if listing_supported and connection.base_url and credential:
         try:
@@ -661,19 +663,29 @@ async def _validate_byok(
             listing_supported = False
         except Exception as exc:
             info = classify_provider_error(exc, "copilot-byok")
-            return _problem(
-                "copilot-byok",
-                ProviderErrorInfo(
-                    category=info.category,
-                    message=(
-                        f"Could not list models at {connection.base_url.rstrip('/')}"
-                        f"/models. {info.message}"
+            explicit_model = bool((request.model_id or "").strip()) or selection.is_custom
+            if not explicit_model or info.category == "credentials":
+                return _problem(
+                    "copilot-byok",
+                    ProviderErrorInfo(
+                        category=info.category,
+                        message=(
+                            f"Could not list models at {connection.base_url.rstrip('/')}"
+                            f"/models. {info.message}"
+                        ),
+                        provider="copilot-byok",
+                        detail=info.detail,
                     ),
-                    provider="copilot-byok",
-                    detail=info.detail,
+                    identity,
+                    secrets=secrets,
+                )
+            listing_supported = False
+            listing_note = redact_values(
+                (
+                    "The optional model list could not be read "
+                    f"({info.message}) The configured model was tested directly."
                 ),
-                identity,
-                secrets=secrets,
+                secrets,
             )
 
         if (
@@ -681,16 +693,9 @@ async def _validate_byok(
             and discovered
             and selection.wire_model not in discovered
         ):
-            return ProviderValidationResult(
-                provider="copilot-byok",
-                ok=False,
-                category="model",
-                message=(
-                    f"The endpoint does not list '{selection.wire_model}'. Pick "
-                    "one of the models it reports."
-                ),
-                model_id=identity,
-                models=discovered,
+            listing_note = (
+                f"The endpoint did not list '{selection.wire_model}', but the "
+                "configured model was tested directly."
             )
 
     try:
@@ -734,11 +739,9 @@ async def _validate_byok(
             ),
             timeout=BYOK_VALIDATION_TIMEOUT_SECONDS,
         )
-        detail = (
-            "Model listing is not available here; set the wire model by hand."
-            if not listing_supported
-            else ""
-        )
+        detail = listing_note
+        if not listing_supported and not detail:
+            detail = "Model listing is not available here; set the wire model by hand."
         # The probe proves the endpoint answers. It does not prove the model
         # can see an image or call a tool, so say what is still required.
         detail = f"{detail} {CAPABILITY_REQUIREMENT}".strip()

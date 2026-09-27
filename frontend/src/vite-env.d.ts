@@ -30,6 +30,21 @@ interface Shot2CodeStitchResult {
   image: string;
 }
 
+type Shot2CodeStitchPhase =
+  | "connecting"
+  | "creating-project"
+  | "generating-screen"
+  | "loading-screen"
+  | "downloading-output"
+  | "complete";
+
+interface Shot2CodeStitchProgress {
+  requestId: string;
+  phase: Shot2CodeStitchPhase;
+  message: string;
+  elapsedMs: number;
+}
+
 interface Window {
   __SHOT2CODE_BACKEND__?: {
     http?: string;
@@ -48,15 +63,21 @@ interface Window {
       toolCount: number;
       message: string;
     }>;
-    generateStitch: (payload: {
-      apiKey: string;
-      prompt: string;
-      deviceType?: "MOBILE" | "DESKTOP" | "TABLET" | "AGNOSTIC";
-    }) => Promise<Shot2CodeStitchResult>;
-    importStitch: (payload: {
-      apiKey: string;
-      url: string;
-    }) => Promise<Shot2CodeStitchResult>;
+    generateStitch: (
+      payload: {
+        apiKey: string;
+        prompt: string;
+        deviceType?: "MOBILE" | "DESKTOP" | "TABLET" | "AGNOSTIC";
+      },
+      onProgress?: (progress: Shot2CodeStitchProgress) => void
+    ) => Promise<Shot2CodeStitchResult>;
+    importStitch: (
+      payload: {
+        apiKey: string;
+        url: string;
+      },
+      onProgress?: (progress: Shot2CodeStitchProgress) => void
+    ) => Promise<Shot2CodeStitchResult>;
     startGitHubOAuth: () => Promise<unknown>;
     getGitHubOAuthStatus: () => Promise<unknown>;
     cancelGitHubOAuth: () => Promise<unknown>;

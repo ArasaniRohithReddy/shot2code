@@ -11,6 +11,26 @@ in this file; see the git history for those changes.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-27
+
+Released as [shot2code v0.5.1](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.5.1).
+Checksums for the published Windows artifacts:
+[docs/releases/v0.5.1/SHA256SUMS.txt](docs/releases/v0.5.1/SHA256SUMS.txt).
+
+### Added
+
+- Google Stitch generation now reports real SDK phases — connecting, project
+  creation, screen generation, output download and import — with elapsed time,
+  an accessible live status, and bounded timeout/error messages instead of an
+  indefinite generic spinner.
+
+### Fixed
+
+- A manually configured Copilot SDK BYOK model is tested directly when an
+  OpenAI-compatible gateway does not expose a working optional `/models`
+  endpoint. Credential failures still fail immediately, and a connection with
+  no configured model still receives an actionable discovery error.
+
 ## [0.5.0] - 2026-09-27
 
 Released as [shot2code v0.5.0](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.5.0).
@@ -22,6 +42,9 @@ workspace: app-owned GitHub sign-in, multi-model Copilot SDK BYOK, MCP and
 Agent Skills discovery, Figma and Stitch imports, durable conversational
 history, stronger Review/Design Inspector workflows, exact export-project
 inspection, and sandboxed HTML/stack previews.
+
+v0.5.0 was retained as a pre-release and superseded by v0.5.1 after the
+optional BYOK model-list probe was found to block a manually configured model.
 
 ### Added
 
@@ -604,7 +627,8 @@ real multi-file project you can edit, and previews run in a locked-down sandbox.
 - CodePen sharing requires explicit confirmation before any code leaves the
   device.
 
-[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.2...v0.3.3

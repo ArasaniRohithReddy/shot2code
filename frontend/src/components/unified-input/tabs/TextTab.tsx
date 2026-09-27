@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { LuLoader2 } from "react-icons/lu";
 import { Button } from "../../ui/button";
 import { Textarea } from "../../ui/textarea";
 import toast from "react-hot-toast";
@@ -8,6 +9,11 @@ import ModelSelector, {
   ModelSelectorProps,
 } from "../../settings/ModelSelector";
 import { Stack } from "../../../lib/stacks";
+import StitchGenerationStatus from "./StitchGenerationStatus";
+import {
+  formatStitchElapsed,
+  type StitchUiPhase,
+} from "./stitch-generation-status";
 
 interface Props {
   doCreateFromText: (text: string) => void;
@@ -37,11 +43,29 @@ function TextTab({
 }: Props) {
   const [text, setText] = useState("");
   const [isGeneratingWithStitch, setIsGeneratingWithStitch] = useState(false);
+  const [stitchProgress, setStitchProgress] = useState<{
+    phase: StitchUiPhase;
+    message: string;
+  } | null>(null);
+  const [stitchStartedAt, setStitchStartedAt] = useState<number | null>(null);
+  const [stitchElapsedSeconds, setStitchElapsedSeconds] = useState(0);
+  const [stitchError, setStitchError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (!isGeneratingWithStitch || stitchStartedAt === null) return;
+    const updateElapsed = () =>
+      setStitchElapsedSeconds(
+        Math.max(0, Math.floor((Date.now() - stitchStartedAt) / 1000))
+      );
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [isGeneratingWithStitch, stitchStartedAt]);
 
   const handleGenerate = () => {
     if (text.trim() === "") {
@@ -73,20 +97,41 @@ function TextTab({
       toast.error("Add a Stitch API key in Settings in the desktop app.");
       return;
     }
+    const startedAt = Date.now();
     setIsGeneratingWithStitch(true);
+    setStitchStartedAt(startedAt);
+    setStitchElapsedSeconds(0);
+    setStitchError(null);
+    setStitchProgress({
+      phase: "connecting",
+      message: "Connecting to Google Stitch…",
+    });
     try {
-      const result = await desktop.generateStitch({
-        apiKey: stitchApiKey,
-        prompt: text.trim(),
-        deviceType: "DESKTOP",
+      const result = await desktop.generateStitch(
+        {
+          apiKey: stitchApiKey,
+          prompt: text.trim(),
+          deviceType: "DESKTOP",
+        },
+        (progress) =>
+          setStitchProgress({
+            phase: progress.phase,
+            message: progress.message,
+          })
+      );
+      setStitchProgress({
+        phase: "importing-code",
+        message: "Opening the generated files in shot2code…",
       });
       importFromCode(result.html, Stack.HTML_CSS);
+      toast.success("Stitch screen generated and imported.");
     } catch (caught) {
-      toast.error(
+      const message =
         caught instanceof Error
           ? caught.message
-          : "Stitch could not generate the screen."
-      );
+          : "Stitch could not generate the screen.";
+      setStitchError(message);
+      toast.error(message);
     } finally {
       setIsGeneratingWithStitch(false);
     }
@@ -130,6 +175,7 @@ function TextTab({
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKeyDown}
+              disabled={isGeneratingWithStitch}
               data-testid="text-input"
             />
 
@@ -140,6 +186,7 @@ function TextTab({
                   <button
                     key={index}
                     onClick={() => handleExampleClick(example)}
+                    disabled={isGeneratingWithStitch}
                     className="text-xs px-2.5 py-1.5 rounded-full bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors truncate max-w-[200px]"
                     title={example}
                   >
@@ -158,6 +205,7 @@ function TextTab({
 
             <Button
               onClick={handleGenerate}
+              disabled={isGeneratingWithStitch}
               className="w-full"
               size="lg"
               data-testid="text-generate"
@@ -175,10 +223,41 @@ function TextTab({
                 size="lg"
                 data-testid="stitch-generate"
               >
-                {isGeneratingWithStitch
-                  ? "Generating with Stitch…"
-                  : "Generate with Google Stitch SDK"}
+                {isGeneratingWithStitch ? (
+                  <>
+                    <LuLoader2
+                      className="h-4 w-4 motion-safe:animate-spin"
+                      aria-hidden="true"
+                    />
+                    Stitch is working…
+                  </>
+                ) : (
+                  "Generate with Google Stitch SDK"
+                )}
               </Button>
+            )}
+
+            {isGeneratingWithStitch && stitchProgress && (
+              <StitchGenerationStatus
+                phase={stitchProgress.phase}
+                message={stitchProgress.message}
+                elapsedSeconds={stitchElapsedSeconds}
+              />
+            )}
+
+            {stitchError && !isGeneratingWithStitch && (
+              <div
+                role="alert"
+                data-testid="stitch-generation-error"
+                className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-700 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-200"
+              >
+                <p className="font-medium">Stitch generation stopped.</p>
+                <p className="mt-1">{stitchError}</p>
+                <p className="mt-1 text-red-600 dark:text-red-300">
+                  Elapsed time: {formatStitchElapsed(stitchElapsedSeconds)}. You can
+                  adjust the prompt or key and try again.
+                </p>
+              </div>
             )}
 
             <p className="text-xs text-gray-400 dark:text-zinc-500 text-center">

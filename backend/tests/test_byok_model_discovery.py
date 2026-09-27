@@ -221,10 +221,11 @@ class TestByokValidationWithDiscovery:
         assert "reasoning_effort" not in sdk["session"]
 
     @pytest.mark.asyncio
-    async def test_a_listing_failure_is_actionable_not_invented(
+    async def test_a_listing_failure_falls_back_to_the_configured_model(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         install_http_stub(monkeypatch, error=Exception("Connection refused"))
+        sdk = install_sdk_stub(monkeypatch)
 
         result = await validate_provider(
             ProviderValidationRequest(
@@ -232,10 +233,33 @@ class TestByokValidationWithDiscovery:
             )
         )
 
+        assert result.ok is True
+        assert result.category == "ready"
+        assert "optional model list could not be read" in result.message
+        assert "configured model was tested directly" in result.message
+        assert result.models == (), "never invent a model list"
+        assert sdk["session"]["provider"]["wire_model"] == CUSTOM_MODEL
+
+    @pytest.mark.asyncio
+    async def test_a_listing_failure_without_a_named_model_stays_actionable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        install_http_stub(monkeypatch, error=Exception("Connection refused"))
+
+        result = await validate_provider(
+            ProviderValidationRequest(
+                provider="copilot-byok",
+                copilot_sdk_byok=custom_block(
+                    wireModel=None,
+                    wireModels=[],
+                ),
+            )
+        )
+
         assert result.ok is False
         assert result.category == "network"
         assert "/models" in result.message
-        assert result.models == (), "never invent a model list"
+        assert result.models == ()
 
     @pytest.mark.asyncio
     async def test_a_rejected_key_during_listing_is_a_credentials_error(
@@ -257,10 +281,11 @@ class TestByokValidationWithDiscovery:
         assert "endpoint-secret-value" not in result.message
 
     @pytest.mark.asyncio
-    async def test_a_wire_model_the_endpoint_does_not_list_is_reported(
+    async def test_a_manually_named_model_is_tested_even_when_not_listed(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         install_http_stub(monkeypatch, payload={"data": [{"id": "other-custom-model"}]})
+        sdk = install_sdk_stub(monkeypatch)
 
         result = await validate_provider(
             ProviderValidationRequest(
@@ -268,10 +293,11 @@ class TestByokValidationWithDiscovery:
             )
         )
 
-        assert result.ok is False
-        assert result.category == "model"
+        assert result.ok is True
+        assert result.category == "ready"
         assert CUSTOM_MODEL in result.message
         assert result.models == ("other-custom-model",), "offer what it does serve"
+        assert sdk["session"]["provider"]["wire_model"] == CUSTOM_MODEL
 
     @pytest.mark.asyncio
     async def test_anthropic_skips_listing_and_says_so(

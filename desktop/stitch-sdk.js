@@ -1,5 +1,26 @@
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const STITCH_PROJECT_TIMEOUT_MS = 120_000;
+const STITCH_GENERATION_TIMEOUT_MS = 600_000;
+const STITCH_DOWNLOAD_TIMEOUT_MS = 120_000;
+
+function emitProgress(onProgress, phase, message) {
+  if (typeof onProgress === "function") onProgress({ phase, message });
+}
+
+async function withTimeout(operation, timeoutMs, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 function cleanText(value, label, maxLength = 4096) {
   if (typeof value !== "string") throw new Error(`${label} must be text.`);
@@ -65,7 +86,10 @@ async function readBounded(urlValue, maxBytes, kind) {
   if (url.protocol !== "https:") {
     throw new Error(`Stitch returned an unsafe ${kind} URL.`);
   }
-  const response = await fetch(url, { redirect: "follow" });
+  const response = await fetch(url, {
+    redirect: "follow",
+    signal: AbortSignal.timeout(STITCH_DOWNLOAD_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new Error(`Could not download Stitch ${kind} (HTTP ${response.status}).`);
   }
@@ -76,8 +100,13 @@ async function readBounded(urlValue, maxBytes, kind) {
   return { bytes, contentType: response.headers.get("content-type") || "" };
 }
 
-async function screenResult(screen, client) {
+async function screenResult(screen, client, onProgress) {
   try {
+    emitProgress(
+      onProgress,
+      "downloading-output",
+      "Downloading the generated HTML and preview image…"
+    );
     const [htmlUrl, imageUrl] = await Promise.all([
       screen.getHtml(),
       screen.getImage(),
@@ -120,33 +149,64 @@ async function testStitchKey({ apiKey }) {
   }
 }
 
-async function generateStitchScreen({ apiKey, prompt, deviceType = "DESKTOP" }) {
+async function generateStitchScreen(
+  { apiKey, prompt, deviceType = "DESKTOP" },
+  onProgress,
+  createClientImpl = createClient
+) {
   const instruction = cleanText(prompt, "Stitch prompt", 20_000);
   const allowedDevices = new Set(["MOBILE", "DESKTOP", "TABLET", "AGNOSTIC"]);
   const device = allowedDevices.has(deviceType) ? deviceType : "DESKTOP";
-  const { client, sdk } = await createClient(apiKey);
+  emitProgress(onProgress, "connecting", "Connecting to Google Stitch…");
+  const { client, sdk } = await createClientImpl(apiKey);
   try {
-    const project = await sdk.createProject(
-      `shot2code ${new Date().toISOString().slice(0, 10)}`
+    emitProgress(onProgress, "creating-project", "Creating a Stitch project…");
+    const project = await withTimeout(
+      sdk.createProject(`shot2code ${new Date().toISOString().slice(0, 10)}`),
+      STITCH_PROJECT_TIMEOUT_MS,
+      "Stitch did not create the project within 2 minutes."
     );
-    const screen = await project.generate(instruction, device);
-    return await screenResult(screen, client);
+    emitProgress(
+      onProgress,
+      "generating-screen",
+      "Stitch is generating the screen. This can take several minutes…"
+    );
+    const screen = await withTimeout(
+      project.generate(instruction, device),
+      STITCH_GENERATION_TIMEOUT_MS,
+      "Stitch did not finish generating the screen within 10 minutes."
+    );
+    const result = await withTimeout(
+      screenResult(screen, client, onProgress),
+      STITCH_DOWNLOAD_TIMEOUT_MS,
+      "Stitch did not return the generated files within 2 minutes."
+    );
+    emitProgress(onProgress, "complete", "Stitch generation completed.");
+    return result;
   } catch (error) {
     await client.close().catch(() => {});
     throw error;
   }
 }
 
-async function importStitchScreen({ apiKey, url }) {
+async function importStitchScreen(
+  { apiKey, url },
+  onProgress,
+  createClientImpl = createClient
+) {
   const { projectId, screenId } = parseStitchReference(url);
-  const { client, sdk } = await createClient(apiKey);
+  emitProgress(onProgress, "connecting", "Connecting to Google Stitch…");
+  const { client, sdk } = await createClientImpl(apiKey);
   try {
+    emitProgress(onProgress, "loading-screen", "Loading the Stitch screen…");
     const project = sdk.project(projectId);
     const screen = screenId
       ? await project.getScreen(screenId)
       : (await project.screens())[0];
     if (!screen) throw new Error("The Stitch project has no screens.");
-    return await screenResult(screen, client);
+    const result = await screenResult(screen, client, onProgress);
+    emitProgress(onProgress, "complete", "Stitch import completed.");
+    return result;
   } catch (error) {
     await client.close().catch(() => {});
     throw error;
@@ -154,6 +214,7 @@ async function importStitchScreen({ apiKey, url }) {
 }
 
 module.exports = {
+  STITCH_GENERATION_TIMEOUT_MS,
   generateStitchScreen,
   importStitchScreen,
   parseStitchReference,

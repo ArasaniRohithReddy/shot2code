@@ -1,7 +1,24 @@
 // Preload runs before the renderer and is the only place with access to both
 // Node and the page. The backend port is picked at runtime, but Vite bakes env
 // vars at build time, so the resolved URLs are handed to the app here instead.
+const { randomUUID } = require("crypto");
 const { contextBridge, ipcRenderer } = require("electron");
+
+function invokeStitchWithProgress(channel, payload, onProgress) {
+  const requestId = randomUUID();
+  const listener = (_event, progress) => {
+    if (progress?.requestId !== requestId || typeof onProgress !== "function") {
+      return;
+    }
+    onProgress(progress);
+  };
+  ipcRenderer.on("shot2code:stitch-progress", listener);
+  return ipcRenderer
+    .invoke(channel, { ...payload, requestId })
+    .finally(() =>
+      ipcRenderer.removeListener("shot2code:stitch-progress", listener)
+    );
+}
 
 contextBridge.exposeInMainWorld("__SHOT2CODE_BACKEND__", {
   http: process.env.SHOT2CODE_BACKEND_HTTP || "",
@@ -15,10 +32,14 @@ contextBridge.exposeInMainWorld("__SHOT2CODE_APP__", {
   installUpdate: () => ipcRenderer.invoke("shot2code:install-update"),
   testStitchKey: (payload) =>
     ipcRenderer.invoke("shot2code:stitch-test", payload),
-  generateStitch: (payload) =>
-    ipcRenderer.invoke("shot2code:stitch-generate", payload),
-  importStitch: (payload) =>
-    ipcRenderer.invoke("shot2code:stitch-import", payload),
+  generateStitch: (payload, onProgress) =>
+    invokeStitchWithProgress(
+      "shot2code:stitch-generate",
+      payload,
+      onProgress
+    ),
+  importStitch: (payload, onProgress) =>
+    invokeStitchWithProgress("shot2code:stitch-import", payload, onProgress),
   startGitHubOAuth: () => ipcRenderer.invoke("shot2code:github-oauth-start"),
   getGitHubOAuthStatus: () =>
     ipcRenderer.invoke("shot2code:github-oauth-status"),

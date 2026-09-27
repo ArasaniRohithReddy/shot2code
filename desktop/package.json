@@ -1,7 +1,7 @@
 {
   "name": "shot2code-desktop",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "workspaces": [],
   "description": "Turn screenshots, mockups and screen recordings into clean code using AI",
   "author": "Arasani Rohith Reddy",
