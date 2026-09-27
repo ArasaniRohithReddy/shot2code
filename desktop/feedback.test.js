@@ -7,6 +7,8 @@ const {
   buildFeedbackReport,
   submitFeedback,
 } = require("./feedback");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const payload = {
   type: "bug",
@@ -117,4 +119,16 @@ test("rejects empty reports before invoking an external command", async () => {
     /short title/
   );
   assert.equal(invoked, false);
+});
+
+test("registers feedback IPC at application startup, outside Stitch handlers", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.js"), "utf8");
+  const registration = main
+    .split(/\r?\n/)
+    .find((line) =>
+      line.includes('ipcMain.handle("shot2code:submit-feedback"')
+    );
+
+  assert.ok(registration, "feedback IPC registration is missing");
+  assert.match(registration, /^ {4}ipcMain\.handle/);
 });

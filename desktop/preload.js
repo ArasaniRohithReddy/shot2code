@@ -3,6 +3,8 @@
 // vars at build time, so the resolved URLs are handed to the app here instead.
 const { randomUUID } = require("crypto");
 const { contextBridge, ipcRenderer } = require("electron");
+const backendUrls =
+  ipcRenderer.sendSync("shot2code:get-backend-urls") || {};
 
 function invokeStitchWithProgress(channel, payload, onProgress) {
   const requestId = randomUUID();
@@ -21,8 +23,14 @@ function invokeStitchWithProgress(channel, payload, onProgress) {
 }
 
 contextBridge.exposeInMainWorld("__SHOT2CODE_BACKEND__", {
-  http: process.env.SHOT2CODE_BACKEND_HTTP || "",
-  ws: process.env.SHOT2CODE_BACKEND_WS || "",
+  http:
+    typeof backendUrls.http === "string"
+      ? backendUrls.http
+      : process.env.SHOT2CODE_BACKEND_HTTP || "",
+  ws:
+    typeof backendUrls.ws === "string"
+      ? backendUrls.ws
+      : process.env.SHOT2CODE_BACKEND_WS || "",
 });
 
 contextBridge.exposeInMainWorld("__SHOT2CODE_APP__", {

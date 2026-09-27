@@ -662,6 +662,14 @@ if (!app.requestSingleInstanceLock()) {
       safeStorage,
       openExternal: (url) => shell.openExternal(url),
     });
+    ipcMain.on("shot2code:get-backend-urls", (event) => {
+      event.returnValue = backendPort
+        ? {
+            http: `http://127.0.0.1:${backendPort}`,
+            ws: `ws://127.0.0.1:${backendPort}`,
+          }
+        : { http: "", ws: "" };
+    });
     ipcMain.handle("shot2code:open-logs", () => openDiagnosticLogs());
     ipcMain.handle("shot2code:get-app-info", () => ({
       version: app.getVersion(),
@@ -710,14 +718,14 @@ if (!app.requestSingleInstanceLock()) {
           elapsedMs: Date.now() - startedAt,
         });
       });
-      ipcMain.handle("shot2code:submit-feedback", (_event, payload) =>
-        submitFeedback(payload || {}, {
-          appVersion: app.getVersion(),
-          platform: process.platform,
-          arch: process.arch,
-        })
-      );
     });
+    ipcMain.handle("shot2code:submit-feedback", (_event, payload) =>
+      submitFeedback(payload || {}, {
+        appVersion: app.getVersion(),
+        platform: process.platform,
+        arch: process.arch,
+      })
+    );
     ipcMain.handle("shot2code:github-oauth-start", () => githubOAuth.start());
     ipcMain.handle("shot2code:github-oauth-status", async () => {
       const state = githubOAuth.status();

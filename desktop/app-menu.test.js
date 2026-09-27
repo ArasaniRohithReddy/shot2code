@@ -654,3 +654,12 @@ test("keeps the IPC channels and the packaged file list in step", () => {
   assert.match(builderConfig, /^\s*-\s+stitch-sdk\.js\s*$/m);
   assert.match(builderConfig, /^\s*-\s+github-oauth\.js\s*$/m);
 });
+
+test("preload resolves the runtime backend URL through main-process IPC", () => {
+  const main = fs.readFileSync(path.join(__dirname, "main.js"), "utf8");
+  const preload = fs.readFileSync(path.join(__dirname, "preload.js"), "utf8");
+
+  assert.match(main, /ipcMain\.on\("shot2code:get-backend-urls"/);
+  assert.match(preload, /ipcRenderer\.sendSync\("shot2code:get-backend-urls"\)/);
+  assert.match(preload, /contextBridge\.exposeInMainWorld\("__SHOT2CODE_BACKEND__"/);
+});

@@ -183,6 +183,13 @@ Checksums for the published Windows artifacts:
   completed sibling; when every option was cancelled or failed, the sidebar
   now offers Retry instead of incorrectly telling the user to select a
   completed option that does not exist.
+- The packaged `file://` renderer now obtains the runtime backend HTTP and
+  WebSocket addresses synchronously from the Electron main process instead of
+  relying on a mutable environment variable visible to preload. History and
+  API calls can no longer fall back to invalid `file:/api/...` URLs.
+- The in-app feedback IPC handler is registered during application startup
+  rather than inside the Stitch import callback, so Bug, Feature request and
+  Feedback submissions work before any Stitch action has run.
 
 ## [0.5.0] - 2026-09-27
 
