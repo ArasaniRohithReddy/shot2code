@@ -178,6 +178,11 @@ Checksums for the published Windows artifacts:
   on-screen window bounds/maximized state, while the active project, version
   and file continue to restore from SQLite rather than being duplicated in
   local storage.
+- Restoring a saved project no longer reopens on a cancelled option when the
+  same generation has a completed option. shot2code selects and persists the
+  completed sibling; when every option was cancelled or failed, the sidebar
+  now offers Retry instead of incorrectly telling the user to select a
+  completed option that does not exist.
 
 ## [0.5.0] - 2026-09-27
 

@@ -90,6 +90,7 @@ export interface ProjectHistorySnapshotState {
 
 export interface RestoredProjectHistoryState extends ProjectHistorySnapshotState {
   interruptedGeneration: boolean;
+  selectionRepaired: boolean;
 }
 
 export interface RecentHistoryProject {
@@ -1184,6 +1185,20 @@ function interruptGeneratingVariants(
   return interrupted;
 }
 
+function selectCompletedVariantWhenAvailable(commit: Commit | undefined): boolean {
+  if (!commit) return false;
+  const selected = commit.variants[commit.selectedVariantIndex];
+  if (selected?.status === "complete") return false;
+  const completedIndex = commit.variants.findIndex(
+    (variant) => variant.status === "complete"
+  );
+  if (completedIndex < 0 || completedIndex === commit.selectedVariantIndex) {
+    return false;
+  }
+  commit.selectedVariantIndex = completedIndex;
+  return true;
+}
+
 export function restoreHistoryProject(
   project: HistoryProject,
   options: { restoredAt?: number } = {}
@@ -1237,6 +1252,9 @@ export function restoreHistoryProject(
       commit.selectedVariantIndex = project.selectedVariantIndex;
     }
   }
+  const selectionRepaired = selectCompletedVariantWhenAvailable(
+    head ? commits[head] : undefined
+  );
 
   const inputMode = INPUT_MODES.has(project.inputMode ?? "")
     ? (project.inputMode as InputMode)
@@ -1270,6 +1288,7 @@ export function restoreHistoryProject(
     head,
     latestCommitHash,
     interruptedGeneration,
+    selectionRepaired,
   };
 }
 

@@ -41,6 +41,21 @@ export function getCompletedVariantIndex(
   return completedIndex >= 0 ? completedIndex : null;
 }
 
+export function getCancelledVariantRecoveryMessage(
+  commit: Commit | null | undefined
+): string {
+  const completedIndex = getCompletedVariantIndex(commit);
+  if (completedIndex !== null) {
+    return `This option was cancelled. Select Option ${
+      completedIndex + 1
+    } above to continue editing.`;
+  }
+  if (commit?.type === "ai_create" || commit?.type === "ai_edit") {
+    return "This option was cancelled and no completed option is available. Click Retry to run it again.";
+  }
+  return "This option was cancelled and cannot be updated.";
+}
+
 export function getVariantStatusLabel(
   status: VariantStatus | undefined
 ): string {

@@ -615,6 +615,53 @@ describe("restoring the last active project", () => {
     expect(restored.commits.root.variants[0].activeFilePath).toBe(
       "styles/site.css"
     );
+    expect(restored.selectionRepaired).toBe(false);
+  });
+
+  it("repairs a cancelled saved selection when a completed sibling exists", () => {
+    const state = stateFixture();
+    const commit = state.commits.draft;
+    commit.variants = [
+      {
+        ...commit.variants[0],
+        status: "complete",
+        completedAt: restoredAt - 2_000,
+      },
+      {
+        ...commit.variants[0],
+        status: "cancelled",
+        completedAt: restoredAt - 1_000,
+      },
+    ];
+    commit.selectedVariantIndex = 1;
+    const snapshot = buildHistoryProjectSnapshot(state, state.commits.root);
+
+    const restored = restoreHistoryProject(projectFromSnapshot(snapshot), {
+      restoredAt,
+    });
+
+    expect(restored.head).toBe("draft");
+    expect(restored.commits.draft.selectedVariantIndex).toBe(0);
+    expect(restored.selectionRepaired).toBe(true);
+  });
+
+  it("keeps a cancelled selection when no completed option exists", () => {
+    const state = stateFixture();
+    const commit = state.commits.draft;
+    commit.variants = commit.variants.map((variant, index) => ({
+      ...variant,
+      status: index === 0 ? "cancelled" : "error",
+      completedAt: restoredAt,
+    }));
+    commit.selectedVariantIndex = 0;
+    const snapshot = buildHistoryProjectSnapshot(state, state.commits.root);
+
+    const restored = restoreHistoryProject(projectFromSnapshot(snapshot), {
+      restoredAt,
+    });
+
+    expect(restored.commits.draft.selectedVariantIndex).toBe(0);
+    expect(restored.selectionRepaired).toBe(false);
   });
 
   it("cancels a generation that was still running when the app stopped", () => {
@@ -632,6 +679,7 @@ describe("restoring the last active project", () => {
     // A variant that had already failed keeps its own reason.
     expect(restored.commits.draft.variants[1].status).toBe("error");
     expect(restored.commits.draft.variants[1].errorMessage).toBe("Model failed");
+    expect(restored.selectionRepaired).toBe(false);
   });
 
   it("reports no interruption for a project that finished cleanly", () => {

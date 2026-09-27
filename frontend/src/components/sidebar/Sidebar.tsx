@@ -19,7 +19,10 @@ import AgentActivity from "../agent/AgentActivity";
 import { formatCompletedGenerationDuration } from "../agent/generation-time";
 import WorkingPulse from "../core/WorkingPulse";
 import ImageLightbox from "../ImageLightbox";
-import { getSelectedVariantState } from "../commits/selectors";
+import {
+  getCancelledVariantRecoveryMessage,
+  getSelectedVariantState,
+} from "../commits/selectors";
 import { CodeGenerationModel } from "../../lib/models";
 import DesignSystemSelector, {
   DesignSystemSelectorProps,
@@ -422,8 +425,7 @@ function Sidebar({
             className="mb-2 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
             role="status"
           >
-            This option was cancelled. Select a completed option above to
-            continue editing.
+            {getCancelledVariantRecoveryMessage(currentCommit)}
           </div>
         )}
       </div>

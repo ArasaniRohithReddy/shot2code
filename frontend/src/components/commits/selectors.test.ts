@@ -1,5 +1,6 @@
 import type { Commit, VariantStatus } from "./types";
 import {
+  getCancelledVariantRecoveryMessage,
   getCompletedVariantIndex,
   getSelectedVariantState,
   getVariantUpdateUnavailableMessage,
@@ -84,6 +85,21 @@ test("reports no completed option when every option failed or was cancelled", ()
   const commit = makeCommit(["error", "cancelled"], 1);
 
   expect(getCompletedVariantIndex(commit)).toBeNull();
+});
+
+test("names the completed option that can recover a cancelled selection", () => {
+  const commit = makeCommit(["error", "cancelled", "complete"], 1);
+
+  expect(getCancelledVariantRecoveryMessage(commit)).toContain("Option 3");
+});
+
+test("offers Retry when a cancelled generation has no completed option", () => {
+  const commit = makeCommit(["error", "cancelled"], 1);
+
+  expect(getCancelledVariantRecoveryMessage(commit)).toContain("Click Retry");
+  expect(getCancelledVariantRecoveryMessage(commit)).not.toContain(
+    "Select a completed option"
+  );
 });
 
 test("returns status-specific feedback when an update is blocked", () => {

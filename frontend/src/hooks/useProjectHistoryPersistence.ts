@@ -197,9 +197,14 @@ export function useProjectHistoryPersistence({
         }));
         rememberActiveProject(projectId);
         onProjectOpenedRef.current?.();
-        if (restored.interruptedGeneration) {
+        if (restored.interruptedGeneration || restored.selectionRepaired) {
           const snapshot = captureProjectHistoryState();
-          if (snapshot) void persistence.saveMilestone(snapshot, "status");
+          if (snapshot) {
+            await persistence.saveMilestone(snapshot, "status");
+            if (restored.selectionRepaired) {
+              await persistence.saveSelection(snapshot);
+            }
+          }
         }
         if (announce) toast.success(`Opened ${restored.projectTitle}.`);
         return true;
