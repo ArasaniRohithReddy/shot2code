@@ -1,13 +1,18 @@
 // Preload runs before the renderer and is the only place with access to both
 // Node and the page. The backend port is picked at runtime, but Vite bakes env
 // vars at build time, so the resolved URLs are handed to the app here instead.
-const { randomUUID } = require("crypto");
 const { contextBridge, ipcRenderer } = require("electron");
 const backendUrls =
   ipcRenderer.sendSync("shot2code:get-backend-urls") || {};
+let stitchRequestSequence = 0;
+
+function nextStitchRequestId() {
+  stitchRequestSequence += 1;
+  return `stitch-${Date.now().toString(36)}-${stitchRequestSequence.toString(36)}`;
+}
 
 function invokeStitchWithProgress(channel, payload, onProgress) {
-  const requestId = randomUUID();
+  const requestId = nextStitchRequestId();
   const listener = (_event, progress) => {
     if (progress?.requestId !== requestId || typeof onProgress !== "function") {
       return;

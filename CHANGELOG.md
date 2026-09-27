@@ -187,6 +187,10 @@ Checksums for the published Windows artifacts:
   WebSocket addresses synchronously from the Electron main process instead of
   relying on a mutable environment variable visible to preload. History and
   API calls can no longer fall back to invalid `file:/api/...` URLs.
+- The Electron preload no longer imports Node's `crypto` module. Electron 44
+  runs the preload in a sandbox where that module is unavailable; the import
+  prevented every desktop bridge from loading even though the backend itself
+  had started successfully.
 - The in-app feedback IPC handler is registered during application startup
   rather than inside the Stitch import callback, so Bug, Feature request and
   Feedback submissions work before any Stitch action has run.

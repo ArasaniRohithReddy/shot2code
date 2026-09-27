@@ -662,4 +662,9 @@ test("preload resolves the runtime backend URL through main-process IPC", () => 
   assert.match(main, /ipcMain\.on\("shot2code:get-backend-urls"/);
   assert.match(preload, /ipcRenderer\.sendSync\("shot2code:get-backend-urls"\)/);
   assert.match(preload, /contextBridge\.exposeInMainWorld\("__SHOT2CODE_BACKEND__"/);
+  assert.doesNotMatch(
+    preload,
+    /require\(["'](?:crypto|fs|path|child_process)["']\)/,
+    "sandboxed preload must not import unavailable Node modules"
+  );
 });
