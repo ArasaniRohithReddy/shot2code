@@ -11,11 +11,11 @@ in this file; see the git history for those changes.
 
 ## [Unreleased]
 
-## [0.5.1] - 2026-09-27
+## [0.5.2] - 2026-09-28
 
-Released as [shot2code v0.5.1](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.5.1).
+Released as [shot2code v0.5.2](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.5.2).
 Checksums for the published Windows artifacts:
-[docs/releases/v0.5.1/SHA256SUMS.txt](docs/releases/v0.5.1/SHA256SUMS.txt).
+[docs/releases/v0.5.2/SHA256SUMS.txt](docs/releases/v0.5.2/SHA256SUMS.txt).
 
 ### Added
 
@@ -195,6 +195,14 @@ Checksums for the published Windows artifacts:
   rather than inside the Stitch import callback, so Bug, Feature request and
   Feedback submissions work before any Stitch action has run.
 
+## [0.5.1] - 2026-09-27
+
+The `v0.5.1` source tag was created during release validation but no GitHub
+Release was published. Packaged smoke testing then found a cancelled-option
+restoration defect and two Electron preload/IPC defects. The draft release was
+deleted before it became visible to users, the tag remains immutable, and the
+fully corrected build was rolled forward to v0.5.2.
+
 ## [0.5.0] - 2026-09-27
 
 Released as [shot2code v0.5.0](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.5.0).
@@ -207,7 +215,7 @@ Agent Skills discovery, Figma and Stitch imports, durable conversational
 history, stronger Review/Design Inspector workflows, exact export-project
 inspection, and sandboxed HTML/stack previews.
 
-v0.5.0 was retained as a pre-release and superseded by v0.5.1 after the
+v0.5.0 was retained as a pre-release and superseded by v0.5.2 after the
 optional BYOK model-list probe was found to block a manually configured model.
 
 ### Added
@@ -791,7 +799,8 @@ real multi-file project you can edit, and previews run in a locked-down sandbox.
 - CodePen sharing requires explicit confirmation before any code leaves the
   device.
 
-[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.3.3...v0.4.0

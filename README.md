@@ -57,7 +57,7 @@ Download the latest build from
 
 Because there is no signature to check, verify the download instead. Published
 SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
-[v0.5.1](docs/releases/v0.5.1/SHA256SUMS.txt),
+[v0.5.2](docs/releases/v0.5.2/SHA256SUMS.txt),
 [v0.5.0](docs/releases/v0.5.0/SHA256SUMS.txt),
 [v0.4.0](docs/releases/v0.4.0/SHA256SUMS.txt),
 [v0.3.3](docs/releases/v0.3.3/SHA256SUMS.txt),
@@ -66,7 +66,7 @@ SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
 [v0.3.0](docs/releases/v0.3.0/SHA256SUMS.txt):
 
 ```powershell
-Get-FileHash .\shot2code-0.5.1-x64.exe -Algorithm SHA256
+Get-FileHash .\shot2code-0.5.2-x64.exe -Algorithm SHA256
 ```
 
 First launch takes about a minute while the bundled backend starts. Later
