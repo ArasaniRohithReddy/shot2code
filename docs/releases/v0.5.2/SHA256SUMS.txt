@@ -11,7 +11,7 @@
 #   sha256sum -c SHA256SUMS.txt
 #
 1637e724a1afe3f3f77b136475b1f665fb3fa2a7d3fda8dac1cdf3a0449d94e8  shot2code-0.5.2-x64.exe
-ee034f33405ce328b47b4d178d8336d6abaddcd0d413cbe1896b5a20ea716034  shot2code-0.5.2-x64.exe.blockmap
+b7c425075474733d676c5b7bc746cfc3217d8226a4e1b2bb6424604c374bac35  shot2code-0.5.2-x64.exe.blockmap
 7baeefd9ce0633cc4f1115d7388c7b2a3cb07cf2715dfee668fab82ffec3d80e  shot2code-0.5.2-x64.msi
 df5b370997e1cd8e6ce544acbcebacaecc608b02340531f5bc7121ce835774d5  shot2code-0.5.2-x64.zip
 11d44fb49a011e663393feddead8089091c3f7cd42e2fb477d16b275fd77aa51  latest.yml
