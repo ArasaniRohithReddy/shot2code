@@ -1,5 +1,11 @@
+jest.mock("../../../config", () => ({
+  HTTP_BACKEND_URL: "http://127.0.0.1:7001",
+}));
+
 import { renderToStaticMarkup } from "react-dom/server";
+import { Stack } from "../../../lib/stacks";
 import StitchGenerationStatus from "./StitchGenerationStatus";
+import { usesDirectStitchOutput } from "./stitch-output-mode";
 
 describe("Stitch generation status", () => {
   it("shows the real phase, elapsed time, and non-percentage guidance", () => {
@@ -17,6 +23,23 @@ describe("Stitch generation status", () => {
     expect(html).toContain("1m 23s");
     expect(html).toContain("Generate screen");
     expect(html).toContain("Stitch does not provide a percentage");
+  });
+
+  describe("Stitch output mode", () => {
+    it("keeps the dedicated Stitch tab direct by default", () => {
+      expect(
+        usesDirectStitchOutput(true, "stitch", Stack.REACT_TAILWIND)
+      ).toBe(true);
+    });
+
+    it("converts only when the user explicitly selects conversion", () => {
+      expect(
+        usesDirectStitchOutput(true, "convert", Stack.REACT_TAILWIND)
+      ).toBe(false);
+      expect(
+        usesDirectStitchOutput(false, "convert", Stack.HTML_CSS)
+      ).toBe(true);
+    });
   });
 
   it("marks earlier steps as complete when output is downloading", () => {

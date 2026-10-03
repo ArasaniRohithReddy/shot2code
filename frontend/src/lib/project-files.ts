@@ -630,6 +630,8 @@ const ASSET_MIME_TYPES: Record<string, string> = {
 
 const TEXT_ASSET_EXTENSIONS = new Set(["svg"]);
 const UNSUPPORTED_ASSET_URL = "data:application/octet-stream;base64,";
+const GENERATED_IMAGE_PLACEHOLDER_URL =
+  "https://placehold.co/800x600?text=Image";
 
 interface PreviewCompositionContext {
   files: ProjectFileMap;
@@ -721,6 +723,20 @@ function escapeCssString(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function normalizeGeneratedImageReference(reference: string): string {
+  const value = reference.trim();
+  const wrappedUrl = /^\{+\s*(https?:\/\/[^\s,}]+)\s*\}*$/i.exec(value);
+  if (wrappedUrl) return wrappedUrl[1];
+  if (
+    /^\{+\s*(?:IMG(?:\.[A-Za-z0-9_-]+)?|IMAGE(?:\.[A-Za-z0-9_-]+)?|image)\s*\}*$/i.test(
+      value
+    )
+  ) {
+    return GENERATED_IMAGE_PLACEHOLDER_URL;
+  }
+  return value;
+}
+
 function rewriteCssContent(
   content: string,
   referrerPath: string,
@@ -786,10 +802,17 @@ function rewriteCssContent(
 
   rewritten = rewritten.replace(
     /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)/gi,
-    (rule, doubleQuoted, singleQuoted, unquoted) => {
+    (_rule, doubleQuoted, singleQuoted, unquoted) => {
       const reference = (doubleQuoted ?? singleQuoted ?? unquoted ?? "").trim();
-      if (!isLocalProjectReference(reference)) return rule;
-      const dataUrl = resolveLocalAsset(reference, referrerPath, context);
+      const normalizedReference = normalizeGeneratedImageReference(reference);
+      if (!isLocalProjectReference(normalizedReference)) {
+        return `url("${escapeCssString(normalizedReference)}")`;
+      }
+      const dataUrl = resolveLocalAsset(
+        normalizedReference,
+        referrerPath,
+        context
+      );
       return `url("${escapeCssString(dataUrl ?? UNSUPPORTED_ASSET_URL)}")`;
     }
   );
@@ -807,8 +830,10 @@ function rewriteSrcset(
     .split(",")
     .map((candidate) => {
       const parts = candidate.trim().split(/\s+/);
-      const reference = parts.shift() ?? "";
-      if (!isLocalProjectReference(reference)) return candidate.trim();
+      const reference = normalizeGeneratedImageReference(parts.shift() ?? "");
+      if (!isLocalProjectReference(reference)) {
+        return [reference, ...parts].join(" ");
+      }
       const dataUrl = resolveLocalAsset(reference, referrerPath, context);
       return [dataUrl ?? UNSUPPORTED_ASSET_URL, ...parts].join(" ");
     })
@@ -826,9 +851,12 @@ function rewriteHtmlAssetReferences(
       let tag = originalTag;
       const tagName = /^<([a-z]+)/i.exec(tag)?.[1]?.toLowerCase();
       const rewriteReference = (reference: string) => {
-        if (!isLocalProjectReference(reference)) return reference;
+        const normalizedReference = normalizeGeneratedImageReference(reference);
+        if (!isLocalProjectReference(normalizedReference)) {
+          return normalizedReference;
+        }
         return (
-          resolveLocalAsset(reference, sourcePath, context) ??
+          resolveLocalAsset(normalizedReference, sourcePath, context) ??
           UNSUPPORTED_ASSET_URL
         );
       };

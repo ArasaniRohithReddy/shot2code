@@ -4,8 +4,10 @@ from typing import Optional
 
 from playwright.async_api import (
     Browser,
+    BrowserContext,
     Playwright,
     TimeoutError as PlaywrightTimeoutError,
+    ViewportSize,
     async_playwright,
 )
 
@@ -76,6 +78,18 @@ class PlaywrightBackend:
     async def close(self) -> None:
         async with self._lock:
             await self._close_unlocked()
+
+    async def create_context(
+        self,
+        *,
+        viewport: ViewportSize | None = None,
+    ) -> BrowserContext:
+        browser = await self._get_browser()
+        return await browser.new_context(
+            viewport=viewport or {"width": 1440, "height": 900},
+            device_scale_factor=1,
+            service_workers="block",
+        )
 
     async def available(self) -> bool:
         """Launch (and warm up) Chromium; report whether it works.

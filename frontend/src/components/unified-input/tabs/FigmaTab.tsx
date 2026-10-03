@@ -2,7 +2,9 @@ import { useRef, useState } from "react";
 import { LuExternalLink, LuFigma, LuKeyRound } from "react-icons/lu";
 import toast from "react-hot-toast";
 import { HTTP_BACKEND_URL } from "../../../config";
+import { readDesignSourceAssets } from "../../../lib/design-source-assets";
 import { Stack } from "../../../lib/stacks";
+import type { DesignSourceAsset } from "../../../types";
 import type { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
 import type { ModelSelectorProps } from "../../settings/ModelSelector";
 import { Input } from "../../ui/input";
@@ -13,7 +15,9 @@ interface Props {
     images: string[],
     inputMode: "image" | "video",
     textPrompt?: string,
-    isAssetExtractionEnabled?: boolean
+    isAssetExtractionEnabled?: boolean,
+    multiScreenshotMode?: undefined,
+    sourceAssets?: DesignSourceAsset[]
   ) => void;
   figmaAccessToken: string | null;
   stack: Stack;
@@ -77,7 +81,31 @@ export default function FigmaTab({
       if (images.length === 0) {
         throw new Error("Figma returned no renderable frames.");
       }
-      doCreate(images, "image", instruction, isAssetExtractionEnabled);
+      const sourceAssets = readDesignSourceAssets(payload.sourceAssets);
+      const warnings = Array.isArray(payload.warnings)
+        ? payload.warnings.filter(
+            (warning: unknown): warning is string =>
+              typeof warning === "string" && warning.trim().length > 0
+          )
+        : [];
+      doCreate(
+        images,
+        "image",
+        instruction,
+        isAssetExtractionEnabled,
+        undefined,
+        sourceAssets
+      );
+      if (sourceAssets.length > 0) {
+        toast.success(
+          `Imported ${images.length} Figma frame${
+            images.length === 1 ? "" : "s"
+          } and ${sourceAssets.length} reusable asset${
+            sourceAssets.length === 1 ? "" : "s"
+          }.`
+        );
+      }
+      warnings.forEach((warning: string) => toast(warning));
     } catch (caught) {
       toast.error(
         caught instanceof Error ? caught.message : "Could not import Figma."

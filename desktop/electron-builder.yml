@@ -16,6 +16,7 @@ files:
   - zoom-controls.js
   - window-state.js
   - stitch-sdk.js
+  - stitch-assets.js
   - github-oauth.js
   - feedback.js
   - preload.js

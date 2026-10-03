@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from routes.export import (
     EXPORT_STRATEGIES,
+    ExportProjectFile,
     ExportProjectPayload,
     ExportRequest,
     export_archive_filename,
@@ -193,6 +194,45 @@ async def test_export_preview_matches_project_archive_text_files_and_assets() ->
     for asset in preview.assets:
         assert asset.contentBase64 is not None
         assert base64.b64decode(asset.contentBase64) == archived_files[asset.path]
+
+
+@pytest.mark.asyncio
+async def test_imported_binary_project_assets_decode_for_preview_and_zip() -> None:
+    image = b"\x89PNG\r\n\x1a\nstitch-asset"
+    request = ExportRequest(
+        code="",
+        stack="html_css",
+        splitFiles=True,
+        project=ExportProjectPayload(
+            entryPoint="index.html",
+            files=[
+                ExportProjectFile(
+                    path="index.html",
+                    content='<main><img src="assets/hero.png"></main>',
+                ),
+                ExportProjectFile(
+                    path="assets/hero.png",
+                    content=base64.b64encode(image).decode("ascii"),
+                    metadata={
+                        "encoding": "base64",
+                        "mimeType": "image/png",
+                    },
+                ),
+            ],
+        ),
+    )
+
+    preview = await preview_export(request)
+    response = await export_code(request)
+    names, files = archive_files(response.body)
+
+    assert names >= {"index.html", "assets/hero.png"}
+    assert files["assets/hero.png"] == image
+    preview_asset = next(
+        asset for asset in preview.assets if asset.path == "assets/hero.png"
+    )
+    assert preview_asset.contentBase64 is not None
+    assert base64.b64decode(preview_asset.contentBase64) == image
 
 
 @pytest.mark.parametrize(

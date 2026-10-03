@@ -14,5 +14,7 @@ def build_user_image_policy(image_generation_enabled: bool) -> str:
 
     return (
         "Image generation is disabled for this request. Do not call generate_images. "
-        "Use provided media, CSS effects, or placeholder URLs (https://placehold.co)."
+        "Use provided media, CSS effects, or complete public placeholder URLs such "
+        "as https://placehold.co/800x600. Never emit IMG tokens, brace-wrapped URLs, "
+        "or unresolved template placeholders."
     )

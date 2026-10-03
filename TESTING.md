@@ -42,6 +42,20 @@ network request and needs no Tavily or Exa key. It covers tool serialization
 for all five runtimes, gating, the per-turn and per-generation budgets, secret
 stripping, response bounding, error mapping and the Copilot built-in collision.
 
+Design-source imports and public-page inspection:
+
+```bash
+uv run pytest tests/test_figma.py tests/test_design_assets.py
+uv run pytest tests/test_github_repository.py tests/test_url_design_inspector.py
+uv run pytest tests/test_request_parsing.py tests/test_uploaded_assets.py
+```
+
+These tests pin Figma image-fill/export ingestion, Stitch/GitHub asset
+persistence, repository traversal and never-execute boundaries, public-only URL
+inspection, source-asset prompt/history handling and actionable partial-success
+errors. The URL inspector has a separate optional live smoke because it launches
+Chromium and visits a public site.
+
 Export-specific validation:
 
 ```bash
@@ -111,6 +125,17 @@ in development, that project-only items are disabled without a project, that
 each external link resolves to a published release-hub page, and that the menu
 commands, the accelerators and the IPC channel names still match
 `frontend/src/lib/app-shortcuts.ts` and `frontend/src/lib/desktop-menu.ts`.
+They also cover Stitch's bounded asset localizer, private-address refusal, SVG
+sanitization, icon synchronization and required ICO resolutions.
+
+Regenerate the icon family from its single source script:
+
+```powershell
+cd backend
+uv run python ..\scripts\generate_app_icons.py
+cd ..\desktop
+npm test
+```
 
 To run the shell against the source tree (it starts the backend through uv and
 loads `desktop/renderer` if present, otherwise the Vite dev server):
@@ -137,6 +162,9 @@ It records backend startup, renderer load failures, crashes and console errors.
 - Touched frontend code: `pnpm exec tsc --noEmit` and `pnpm lint`
 - Touched the desktop shell: `node --check main.js`, `node --check preload.js`
   and `npm test` (which includes the application-menu suite)
+- Touched Figma, Stitch, GitHub import, website inspection, pasted screenshots
+  or asset persistence: run the targeted tests above plus the complete backend,
+  frontend and desktop suites
 - Touched both: all of the above
 
 Anything that changes how the UI is loaded (routing, asset paths, `window.open`)

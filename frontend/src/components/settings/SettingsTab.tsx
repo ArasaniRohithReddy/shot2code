@@ -679,6 +679,34 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                   }
                 />
               </div>
+
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                  GitHub repository token (optional)
+                </p>
+                <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                  Public repository imports need no token. For a private
+                  repository, use a fine-grained token restricted to that
+                  repository with <strong>Contents: read</strong>. This is
+                  deliberately separate from Copilot sign-in, whose permission
+                  does not grant repository-content access.
+                </p>
+                <Input
+                  id="github-repository-token"
+                  className="mt-2"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="github_pat_..."
+                  value={settings.githubRepositoryToken || ""}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      githubRepositoryToken: event.target.value,
+                    }))
+                  }
+                />
+              </div>
             </div>
           </div>
 

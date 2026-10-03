@@ -11,6 +11,68 @@ in this file; see the git history for those changes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-04
+
+Released as [shot2code v0.6.0](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.6.0).
+Checksums: [docs/releases/v0.6.0/SHA256SUMS.txt](docs/releases/v0.6.0/SHA256SUMS.txt).
+
+### Added
+
+- **Design-source asset preservation.** Figma imports now keep original image
+  fills and export-marked nodes as durable local assets. Google Stitch imports
+  localize the SDK's HTML, screenshot, referenced images, stylesheets, fonts and
+  available `DESIGN.md` into an editable multi-file project. Source-asset names
+  and URLs survive History, retries and later chat refinements, and binary files
+  are decoded correctly in Preview and project ZIP exports.
+- **Stitch-only delivery.** The dedicated Stitch tab defaults to opening
+  Stitch's localized HTML, assets, screenshot and `DESIGN.md` directly, with no
+  second model call or provider quota. Converting to the selected shot2code
+  stack is a separate explicit mode.
+- **Public website design inspection.** The URL tab can inspect a public site in
+  local Chromium without a ScreenshotOne key, extracting computed colors,
+  typography, spacing, radii, shadows, motion, semantic components,
+  accessibility structure and public asset references. It captures desktop,
+  tablet and mobile evidence and can copy/download an editable `DESIGN.md` or
+  use that file plus the screenshots for generation. Requests are bounded and
+  private/loopback/metadata addresses are refused.
+- **GitHub repository import.** A dedicated tab downloads a repository archive,
+  routes it through the existing never-execute scanner, preserves bounded image
+  assets, detects the frontend stack and opens the result as an editable
+  project. Public repositories need no token. Private repositories require a
+  separate fine-grained token restricted to that repository with
+  `Contents: read`; the narrow Copilot sign-in is never silently reused.
+- **Paste screenshots into refinement chat.** Clipboard PNG, JPEG and WebP
+  images enter the existing update-image flow without interfering with normal
+  text paste. Duplicate images are ignored, each file is capped at 10 MB, and a
+  turn may contain at most five reference images.
+- **A new application identity.** The generic purple code-frame icon has been
+  replaced by an original dark capture-to-code `2` mark. One reproducible
+  generator produces the Windows multi-resolution ICO, desktop PNG, web
+  favicon and active/coding favicon, with tests preventing them from drifting.
+
+### Changed
+
+- Google Stitch remains an additive UI/design generator and asset source. Its
+  documented SDK exposes screen generation, edits, variants, HTML, screenshots
+  and design-system data, but not a general-purpose image API or an
+  authoritative recurring free quota; shot2code therefore does not present it
+  as a Replicate replacement or promise that it is free.
+- Website and repository imports are explicit, read-only capture operations.
+  Capture credentials and repository tokens are stripped from generation and AI
+  review payloads, project History and exported reports.
+
+### Fixed
+
+- Generated brace placeholders such as `{IMG.dashboard}` and brace-wrapped
+  public URLs no longer become misleading "missing local file" errors.
+  Prompts forbid them, while the derived preview safely unwraps real URLs and
+  substitutes an honest placeholder for unresolved image tokens so CodePen does
+  not reject otherwise portable output.
+- Pasted/imported binary assets are no longer exported as base64 text files.
+- Packaged eval favicon changes now use relative `file://`-safe paths.
+- Windows now sets its explicit AppUserModelID so taskbar grouping, shortcuts
+  and notification identity stay aligned with the packaged executable.
+
 ## [0.5.2] - 2026-09-28
 
 Released as [shot2code v0.5.2](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.5.2).
@@ -799,7 +861,8 @@ real multi-file project you can edit, and previews run in a locked-down sandbox.
 - CodePen sharing requires explicit confirmation before any code leaves the
   device.
 
-[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ArasaniRohithReddy/shot2code/compare/v0.4.0...v0.5.0

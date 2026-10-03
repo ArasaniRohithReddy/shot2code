@@ -378,6 +378,48 @@ Multiple screenshots carry an explicit `multiImageMode`: `pages`, `responsive`,
 `states`, or `references`. When absent with more than one image, `pages` is the
 backend default so every screenshot must be represented.
 
+## Design-source imports and website inspection
+
+Figma, Stitch, GitHub and public-website inspection are additive input paths.
+They never replace the existing upload, image generation, free-image search or
+folder/ZIP scanner.
+
+- `PromptContent.sourceAssets` carries only bounded metadata and durable
+  `/local-assets/` URLs. Raw credentials and raw asset bytes never enter a
+  generation snapshot. `uploaded_assets/prompts.py` revalidates every URL
+  against the local asset store before showing it to a model.
+- Figma REST may return rendered frames, original image fills and export-marked
+  nodes. Asset failures and rate limits are partial: a successful frame import
+  must not fail because optional assets could not be downloaded. Figma does not
+  expose production application source code.
+- The Stitch SDK exposes HTML, screenshots and design-system data. Do not call
+  `Project.downloadAssets()`: shot2code's `desktop/stitch-assets.js` owns the
+  hostile-input boundary, including public-IP resolution, pinned lookup,
+  per-hop redirect checks, byte/type limits, SVG sanitization and HTML/CSS URL
+  rewriting. Stitch is a UI/design generator, not a documented generic image
+  backend, and no recurring free quota may be claimed without an official
+  source.
+- GitHub repository import downloads an archive from `api.github.com` and then
+  uses the same never-execute scanner as local ZIP import. Public repos are
+  keyless. Private repos require a separate fine-grained token limited to the
+  selected repository with `Contents: read`; never broaden or reuse the
+  `read:user` Copilot OAuth token.
+- Public website inspection runs in a fresh local-Chromium context with service
+  workers blocked and every network host checked for public addresses. It
+  returns computed design evidence, semantics, public asset references and
+  bounded responsive screenshots. `DESIGN.md` must say that this does not
+  recover original source, server code, authenticated content or ownership
+  rights.
+- Binary design/repository assets are project files with
+  `metadata.encoding="base64"` and a MIME type. Preview and export must decode
+  them; never write the base64 text itself into a PNG/font in the ZIP.
+- Generated code must never contain pseudo-image tokens such as `{IMG.hero}` or
+  brace-wrapped URL lists. The prompt forbids them and the derived preview only
+  repairs known image-shaped cases; source correctness remains the goal.
+- Refinement-chat clipboard images use the same update-image pipeline as the
+  file picker: PNG/JPEG/WebP, 10 MB each, five images per turn, with duplicate
+  removal. A text-only paste must remain a normal textarea paste.
+
 ## Desktop app
 
 `desktop/` is an Electron shell that starts the frozen backend on a free port,
@@ -413,6 +455,11 @@ asserts labels, accelerators, enablement and click routing under `node --test`.
   item is worse than an honest message.
 - New files in `desktop/` must be added to `files:` in `electron-builder.yml` or
   they are missing from the packaged app.
+- `scripts/generate_app_icons.py` is the single icon source. It must keep
+  `desktop/build/icon.png`, the multi-resolution `icon.ico`, and the main/coding
+  browser favicons synchronized. Favicon paths must stay relative for packaged
+  `file://` pages, and Windows sets
+  `com.arasanirohithreddy.shot2code` as its AppUserModelID.
 
 The UI is served over `file://` in the packaged app but over `http://` in dev,
 and that difference has caused every desktop-only bug so far. When touching

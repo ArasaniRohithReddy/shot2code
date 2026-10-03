@@ -2,6 +2,15 @@ from typing import List, Literal, NotRequired, TypedDict
 
 
 MultiImageMode = Literal["pages", "responsive", "states", "references"]
+DesignSource = Literal["figma", "github", "stitch"]
+
+
+class DesignSourceAsset(TypedDict):
+    name: str
+    url: str
+    mime_type: str
+    source: DesignSource
+    kind: str
 
 
 class _UserTurnInputRequired(TypedDict):
@@ -17,6 +26,7 @@ class UserTurnInput(_UserTurnInputRequired, total=False):
     # (e.g. includes the selected-element reference, built by the frontend).
     full_text: str
     multi_image_mode: MultiImageMode
+    source_assets: List[DesignSourceAsset]
 
 
 class PromptHistoryMessage(TypedDict):

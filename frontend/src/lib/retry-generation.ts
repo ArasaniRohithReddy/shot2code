@@ -50,6 +50,9 @@ function clonePrompt(prompt: PromptContent): PromptContent {
     ...prompt,
     images: [...prompt.images],
     videos: [...(prompt.videos ?? [])],
+    ...(prompt.sourceAssets
+      ? { sourceAssets: prompt.sourceAssets.map((asset) => ({ ...asset })) }
+      : {}),
   };
 }
 

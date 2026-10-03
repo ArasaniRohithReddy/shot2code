@@ -60,7 +60,10 @@ for package in (
 hiddenimports += [
     "routes.generate_code",
     "routes.ai_review",
+    "routes.design_assets",
+    "routes.github_repository",
     "routes.screenshot",
+    "routes.url_design_inspector",
     "routes.evals",
     "routes.export",
     "routes.prompt_reports",

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import binascii
 from dataclasses import dataclass
 from io import BytesIO
 import ipaddress
@@ -91,6 +92,8 @@ MAX_REDIRECTS = 5
 MAX_PROJECT_FILES = 400
 MAX_PROJECT_FILE_BYTES = 600_000
 MAX_PROJECT_TOTAL_BYTES = 12 * 1024 * 1024
+MAX_PROJECT_BINARY_FILE_BYTES = 8 * 1024 * 1024
+MAX_PROJECT_BINARY_TOTAL_BYTES = 20 * 1024 * 1024
 MAX_EXPORT_PREVIEW_ASSET_BYTES = 24 * 1024 * 1024
 
 ProjectKind = Literal["vite_html", "vite_react", "vite_preact"]
@@ -207,6 +210,7 @@ DEFAULT_EXPORT_STRATEGY = ExportStrategy(
 class ExportProjectFile(BaseModel):
     path: str
     content: str
+    metadata: dict[str, str | int | bool | None] | None = None
 
 
 class ExportProjectPayload(BaseModel):
@@ -246,6 +250,7 @@ class FetchedAsset:
 class NormalizedProjectPayload:
     entry_point: str
     files: dict[str, str]
+    binary_assets: tuple[ExportedAsset, ...] = ()
 
 
 def normalize_archive_path(raw_path: str) -> str:
@@ -293,8 +298,10 @@ def normalize_project_payload(project: ExportProjectPayload) -> NormalizedProjec
         )
 
     files: dict[str, str] = {}
+    binary_assets: list[ExportedAsset] = []
     paths_by_casefold: dict[str, str] = {}
-    total_bytes = 0
+    total_text_bytes = 0
+    total_binary_bytes = 0
     for project_file in project.files:
         path = normalize_archive_path(project_file.path)
         path_key = path.casefold()
@@ -304,21 +311,50 @@ def normalize_project_payload(project: ExportProjectPayload) -> NormalizedProjec
                 detail=f"Duplicate project file path: {path}",
             )
 
-        content_bytes = project_file.content.encode("utf-8")
-        if len(content_bytes) > MAX_PROJECT_FILE_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Project file is too large: {path}",
-            )
-        total_bytes += len(content_bytes)
-        if total_bytes > MAX_PROJECT_TOTAL_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail="Project export exceeds the total source size limit",
-            )
+        encoding = str((project_file.metadata or {}).get("encoding") or "").lower()
+        if encoding == "base64":
+            try:
+                content_bytes = base64.b64decode(
+                    project_file.content,
+                    validate=True,
+                )
+            except (ValueError, binascii.Error) as error:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Project binary asset is not valid base64: {path}",
+                ) from error
+        else:
+            content_bytes = project_file.content.encode("utf-8")
+        if encoding == "base64":
+            if len(content_bytes) > MAX_PROJECT_BINARY_FILE_BYTES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Project binary asset is too large: {path}",
+                )
+            total_binary_bytes += len(content_bytes)
+            if total_binary_bytes > MAX_PROJECT_BINARY_TOTAL_BYTES:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Project export exceeds the total binary-asset limit",
+                )
+        else:
+            if len(content_bytes) > MAX_PROJECT_FILE_BYTES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Project file is too large: {path}",
+                )
+            total_text_bytes += len(content_bytes)
+            if total_text_bytes > MAX_PROJECT_TOTAL_BYTES:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Project export exceeds the total source size limit",
+                )
 
         paths_by_casefold[path_key] = path
-        files[path] = project_file.content
+        if encoding == "base64":
+            binary_assets.append(ExportedAsset(path=path, content=content_bytes))
+        else:
+            files[path] = project_file.content
 
     requested_entry_point = normalize_archive_path(project.entryPoint)
     entry_point = paths_by_casefold.get(requested_entry_point.casefold())
@@ -327,8 +363,17 @@ def normalize_project_payload(project: ExportProjectPayload) -> NormalizedProjec
             status_code=400,
             detail="Project entry point must reference an included file",
         )
+    if entry_point not in files:
+        raise HTTPException(
+            status_code=400,
+            detail="Project entry point must be a text source file",
+        )
 
-    return NormalizedProjectPayload(entry_point=entry_point, files=files)
+    return NormalizedProjectPayload(
+        entry_point=entry_point,
+        files=files,
+        binary_assets=tuple(binary_assets),
+    )
 
 
 def is_skippable_asset_url(url: str) -> bool:
@@ -1492,6 +1537,8 @@ Detected shot2code stack: `{stack_name}`.
 
 def is_legacy_single_html_payload(project: NormalizedProjectPayload) -> bool:
     return (
+        not project.binary_assets
+        and
         len(project.files) == 1
         and project.entry_point.casefold() == "index.html"
         and PurePosixPath(project.entry_point).suffix.casefold() in {".htm", ".html"}
@@ -1536,10 +1583,14 @@ async def prepare_project_export(request: ExportRequest) -> PreparedProjectExpor
         normalized_project
     ):
         candidates = collect_project_asset_candidates(normalized_project.files)
+        reserved_paths = {
+            **normalized_project.files,
+            **{asset.path: "" for asset in normalized_project.binary_assets},
+        }
         assets, asset_path_by_url = await download_assets(
             candidates,
             request.baseUrl,
-            reserved_paths=normalized_project.files,
+            reserved_paths=reserved_paths,
         )
         rewritten_project = NormalizedProjectPayload(
             entry_point=normalized_project.entry_point,
@@ -1554,7 +1605,7 @@ async def prepare_project_export(request: ExportRequest) -> PreparedProjectExpor
             files=project_export.files,
             entry_point=normalized_project.entry_point,
             project_kind=project_export.project_kind,
-            assets=assets,
+            assets=[*normalized_project.binary_assets, *assets],
             candidate_count=len(candidates),
         )
     else:

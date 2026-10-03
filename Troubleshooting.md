@@ -78,22 +78,22 @@ If none are found, sign in again and restart the app so the check re-runs.
 You can also paste a fine-grained token with the **Copilot Requests** permission
 into Settings.
 
-**"Sign in with GitHub" says no CLI was found**
+**"Sign in with GitHub" is unavailable in the browser development build**
 
-That button runs the official CLI's own browser sign-in rather than an OAuth
-flow of its own, so it needs either GitHub Copilot CLI or the GitHub CLI on your
-`PATH`. Settings links to GitHub's install instructions. Install one, then try
-again — or sign in with `copilot` / `gh auth login` in a terminal, which has the
-same result.
+The packaged desktop app needs no CLI: it runs shot2code's own GitHub device
+flow and encrypts the token with the operating-system key store. The browser
+development build cannot use that Electron bridge, so it delegates to GitHub
+Copilot CLI or GitHub CLI and reports when neither is on `PATH`.
 
 **The sign-in browser window opened but nothing happened**
 
 Finish the flow in the browser, then return to shot2code; it re-checks your
 credentials when the CLI exits. If you closed the browser, use **Cancel** and
 start again. The flow times out on its own, and it is always stopped when the
-app closes, so it cannot be left running in the background. shot2code never sees
-the token — the CLI stores it — so if sign-in succeeded but Settings still shows
-nothing, check that the account actually has a Copilot subscription.
+app closes, so it cannot be left running in the background. The packaged app stores its own token encrypted; a delegated browser-development
+login remains owned by the CLI. If sign-in succeeds but Settings still shows no
+models, check that the account actually has a Copilot subscription and a
+vision-capable model.
 
 **A provider check fails but generation used to work**
 
@@ -211,6 +211,72 @@ files, and it never executes `tailwind.config.js` or any other project code.
 Component discovery currently recognises exported React/TypeScript components
 and `.vue` component files; CSS variables and reusable CSS classes become
 design tokens.
+
+**Preview says `{IMG.dashboard}` or a brace-wrapped URL is a missing local file**
+
+Older/generated markup sometimes used pseudo-image tokens such as
+`{IMG.dashboard}` or placed a real `https://` URL inside braces. Browsers cannot
+resolve those strings, so Preview treated them as project-relative paths and
+CodePen refused to silently alter the project. Current builds forbid these
+tokens in the generation prompt and repair known image-shaped cases in the
+derived preview. Refine the affected version once if the source itself still
+contains a token.
+
+**CodePen says it cannot represent an asset**
+
+CodePen receives browser-only HTML, CSS and JavaScript; it cannot carry a local
+multi-file dependency that was omitted from the composed preview. Download the
+Project folder when the warning names a real project file. A malformed
+brace-token warning is different and is handled as described above.
+
+**Pasting a screenshot into Chat does nothing**
+
+Paste while the refinement textarea has focus. PNG, JPEG and WebP are accepted,
+up to 10 MB each and five images per turn. Duplicate screenshots are ignored.
+Text-only clipboard content is pasted normally. If the composer already has five
+images, remove one of the preview thumbnails first.
+
+**Figma imported the frame but not every asset**
+
+Figma's file, image-fill and rendering endpoints share tight Tier 1 limits.
+shot2code keeps the successful frame and reports optional asset failures
+separately. Wait for the displayed `Retry-After` period, or export the missing
+asset from Figma and add it through Upload. REST provides design structure and
+assets, not production application source code.
+
+**A Stitch screen imported without an image/font**
+
+Only HTTPS assets with a supported image/font/stylesheet type are localized.
+Private-address hosts, unsafe redirects, oversized files, MIME mismatches and
+executable SVG content are refused. `STITCH-IMPORT.md` lists any partial-import
+warning. Stitch remains a design generator; it is not a general image-provider
+fallback.
+
+**I want Stitch output without another AI model changing it**
+
+Use the dedicated **Stitch** tab and leave **Stitch only** selected. shot2code
+opens Stitch's localized HTML, screenshot, images, stylesheets, fonts and
+available `DESIGN.md` directly. No Copilot, OpenAI, Anthropic or Gemini
+conversion runs. Choose **Convert to selected stack** only when you explicitly
+want another model to translate the design to React, Vue or another stack.
+
+**A GitHub repository cannot be imported**
+
+Use an `https://github.com/owner/repository` URL. Public repositories need no
+token. A private repository needs a separate fine-grained token restricted to
+that repository with **Contents: read** in Settings. Copilot sign-in is not
+reused because its narrow scope does not authorize repository contents.
+Repositories over 30 MB, unsupported binary-only repositories, traversal paths
+and dependency/build folders are refused or skipped, and no repository code is
+executed.
+
+**Website design inspection is refused**
+
+The inspector accepts only a public HTTP(S) page that resolves exclusively to
+public internet addresses and loads without signing in. Localhost, private
+networks, cloud metadata, credential-bearing URLs and private subrequests are
+blocked. The result is rendered evidence and an inferred `DESIGN.md`, not the
+site's original source code or a licence to copy its assets.
 
 **Only one of several screenshots appears in the result**
 

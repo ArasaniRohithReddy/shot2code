@@ -3,6 +3,7 @@ import { generateCode } from "./generateCode";
 import {
   AppState,
   AppTheme,
+  DesignSourceAsset,
   EditorTheme,
   MultiScreenshotMode,
   Settings,
@@ -95,6 +96,10 @@ import {
   createProjectStateFromImport,
   type EditableProjectImportSelection,
 } from "./lib/project-import";
+import {
+  normalizeDesignProject,
+  type DesignProjectImport,
+} from "./lib/design-project-import";
 import type { ReviewBinding } from "./lib/review";
 import {
   DEFAULT_PROJECT_ENTRY_POINT,
@@ -183,6 +188,7 @@ function App() {
       screenshotOneApiKey: null,
       figmaAccessToken: null,
       stitchApiKey: null,
+      githubRepositoryToken: null,
       copilotGithubToken: null,
       copilotUseLoggedInUser: true,
       copilotModels: [],
@@ -927,7 +933,8 @@ function App() {
     inputMode: "image" | "video",
     textPrompt: string = "",
     isAssetExtractionEnabled = true,
-    multiScreenshotMode?: MultiScreenshotMode
+    multiScreenshotMode?: MultiScreenshotMode,
+    sourceAssets: DesignSourceAsset[] = []
   ) {
     // Reset any existing state
     reset();
@@ -989,6 +996,9 @@ function App() {
           text: textPrompt,
           images: inputMode === "image" ? media : [],
           videos: inputMode === "video" ? media : [],
+          ...(sourceAssets.length > 0
+            ? { sourceAssets: sourceAssets.map((asset) => ({ ...asset })) }
+            : {}),
           multiImageMode: effectiveMultiScreenshotMode,
         },
         // Asset extraction operates on still screenshots. Video data uses the
@@ -1188,6 +1198,47 @@ function App() {
     setAppState(AppState.CODE_READY);
     toast.success(
       `Opened ${project.name} with ${project.files.length} editable files.`
+    );
+    applyInitialImportInstruction(instruction);
+  }
+
+  function importDesignProject(
+    project: DesignProjectImport,
+    stack: Stack,
+    instruction: string = ""
+  ) {
+    reset();
+    setStack(stack);
+    setInputMode("text");
+    projectHistory.startProject({
+      title: deriveProjectTitle({
+        inputMode: "import",
+        importedName: project.name,
+        sourceCode: project.files[project.entryPoint]?.content ?? "",
+        stack,
+      }),
+      stack,
+    });
+
+    const normalizedProject = normalizeDesignProject(project);
+    const commit = createCommit({
+      type: "code_create",
+      parentHash: null,
+      variants: [
+        {
+          ...normalizedProject,
+          history: [],
+          status: "complete",
+          completedAt: Date.now(),
+          stack,
+        },
+      ],
+      inputs: null,
+    });
+    addCommit(commit);
+    setAppState(AppState.CODE_READY);
+    toast.success(
+      `Opened ${project.name} with ${Object.keys(project.files).length} files.`
     );
     applyInitialImportInstruction(instruction);
   }
@@ -1723,6 +1774,7 @@ function App() {
                 doCreateFromText={doCreateFromText}
                 importFromCode={importFromCode}
                 importProject={importProject}
+                importDesignProject={importDesignProject}
                 settings={settings}
                 setSettings={setSettings}
                 designSystems={designSystems}

@@ -57,6 +57,7 @@ Download the latest build from
 
 Because there is no signature to check, verify the download instead. Published
 SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
+[v0.6.0](docs/releases/v0.6.0/SHA256SUMS.txt),
 [v0.5.2](docs/releases/v0.5.2/SHA256SUMS.txt),
 [v0.5.0](docs/releases/v0.5.0/SHA256SUMS.txt),
 [v0.4.0](docs/releases/v0.4.0/SHA256SUMS.txt),
@@ -66,7 +67,7 @@ SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
 [v0.3.0](docs/releases/v0.3.0/SHA256SUMS.txt):
 
 ```powershell
-Get-FileHash .\shot2code-0.5.2-x64.exe -Algorithm SHA256
+Get-FileHash .\shot2code-0.6.0-x64.exe -Algorithm SHA256
 ```
 
 First launch takes about a minute while the bundled backend starts. Later
@@ -84,8 +85,9 @@ What changed in each release: [CHANGELOG.md](CHANGELOG.md).
 
 ## Using it
 
-Give shot2code a screenshot, several related screenshots, a URL, a text
-description, or a screen recording, and it generates a working page. It
+Give shot2code a screenshot, several related screenshots, a public website,
+a Figma/Stitch design, a GitHub frontend repository, a text description, or a
+screen recording, and it generates or opens a working project. It
 produces several variants in parallel so you can pick the best one, then refine
 it by describing what to change.
 
@@ -130,6 +132,11 @@ Other things it can do:
 - **Design Inspector** — extract repeated colors, CSS variables, typography,
   spacing, radii, shadows, motion and component patterns from the composed
   preview, then download `DESIGN.md`, `SKILL.md`, or a palette PNG.
+- **Public website → `DESIGN.md`** — inspect a public URL in the bundled local
+  Chromium, capture desktop/tablet/mobile evidence, extract computed design
+  tokens, semantic and accessibility structure, and public asset references,
+  then copy/download the result or use it with the responsive screenshots for
+  generation. Private and loopback destinations are refused.
 - **MCP tools for Copilot runtimes** — connect bounded stdio, HTTP or SSE
   servers. A server must be enabled and trusted, stays read-only unless write
   tools are explicitly allowed, and is never exposed to native OpenAI,
@@ -142,14 +149,30 @@ Other things it can do:
   and available only to Copilot runtimes. Skill scripts are resources only:
   shot2code does not enable shell execution.
 - **Figma import** — use a scoped personal access token with
-  `file_content:read` to render Figma frames through the official REST API, or
-  upload exported PNG/JPG/SVG files. Figma restricts both its desktop and
-  hosted MCP servers to clients in the Figma MCP Catalog; shot2code does not
-  advertise a connection Figma will reject.
+  `file_content:read` to render Figma frames through the official REST API and
+  preserve original image fills plus export-marked nodes as reusable local
+  assets, or upload exported PNG/JPG/SVG files. Figma restricts both its
+  desktop and hosted MCP servers to clients in the Figma MCP Catalog;
+  shot2code does not advertise a connection Figma will reject. Figma REST does
+  not provide production application source code, so the selected shot2code
+  models still create the implementation.
 - **Google Stitch** — the Windows desktop bundles the experimental,
   Apache-2.0 `@google/stitch-sdk` to generate or import Stitch screens with the
-  user's API key; the official hosted Stitch MCP remains available as a
-  separately trusted server.
+  user's API key. Its HTML, screenshot, referenced images, stylesheets, fonts
+  and available `DESIGN.md` are localized into editable project files; the
+  official hosted Stitch MCP remains available as a separately trusted server.
+  Stitch is not described as a general image backend or guaranteed-free
+  provider because its official SDK publishes neither capability. The dedicated
+  Stitch tab defaults to **Stitch only**, which opens those files directly and
+  calls no second model provider; **Convert to selected stack** is explicit.
+- **GitHub repository import** — paste a public repository URL to inspect its
+  text source, frontend stack, components, tokens and bounded image assets
+  without executing any project code. Private repositories require a separate
+  fine-grained token limited to that repository with `Contents: read`; the
+  Copilot login is intentionally not reused for broader repository access.
+- **Paste screenshots into Chat** — use Ctrl+V/Cmd+V in the refinement
+  composer to attach PNG, JPEG or WebP references through the same bounded
+  update-image flow as the plus button.
 - **Asset extraction** — reuses the real logos and images from your screenshot
   (needs a Gemini key)
 - **Image generation and editing** — Replicate by default, or optionally
@@ -364,13 +387,14 @@ You need **one** provider. GitHub Copilot is easiest because it needs no API key
 | Cloudflare Workers AI | Account ID + API token | *Optional* alternative image backend — see [Image generation](#image-generation) |
 | ScreenshotOne | API key | Captures public URLs; the URL tab can test the key with one minimal request |
 | Figma | Scoped personal access token | Imports selected frames through the documented REST API; Figma MCP accepts only catalog-listed clients |
-| Google Stitch | Stitch API key or MCP | Desktop SDK generation/import; experimental Google Labs package |
+| Google Stitch | Stitch API key or MCP | Desktop SDK generation/import with localized code/assets; experimental Google Labs package, not a general image provider |
+| GitHub repository import | None for public repos; optional repository-limited token for private repos | Fine-grained token with `Contents: read`; never borrowed from Copilot sign-in |
 
 Keys go in **Settings** (gear icon) and are stored on your device only.
 Every key is masked in the UI and is never echoed back by a diagnostic, a
 validation response, a log line, project history or an exported report.
-Capture-only Figma, Stitch and ScreenshotOne credentials are removed before a
-model-generation request is built.
+Capture-only Figma, Stitch, GitHub-repository and ScreenshotOne credentials are
+removed before a model-generation request is built.
 
 ### Checking a provider before you generate
 

@@ -1,16 +1,29 @@
 import React from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { Stack } from "../../lib/stacks";
-import { DesignSystem, MultiScreenshotMode, Settings } from "../../types";
+import {
+  DesignSourceAsset,
+  DesignSystem,
+  MultiScreenshotMode,
+  Settings,
+} from "../../types";
 import UploadTab from "./tabs/UploadTab";
 import UrlTab from "./tabs/UrlTab";
 import TextTab from "./tabs/TextTab";
 import ImportTab from "./tabs/ImportTab";
 import { DesignSystemSelectorProps } from "../settings/DesignSystemSelector";
 import { ModelSelectorProps } from "../settings/ModelSelector";
-import { LuFigma, LuFolderOpen, LuSparkles, LuX } from "react-icons/lu";
+import {
+  LuFigma,
+  LuFolderOpen,
+  LuGithub,
+  LuSparkles,
+  LuX,
+} from "react-icons/lu";
 import type { EditableProjectImportHandler } from "../../lib/project-import";
+import type { DesignProjectImportHandler } from "../../lib/design-project-import";
 import FigmaTab from "./tabs/FigmaTab";
+import GitHubTab from "./tabs/GitHubTab";
 
 interface Props {
   activeTab: InputTab;
@@ -20,7 +33,8 @@ interface Props {
     inputMode: "image" | "video",
     textPrompt?: string,
     isAssetExtractionEnabled?: boolean,
-    multiScreenshotMode?: MultiScreenshotMode
+    multiScreenshotMode?: MultiScreenshotMode,
+    sourceAssets?: DesignSourceAsset[]
   ) => void;
   doCreateFromText: (text: string) => void;
   importFromCode: (
@@ -29,10 +43,11 @@ interface Props {
     instruction?: string,
     titleHint?: string
   ) => void;
-  importProject?: (
+  importProject: (
     selection: Parameters<EditableProjectImportHandler>[0],
     instruction?: string
   ) => void;
+  importDesignProject: DesignProjectImportHandler;
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   designSystems: DesignSystem[];
@@ -45,6 +60,7 @@ export type InputTab =
   | "url"
   | "text"
   | "import"
+  | "github"
   | "figma"
   | "stitch";
 
@@ -55,6 +71,7 @@ function UnifiedInputPane({
   doCreateFromText,
   importFromCode,
   importProject,
+  importDesignProject,
   settings,
   setSettings,
   designSystems,
@@ -137,7 +154,7 @@ function UnifiedInputPane({
           </div>
         )}
 
-        <TabsList className="mb-6 grid h-auto w-full grid-cols-3 gap-1 sm:grid-cols-6">
+        <TabsList className="mb-6 grid h-auto w-full grid-cols-4 gap-1 sm:grid-cols-7">
           <TabsTrigger
             value="upload"
             className="flex items-center gap-2"
@@ -179,6 +196,14 @@ function UnifiedInputPane({
             <span>Figma</span>
           </TabsTrigger>
           <TabsTrigger
+            value="github"
+            className="flex items-center gap-2"
+            data-testid="tab-github"
+          >
+            <LuGithub className="h-4 w-4" aria-hidden="true" />
+            <span>GitHub</span>
+          </TabsTrigger>
+          <TabsTrigger
             value="stitch"
             className="flex items-center gap-2"
             data-testid="tab-stitch"
@@ -205,7 +230,7 @@ function UnifiedInputPane({
             screenshotOneApiKey={settings.screenshotOneApiKey}
             figmaAccessToken={settings.figmaAccessToken}
             stitchApiKey={settings.stitchApiKey}
-            importFromCode={importFromCode}
+            importDesignProject={importDesignProject}
             mcpServers={settings.mcpServers ?? []}
             stack={settings.generatedCodeConfig}
             setStack={setStack}
@@ -218,7 +243,7 @@ function UnifiedInputPane({
           <TextTab
             doCreate={doCreate}
             doCreateFromText={doCreateFromText}
-            importFromCode={importFromCode}
+            importDesignProject={importDesignProject}
             stitchApiKey={settings.stitchApiKey}
             stack={settings.generatedCodeConfig}
             setStack={setStack}
@@ -250,11 +275,19 @@ function UnifiedInputPane({
           />
         </TabsContent>
 
+        <TabsContent value="github" className="mt-0">
+          <GitHubTab
+            token={settings.githubRepositoryToken}
+            fallbackStack={settings.generatedCodeConfig}
+            importDesignProject={importDesignProject}
+          />
+        </TabsContent>
+
         <TabsContent value="stitch" className="mt-0">
           <TextTab
             doCreate={doCreate}
             doCreateFromText={doCreateFromText}
-            importFromCode={importFromCode}
+            importDesignProject={importDesignProject}
             stitchApiKey={settings.stitchApiKey}
             stack={settings.generatedCodeConfig}
             setStack={setStack}

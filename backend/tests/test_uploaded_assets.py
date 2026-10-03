@@ -119,3 +119,40 @@ def test_append_uploaded_asset_ids_to_prompt_keeps_image_and_adds_id(
     assert "save_assets" in prompt["text"]
     assert "asset_ids list" in prompt["text"]
     assert "Decide" in prompt["text"]
+
+
+@pytest.mark.asyncio
+async def test_design_source_assets_are_reused_without_save_assets(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    asset_dir = tmp_path / "local-assets"
+    monkeypatch.setattr("uploaded_assets.store.LOCAL_ASSET_DIR", str(asset_dir))
+    monkeypatch.setattr("asset_urls.LOCAL_ASSET_DIR", str(asset_dir))
+    saved = await persist_data_url_as_asset(
+        _data_url(b"figma-logo"),
+        "http://127.0.0.1:7001",
+    )
+    assert saved is not None
+
+    prompt = append_uploaded_asset_ids_to_prompt(
+        {
+            "text": "Build the page",
+            "images": [],
+            "videos": [],
+            "source_assets": [
+                {
+                    "name": "logo.png",
+                    "url": saved.public_url,
+                    "mime_type": "image/png",
+                    "source": "figma",
+                    "kind": "image fill",
+                }
+            ],
+        },
+        "http://127.0.0.1:7001",
+    )
+
+    assert "Imported design-source assets" in prompt["text"]
+    assert saved.public_url in prompt["text"]
+    assert "Keep the URLs unchanged" in prompt["text"]

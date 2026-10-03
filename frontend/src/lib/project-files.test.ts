@@ -330,6 +330,23 @@ describe("preview composition", () => {
     expect(artifact.html).toContain("data:application/octet-stream;base64,");
   });
 
+  it("repairs brace-wrapped generated image placeholders in the derived preview", () => {
+    const artifact = createProjectPreviewArtifact({
+      code: `<main>
+        <img src="{IMG.site}">
+        <img srcset="{https://i.pravatar.cc/64} 1x, {IMG.dashboard} 2x">
+        <div style="background-image:url('{IMG.hero}')"></div>
+      </main>`,
+    });
+
+    expect(artifact.diagnostics).toEqual([]);
+    expect(artifact.omittedFilePaths).toEqual([]);
+    expect(artifact.html).toContain("https://i.pravatar.cc/64");
+    expect(artifact.html.match(/https:\/\/placehold\.co\/800x600\?text=Image/g))
+      .toHaveLength(3);
+    expect(artifact.html).not.toContain("{IMG.");
+  });
+
   it("omits local JavaScript modules that still depend on a build graph", () => {
     const artifact = createProjectPreviewArtifact({
       code: '<main id="app"></main><script type="module" src="./src/main.js"></script>',

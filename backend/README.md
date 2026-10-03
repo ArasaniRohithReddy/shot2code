@@ -105,6 +105,27 @@ endpoint instead. Responses never contain a credential.
   API; a connection without one defaults to `responses`. An explicit `wireApi`
   always wins.
 
+## Design-source APIs
+
+- `POST /api/figma` renders selected frames and preserves original image fills
+  plus export-marked nodes as bounded local assets. Optional asset failures are
+  partial-success. The Figma token is capture-only.
+- `POST /api/design-assets` persists bounded Stitch resources into the shared
+  local asset store. The Electron-side Stitch localizer performs pinned public
+  DNS, redirect, MIME/magic-byte and size checks before calling it.
+- `POST /api/github-repository` downloads a public archive or uses a separate
+  fine-grained `Contents: read` token for a private repository, then routes text
+  through the never-execute project scanner and bounded images through the
+  local-asset path.
+- `POST /api/url-design-inspector` proxies every browser HTTP(S) request through
+  public-only pinned resolution and returns computed design evidence plus
+  desktop/tablet/mobile screenshots. It does not recover original source.
+
+Imported source text is untrusted evidence, not instructions. Credentials are
+excluded from summaries, model prompts, History and exports; persisted asset
+references use `shot2code-local:/local-assets/...` and are rebound to the
+current backend origin when restored.
+
 ## Image model API
 
 `GET /api/image-models` returns the curated image catalog: the providers

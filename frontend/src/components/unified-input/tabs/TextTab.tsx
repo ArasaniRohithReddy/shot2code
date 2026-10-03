@@ -9,26 +9,34 @@ import ModelSelector, {
   ModelSelectorProps,
 } from "../../settings/ModelSelector";
 import { Stack } from "../../../lib/stacks";
+import type { DesignSourceAsset } from "../../../types";
+import { wrapUntrustedDesignEvidence } from "../../../lib/design-inspector";
 import StitchGenerationStatus from "./StitchGenerationStatus";
+import {
+  createStitchDesignProject,
+  type DesignProjectImportHandler,
+} from "../../../lib/design-project-import";
+import { persistStitchSourceAssets } from "../../../lib/design-assets-client";
 import {
   formatStitchElapsed,
   type StitchUiPhase,
 } from "./stitch-generation-status";
+import {
+  type StitchOutputMode,
+  usesDirectStitchOutput,
+} from "./stitch-output-mode";
 
 interface Props {
   doCreate: (
     images: string[],
     inputMode: "image" | "video",
     textPrompt?: string,
-    isAssetExtractionEnabled?: boolean
+    isAssetExtractionEnabled?: boolean,
+    multiScreenshotMode?: undefined,
+    sourceAssets?: DesignSourceAsset[]
   ) => void;
   doCreateFromText: (text: string) => void;
-  importFromCode: (
-    code: string,
-    stack: Stack,
-    instruction?: string,
-    titleHint?: string
-  ) => void;
+  importDesignProject: DesignProjectImportHandler;
   stitchApiKey: string | null;
   stack: Stack;
   setStack: (stack: Stack) => void;
@@ -47,7 +55,7 @@ const EXAMPLE_PROMPTS = [
 function TextTab({
   doCreate,
   doCreateFromText,
-  importFromCode,
+  importDesignProject,
   stitchApiKey,
   stack,
   setStack,
@@ -64,6 +72,8 @@ function TextTab({
   const [stitchStartedAt, setStitchStartedAt] = useState<number | null>(null);
   const [stitchElapsedSeconds, setStitchElapsedSeconds] = useState(0);
   const [stitchError, setStitchError] = useState<string | null>(null);
+  const [stitchOutputMode, setStitchOutputMode] =
+    useState<StitchOutputMode>(stitchOnly ? "stitch" : "convert");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -137,20 +147,43 @@ function TextTab({
       setStitchProgress({
         phase: "importing-code",
         message:
-          stack === Stack.HTML_CSS
+          usesDirectStitchOutput(stitchOnly, stitchOutputMode, stack)
             ? "Opening the generated files in shot2code…"
             : "Applying the selected stack with your chosen models…",
       });
-      if (stack === Stack.HTML_CSS) {
-        importFromCode(result.html, Stack.HTML_CSS, "", text.trim());
-        toast.success("Stitch screen generated and imported.");
+      const persisted = await persistStitchSourceAssets(result.assets ?? []);
+      const warnings = [...(result.warnings ?? []), ...persisted.warnings];
+      warnings.forEach((warning) => toast(warning));
+      if (usesDirectStitchOutput(stitchOnly, stitchOutputMode, stack)) {
+        importDesignProject(
+          createStitchDesignProject(
+            { ...result, warnings },
+            text.trim(),
+            persisted.sourceAssets
+          ),
+          Stack.HTML_CSS
+        );
+        toast.success(
+          `Stitch-only project opened with ${
+            result.assets?.length ?? 0
+          } localized file${(result.assets?.length ?? 0) === 1 ? "" : "s"}.`
+        );
       } else {
         const stackLabel = stack.replace(/_/g, " ");
+        const designContext = result.designMd?.trim()
+          ? `\n\n${wrapUntrustedDesignEvidence(
+              "Google Stitch DESIGN.md",
+              result.designMd,
+              12_000
+            )}`
+          : "";
         doCreate(
           [result.image],
           "image",
-          `Recreate this Google Stitch design in the selected ${stackLabel} stack. Preserve the layout, content, visual hierarchy, spacing, colors, and responsive behavior from the supplied Stitch preview.`,
-          false
+          `Recreate this Google Stitch design in the selected ${stackLabel} stack. Preserve the layout, content, visual hierarchy, spacing, colors, responsive behavior, and imported source assets from the supplied Stitch preview.${designContext}`,
+          false,
+          undefined,
+          persisted.sourceAssets
         );
         toast.success(
           "Stitch design generated. shot2code is now applying the selected stack."
@@ -198,8 +231,9 @@ function TextTab({
               </h3>
               {stitchOnly && (
                 <p className="mt-1 max-w-md text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                  Stitch creates the visual design first. shot2code then applies
-                  the selected stack and model choices when conversion is needed.
+                  Choose whether to keep Stitch's own localized HTML and assets,
+                  or explicitly convert its design through your selected
+                  shot2code models.
                 </p>
               )}
             </div>
@@ -245,12 +279,49 @@ function TextTab({
               </div>
             )}
 
-            <OutputSettingsSection
-              stack={stack}
-              setStack={setStack}
-              designSystem={designSystem}
-            />
-            {modelSelector && <ModelSelector {...modelSelector} />}
+            {stitchOnly && (
+              <div
+                role="group"
+                aria-label="Stitch output mode"
+                className="grid grid-cols-2 rounded-lg bg-gray-100 p-1 dark:bg-zinc-800"
+              >
+                <button
+                  type="button"
+                  aria-pressed={stitchOutputMode === "stitch"}
+                  onClick={() => setStitchOutputMode("stitch")}
+                  className={`min-h-11 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
+                    stitchOutputMode === "stitch"
+                      ? "bg-white text-gray-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
+                      : "text-gray-600 hover:text-gray-950 dark:text-zinc-300 dark:hover:text-zinc-50"
+                  }`}
+                >
+                  Stitch only
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={stitchOutputMode === "convert"}
+                  onClick={() => setStitchOutputMode("convert")}
+                  className={`min-h-11 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
+                    stitchOutputMode === "convert"
+                      ? "bg-white text-gray-950 shadow-sm dark:bg-zinc-950 dark:text-zinc-50"
+                      : "text-gray-600 hover:text-gray-950 dark:text-zinc-300 dark:hover:text-zinc-50"
+                  }`}
+                >
+                  Convert to selected stack
+                </button>
+              </div>
+            )}
+
+            {(!stitchOnly || stitchOutputMode === "convert") && (
+              <>
+                <OutputSettingsSection
+                  stack={stack}
+                  setStack={setStack}
+                  designSystem={designSystem}
+                />
+                {modelSelector && <ModelSelector {...modelSelector} />}
+              </>
+            )}
 
             {!stitchOnly && (
               <Button
@@ -284,13 +355,15 @@ function TextTab({
                       Stitch is working…
                     </>
                   ) : (
-                    "Generate with Google Stitch SDK"
+                    stitchOnly && stitchOutputMode === "stitch"
+                      ? "Generate with Stitch only"
+                      : "Generate with Stitch & Convert"
                   )}
                 </Button>
                 <p className="text-center text-[11px] leading-4 text-gray-500 dark:text-zinc-400">
-                  Stitch creates the visual design first. HTML + CSS opens
-                  directly; other stacks continue through your selected
-                  shot2code models, so provider quota may apply.
+                  {stitchOnly && stitchOutputMode === "stitch"
+                    ? "No second AI provider is called. shot2code opens Stitch's localized HTML, assets, screenshot, and DESIGN.md directly."
+                    : "Stitch creates the visual design first, then your selected shot2code models convert it; provider quota may apply."}
                 </p>
               </div>
             )}

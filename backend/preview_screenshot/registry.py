@@ -2,6 +2,8 @@ import asyncio
 import inspect
 from typing import Optional
 
+from playwright.async_api import BrowserContext, ViewportSize
+
 from babel_cdn import normalize_babel_cdn
 from preview_screenshot.base import ScreenshotBackend
 from preview_screenshot.playwright_backend import PlaywrightBackend
@@ -76,3 +78,18 @@ async def capture_preview_screenshot(
     pages (old and new) actually mount before we capture.
     """
     return await _backend.capture(normalize_babel_cdn(html), device, full_page)
+
+
+async def create_screenshot_browser_context(
+    *,
+    viewport: ViewportSize | None = None,
+) -> BrowserContext:
+    create_context = getattr(_backend, "create_context", None)
+    if not callable(create_context):
+        raise RuntimeError(
+            "The configured screenshot backend cannot inspect public websites."
+        )
+    result = create_context(viewport=viewport)
+    if not inspect.isawaitable(result):
+        raise RuntimeError("The screenshot backend returned an invalid context.")
+    return await result

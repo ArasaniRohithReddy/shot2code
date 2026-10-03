@@ -45,6 +45,9 @@ const {
 const untrustedPreloadPath = path.join(__dirname, "untrusted-preload.js");
 
 const isDev = !app.isPackaged;
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.arasanirohithreddy.shot2code");
+}
 const isManagedInstall =
   process.platform === "win32" &&
   [process.env.ProgramFiles, process.env["ProgramFiles(x86)"]]

@@ -4,8 +4,9 @@ shot2code runs on your own machine. Project history and credentials stay local.
 Generation content leaves the device only for the model provider or BYOK
 endpoint you explicitly select; MCP tool calls go only to servers you explicitly
 enable and trust; a provider connection check contacts only the provider you
-asked it to test. The other outbound traffic is the update check and anything
-you explicitly share.
+asked it to test. Other outbound traffic is explicit: Figma/Stitch capture,
+GitHub repository import, public website inspection, web/free-image search,
+image providers, the update check, and anything you deliberately share.
 
 ## Supported versions
 
@@ -14,12 +15,8 @@ release rather than as patches to older installers.
 
 | Version | Supported |
 |---|---|
-| 0.4.0 | ✅ Yes — current release |
-| 0.3.3 | ⚠️ Superseded; update for BYOK/MCP permission controls and Review |
-| 0.3.2 | ❌ No — update to the latest release |
-| 0.3.1 | ⚠️ Superseded by the installer-hardening release; update when you can |
-| 0.3.0 | ❌ No — its updater could replace a live backend; upgrade immediately |
-| < 0.3 | ❌ No — upgrade to the [latest release](https://github.com/ArasaniRohithReddy/shot2code/releases/latest) |
+| The newest published release | ✅ Yes |
+| Anything older | ❌ No — update to the [latest release](https://github.com/ArasaniRohithReddy/shot2code/releases/latest) |
 
 ## Reporting a vulnerability
 
@@ -72,14 +69,12 @@ Credit is given in the advisory unless you prefer otherwise.
   endpoint. A custom endpoint model is sent under its real name only; no
   reasoning-effort setting derived from an internal compatibility template ever
   reaches it.
-- **In-app GitHub sign-in delegates to the official CLI.** shot2code implements
-  no OAuth flow and registers no client id of its own: **Sign in with GitHub**
-  runs `copilot login` (or `gh auth login`) with a fixed argument vector, and
-  the CLI owns the browser handshake and stores the credential. No token passes
-  through shot2code. The process is launched directly rather than through a
-  shell, nothing a request sends can influence the command line, its stdout and
-  stderr are drained but never returned or logged, and the flow is bounded by a
-  timeout, cancellable, and killed when the backend stops.
+- **The packaged app owns a GitHub OAuth device flow with a public client id and
+  no client secret.** Access and refresh tokens are encrypted with Electron
+  `safeStorage`, passed to the backend through a serialized restart, and removed
+  by **Disconnect GitHub from shot2code** without signing out an external
+  `gh`/Copilot CLI session. The browser development build may still delegate to
+  an official CLI using a fixed argument vector and no shell.
 - Starting or cancelling that sign-in is accepted only from shot2code's own
   local window — an `http`/`https` origin whose hostname is exactly `localhost`,
   `127.0.0.1` or `::1`, or the packaged app's `null` origin. Any other or
@@ -91,16 +86,24 @@ Credit is given in the advisory unless you prefer otherwise.
 - MCP environment values and request headers are treated as secrets: values are
   masked in the UI and excluded from diagnostics, logs, project history and
   exported Review reports.
-- `REPLICATE_API_KEY` has no Settings field. It must be set in `backend/.env` and
-  is used only for the image generation, editing and background-removal tools.
-- GitHub Copilot credentials are resolved at request time (a token in Settings,
-  then `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`, then a stored
-  `copilot` login, then `gh auth login`). Tokens are not persisted or logged; the
-  model cache is keyed by a SHA-256 fingerprint of the credential.
+- Image-generation, web-search, Figma, Stitch, ScreenshotOne and GitHub
+  repository credentials are read from current Settings only when their feature
+  is used. Closed request/history serializers keep them out of model requests
+  that do not need them, project History, snapshots, logs and exported reports.
+- Private GitHub repository import never broadens the Copilot OAuth scope. It
+  requires a separate fine-grained token restricted to the selected repository
+  with `Contents: read`; public repositories need no credential.
+- GitHub Copilot credentials are resolved at request time (the app-owned
+  encrypted token or a token in Settings, then
+  `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`, then a stored
+  `copilot` login, then `gh auth login`). Externally discovered credentials are
+  not copied into project storage or logs; the model cache is keyed by a
+  SHA-256 fingerprint rather than the credential.
 - Project history lives in a local SQLite database, `history.sqlite3`, under your
   user data directory (`%LOCALAPPDATA%\shot2code\` on Windows). It is not
-  encrypted — treat it like any other local project folder, and delete projects
-  from **Recent projects** when you no longer want them on disk.
+  encrypted and may contain imported/generated source plus bounded base64
+  project assets — treat it like any other local project folder, and delete
+  projects from **Recent projects** when you no longer want them on disk.
 - `backend/.env` is git-ignored. Never commit keys, tokens, or a copy of
   `history.sqlite3`, and redact keys from logs and screenshots before attaching
   them to an issue.
@@ -120,11 +123,10 @@ Because there is no signature to check, verify the download yourself:
    [GitHub Releases](https://github.com/ArasaniRohithReddy/shot2code/releases) for
    this repository.
 2. Compare the SHA-256 hash with the checksums published in
-   [`docs/releases/`](docs/releases/) — for example
-   [v0.4.0](docs/releases/v0.4.0/SHA256SUMS.txt):
+   [`docs/releases/`](docs/releases/) for that exact version:
 
    ```powershell
-   Get-FileHash .\shot2code-0.4.0-x64.exe -Algorithm SHA256
+   Get-FileHash .\shot2code-<version>-x64.exe -Algorithm SHA256
    ```
 
 3. Only then click **More info → Run anyway**, or right-click the file →
@@ -161,6 +163,20 @@ untrusted input.
 - The scanner rejects path traversal, ignores dependency and build-output
   directories, and enforces limits on archive size, entry count, file count,
   per-file size and total decoded text.
+- GitHub repository imports use that same scanner. Bounded PNG/JPEG/GIF/WebP
+  assets cross a separate binary-project boundary and are decoded explicitly
+  during Preview/export; repository code and configuration are still never
+  executed.
+- Figma asset retrieval is bounded and partial: rendered frames can succeed even
+  when optional image fills/export nodes are unavailable or rate-limited.
+- Stitch HTML and referenced assets are treated as hostile input. HTTPS hosts
+  resolve only to public addresses, DNS is pinned for each request, redirects
+  are revalidated, byte/type limits are enforced, executable SVG content is
+  removed, and no SDK filesystem downloader is used.
+- Public website design inspection accepts only public HTTP(S) destinations,
+  blocks service workers and non-public subrequests, caps requests/elements and
+  captures only rendered evidence. It does not claim to recover original source,
+  authenticated content or asset rights.
 - Raw imported source is not written into persisted project context. Only the
   compact summary is stored; the normalized file payload exists for the active
   editable-import handoff.

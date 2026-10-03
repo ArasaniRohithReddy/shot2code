@@ -50,7 +50,9 @@ Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md) and include:
   check reported (`credentials`, `billing`, `quota`, `permissions`, `model`,
   `network`, `configuration`) and its message — it is written to be safe to
   paste, but check it for anything private first
-- Whether an MCP server or the Review workspace was involved
+- Whether an MCP server, Agent Skill, Figma/Stitch/GitHub import, public website
+  design inspection, pasted screenshot, image provider or the Review workspace
+  was involved
 - For the desktop app, the **tail of the log** — this is usually enough on its own:
 
   ```
@@ -66,6 +68,8 @@ screenshots before posting.
 For generation problems, also say which output stack you selected, how many
 screenshots you uploaded, and — with more than one — which multi-screenshot mode
 you chose (separate pages, responsive views, UI states, supporting references).
+For design/repository imports, include the public host or `owner/repository`
+name, but never post a private URL, repository token or provider credential.
 
 ## Requesting a feature
 

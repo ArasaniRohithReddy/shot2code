@@ -18,6 +18,10 @@ import {
   type ProjectFileMetadata,
   type ProjectFileType,
 } from "./project-files";
+import {
+  canonicalizeLocalAssetUrls,
+  rebaseLocalAssetUrls,
+} from "./local-asset-urls";
 import { Stack } from "./stacks";
 import type {
   HistoryCommit,
@@ -38,6 +42,7 @@ import type {
   PromptAsset,
   PromptAssetType,
   PromptContent,
+  DesignSourceAsset,
 } from "../types";
 
 export const HISTORY_APP_METADATA_KEY = "shot2code";
@@ -440,6 +445,48 @@ function assetIdsForUrls(
   );
 }
 
+function serializeSourceAssets(
+  assets: DesignSourceAsset[] | undefined
+): HistoryJsonObject[] {
+  return (assets ?? []).map((asset) => ({
+    name: asset.name,
+    url: canonicalizeLocalAssetUrls(asset.url),
+    mime_type: asset.mimeType,
+    source: asset.source,
+    kind: asset.kind,
+  }));
+}
+
+function parseSourceAssets(value: unknown): DesignSourceAsset[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((raw): DesignSourceAsset | null => {
+      if (!isRecord(raw)) return null;
+      const name = stringValue(raw.name);
+      const url = stringValue(raw.url);
+      const mimeType = stringValue(raw.mime_type);
+      const source = stringValue(raw.source);
+      const kind = stringValue(raw.kind);
+      if (
+        !name ||
+        !url ||
+        !mimeType ||
+        (source !== "figma" && source !== "github" && source !== "stitch") ||
+        !kind
+      ) {
+        return null;
+      }
+      return {
+        name,
+        url: rebaseLocalAssetUrls(url),
+        mimeType,
+        source,
+        kind,
+      };
+    })
+    .filter((asset): asset is DesignSourceAsset => asset !== null);
+}
+
 function serializePrompt(
   prompt: PromptContent,
   registry: AssetRegistry
@@ -452,6 +499,9 @@ function serializePrompt(
   optionalJson(serialized, "full_text", prompt.fullText);
   optionalJson(serialized, "multi_image_mode", prompt.multiImageMode);
   optionalJson(serialized, "selected_element_html", prompt.selectedElementHtml);
+  if ((prompt.sourceAssets ?? []).length > 0) {
+    serialized.source_assets = serializeSourceAssets(prompt.sourceAssets);
+  }
   return serialized;
 }
 
@@ -482,6 +532,8 @@ function parsePrompt(
     images: resolveAssetIds(imageAssetIds, assetsById, "image"),
     videos: resolveAssetIds(videoAssetIds, assetsById, "video"),
   };
+  const sourceAssets = parseSourceAssets(prompt.source_assets);
+  if (sourceAssets.length > 0) parsed.sourceAssets = sourceAssets;
   const fullText = stringValue(prompt.full_text);
   if (fullText !== undefined) parsed.fullText = fullText;
   if (multiImageMode && MULTI_SCREENSHOT_MODES.has(multiImageMode)) {
@@ -647,12 +699,23 @@ function projectDataFromVariant(variant: Variant): HistoryProjectData {
         path,
         {
           path,
-          content: file.content,
+          content: canonicalizeLocalAssetUrls(file.content),
           language: file.language,
           type: file.type,
           ...(file.readonly === undefined ? {} : { readonly: file.readonly }),
           ...(file.generated === undefined ? {} : { generated: file.generated }),
-          ...(file.metadata === undefined ? {} : { metadata: { ...file.metadata } }),
+          ...(file.metadata === undefined
+            ? {}
+            : {
+                metadata: Object.fromEntries(
+                  Object.entries(file.metadata).map(([key, value]) => [
+                    key,
+                    typeof value === "string"
+                      ? canonicalizeLocalAssetUrls(value)
+                      : value,
+                  ])
+                ),
+              }),
         },
       ])
     ),
@@ -676,12 +739,23 @@ function projectFilesFromHistory(projectData: HistoryProjectData): ProjectFileMa
         : undefined;
       return [
         path,
-        createProjectFile(path, file.content, {
+        createProjectFile(path, rebaseLocalAssetUrls(file.content), {
           ...(language ? { language } : {}),
           ...(type ? { type } : {}),
           ...(file.readonly === undefined ? {} : { readonly: file.readonly }),
           ...(file.generated === undefined ? {} : { generated: file.generated }),
-          ...(metadata ? { metadata } : {}),
+          ...(metadata
+            ? {
+                metadata: Object.fromEntries(
+                  Object.entries(metadata).map(([key, value]) => [
+                    key,
+                    typeof value === "string"
+                      ? rebaseLocalAssetUrls(value)
+                      : value,
+                  ])
+                ),
+              }
+            : {}),
         }),
       ];
     })
@@ -713,7 +787,7 @@ function variantToHistoryInput(
     index,
     model: variant.model ?? null,
     status: variant.status ?? "complete",
-    code: normalized.code,
+    code: canonicalizeLocalAssetUrls(normalized.code),
     currentContent: getProjectGenerationContent(normalized),
     createdAt: commit.dateCreated,
     startedAt: toIsoTimestamp(variant.requestStartedAt) ?? null,
@@ -796,13 +870,26 @@ function serializeDraftVariant(variant: Variant): HistoryJsonObject {
   for (const [path, file] of Object.entries(normalized.files)) {
     const serializedFile: HistoryJsonObject = {
       path,
-      content: file.content,
+      content: canonicalizeLocalAssetUrls(file.content),
       language: file.language,
       type: file.type,
     };
     optionalJson(serializedFile, "readonly", file.readonly);
     optionalJson(serializedFile, "generated", file.generated);
-    optionalJson(serializedFile, "metadata", file.metadata);
+    optionalJson(
+      serializedFile,
+      "metadata",
+      file.metadata
+        ? Object.fromEntries(
+            Object.entries(file.metadata).map(([key, value]) => [
+              key,
+              typeof value === "string"
+                ? canonicalizeLocalAssetUrls(value)
+                : value,
+            ])
+          )
+        : undefined
+    );
     files[path] = serializedFile;
   }
 
@@ -925,10 +1012,20 @@ function parseStoredFiles(value: unknown): ProjectFileMap {
   for (const [mapPath, rawFile] of Object.entries(value)) {
     if (!isRecord(rawFile)) continue;
     const path = stringValue(rawFile.path) ?? mapPath;
-    const content = stringValue(rawFile.content) ?? "";
+    const content = rebaseLocalAssetUrls(stringValue(rawFile.content) ?? "");
     const languageValue = stringValue(rawFile.language);
     const typeValue = stringValue(rawFile.type);
-    const metadataValue = projectFileMetadata(rawFile.metadata);
+    const rawMetadata = projectFileMetadata(rawFile.metadata);
+    const metadataValue = rawMetadata
+      ? Object.fromEntries(
+          Object.entries(rawMetadata).map(([key, metadataEntry]) => [
+            key,
+            typeof metadataEntry === "string"
+              ? rebaseLocalAssetUrls(metadataEntry)
+              : metadataEntry,
+          ])
+        )
+      : null;
     files[path] = createProjectFile(path, content, {
       ...(languageValue && FILE_LANGUAGES.has(languageValue as ProjectFileLanguage)
         ? { language: languageValue as ProjectFileLanguage }
@@ -965,7 +1062,7 @@ function parseDraftVariant(value: unknown): Variant {
         .filter((message): message is VariantHistoryMessage => message !== null)
     : [];
   const base = normalizeProjectState({
-    code: stringValue(raw.code) ?? "",
+    code: rebaseLocalAssetUrls(stringValue(raw.code) ?? ""),
     files: parseStoredFiles(raw.files),
     entryPoint: stringValue(raw.entry_point),
     activeFilePath: stringValue(raw.active_file_path),

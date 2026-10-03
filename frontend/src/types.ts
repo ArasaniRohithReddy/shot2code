@@ -40,6 +40,8 @@ export interface Settings {
   screenshotOneApiKey: string | null;
   figmaAccessToken: string | null;
   stitchApiKey: string | null;
+  /** Optional fine-grained token for explicitly requested private repo imports. */
+  githubRepositoryToken: string | null;
   isImageGenerationEnabled: boolean;
   /**
    * Allow Copilot SDK variants to use the built-in web_search tool.
@@ -161,6 +163,16 @@ export type MultiScreenshotMode =
   | "states"
   | "references";
 
+export type DesignSource = "figma" | "github" | "stitch";
+
+export interface DesignSourceAsset {
+  name: string;
+  url: string;
+  mimeType: string;
+  source: DesignSource;
+  kind: string;
+}
+
 export interface PromptAsset {
   id: string;
   type: PromptAssetType;
@@ -174,6 +186,14 @@ export interface PromptContent {
   fullText?: string;
   images: string[]; // Array of data URLs
   videos?: string[]; // Array of data URLs
+  /**
+   * Already-persisted assets imported from a design source.
+   *
+   * These are deliberately URLs plus bounded metadata, never credentials or
+   * raw bytes. The backend includes them in the agent prompt so generated code
+   * and later chat refinements can reuse the exact source assets.
+   */
+  sourceAssets?: DesignSourceAsset[];
   multiImageMode?: MultiScreenshotMode;
   selectedElementHtml?: string; // Raw HTML of selected element (for display only)
 }
@@ -210,6 +230,7 @@ export type FullGenerationSettings = CodeGenerationParams &
     | "screenshotOneApiKey"
     | "figmaAccessToken"
     | "stitchApiKey"
+    | "githubRepositoryToken"
   > & {
     designSystem?: string | null;
     /**

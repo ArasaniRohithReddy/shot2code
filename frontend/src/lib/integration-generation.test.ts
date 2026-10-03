@@ -79,6 +79,7 @@ function settingsFixture(): Settings {
     screenshotOneApiKey: null,
     figmaAccessToken: "figma-secret",
     stitchApiKey: "stitch-secret",
+    githubRepositoryToken: "github-repo-secret",
     isImageGenerationEnabled: true,
     copilotWebSearchEnabled: true,
     editorTheme: EditorTheme.COBALT,
@@ -328,9 +329,11 @@ describe("the WebSocket generation payload", () => {
 
     expect(serialized).not.toContain("figma-secret");
     expect(serialized).not.toContain("stitch-secret");
+    expect(serialized).not.toContain("github-repo-secret");
     expect(serialized).not.toContain("screenshotOneApiKey");
     expect(serialized).not.toContain("figmaAccessToken");
     expect(serialized).not.toContain("stitchApiKey");
+    expect(serialized).not.toContain("githubRepositoryToken");
   });
 
   test("image credentials travel only in the rebuilt image block", () => {

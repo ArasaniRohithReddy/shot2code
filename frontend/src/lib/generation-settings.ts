@@ -5,6 +5,7 @@ export type GenerationSettings = Omit<
   | "screenshotOneApiKey"
   | "figmaAccessToken"
   | "stitchApiKey"
+  | "githubRepositoryToken"
   | "imageGeneration"
   | "freeImageSearch"
 >;
@@ -26,6 +27,7 @@ export function toGenerationSettings(settings: Settings): GenerationSettings {
     screenshotOneApiKey: _screenshotOneApiKey,
     figmaAccessToken: _figmaAccessToken,
     stitchApiKey: _stitchApiKey,
+    githubRepositoryToken: _githubRepositoryToken,
     imageGeneration: _imageGeneration,
     freeImageSearch: _freeImageSearch,
     ...generationSettings
@@ -33,6 +35,7 @@ export function toGenerationSettings(settings: Settings): GenerationSettings {
   void _screenshotOneApiKey;
   void _figmaAccessToken;
   void _stitchApiKey;
+  void _githubRepositoryToken;
   void _imageGeneration;
   void _freeImageSearch;
   return generationSettings;

@@ -7,6 +7,7 @@ import {
   getProjectFile,
   normalizeProjectState,
 } from "./project-files";
+import { sourceAssetsFromProjectFiles } from "./design-source-assets";
 import {
   CodeGenerationParams,
   PromptAsset,
@@ -150,6 +151,15 @@ export function buildUpdateGenerationRequest({
     : getProjectEntryFile(normalizedParentVariant);
   const targetContent = targetFile?.content ?? "";
   const fullInstruction = prompt.fullText ?? prompt.text;
+  const inheritedSourceAssets =
+    parentCommit.type === "code_create"
+      ? sourceAssetsFromProjectFiles(normalizedParentVariant.files)
+      : parentCommit.inputs.sourceAssets ?? [];
+  const requestedSourceAssets = prompt.sourceAssets ?? [];
+  const sourceAssets =
+    requestedSourceAssets.length > 0
+      ? requestedSourceAssets
+      : inheritedSourceAssets;
   const variantHistory = [
     ...cloneVariantHistory(parentVariant.history),
     buildUserHistoryMessage(
@@ -169,6 +179,9 @@ export function buildUpdateGenerationRequest({
       ...prompt,
       images: [...prompt.images],
       videos: [...(prompt.videos ?? [])],
+      ...(sourceAssets.length > 0
+        ? { sourceAssets: sourceAssets.map((asset) => ({ ...asset })) }
+        : {}),
     },
     history: shouldBootstrapFromFileState
       ? []

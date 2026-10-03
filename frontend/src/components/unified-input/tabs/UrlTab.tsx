@@ -4,9 +4,16 @@ import {
   LuFigma,
   LuGlobe2,
   LuLoader,
+  LuSearch,
   LuSparkles,
 } from "react-icons/lu";
 import { HTTP_BACKEND_URL } from "../../../config";
+import { readDesignSourceAssets } from "../../../lib/design-source-assets";
+import {
+  createStitchDesignProject,
+  type DesignProjectImportHandler,
+} from "../../../lib/design-project-import";
+import { persistStitchSourceAssets } from "../../../lib/design-assets-client";
 import { Input } from "../../ui/input";
 import { toast } from "react-hot-toast";
 import { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
@@ -15,22 +22,29 @@ import { Stack } from "../../../lib/stacks";
 import GenerationControls from "../GenerationControls";
 import type { McpServerConfig } from "../../../lib/mcp-servers";
 import { isByokSelectionId } from "../../../lib/copilot-sdk-byok";
+import {
+  parseWebsiteDesignInspection,
+  type WebsiteDesignInspection,
+  wrapUntrustedDesignEvidence,
+} from "../../../lib/design-inspector";
+import type {
+  DesignSourceAsset,
+  MultiScreenshotMode,
+} from "../../../types";
+import WebsiteDesignInspectionResult from "./WebsiteDesignInspectionResult";
 
 interface Props {
   screenshotOneApiKey: string | null;
   figmaAccessToken: string | null;
   stitchApiKey: string | null;
-  importFromCode: (
-    code: string,
-    stack: Stack,
-    instruction?: string,
-    titleHint?: string
-  ) => void;
+  importDesignProject: DesignProjectImportHandler;
   doCreate: (
     urls: string[],
     inputMode: "image" | "video",
     textPrompt?: string,
     isAssetExtractionEnabled?: boolean,
+    multiScreenshotMode?: MultiScreenshotMode,
+    sourceAssets?: DesignSourceAsset[]
   ) => void;
   doCreateFromText: (text: string) => void;
   mcpServers: McpServerConfig[];
@@ -54,7 +68,7 @@ function UrlTab({
   screenshotOneApiKey,
   figmaAccessToken,
   stitchApiKey,
-  importFromCode,
+  importDesignProject,
   mcpServers,
   stack,
   setStack,
@@ -63,6 +77,9 @@ function UrlTab({
 }: Props) {
   const [isLoading, setIsLoading] = useState(false);
   const [isTestingKey, setIsTestingKey] = useState(false);
+  const [isInspectingDesign, setIsInspectingDesign] = useState(false);
+  const [websiteInspection, setWebsiteInspection] =
+    useState<WebsiteDesignInspection | null>(null);
   const [keyTestMessage, setKeyTestMessage] = useState<string | null>(null);
   const [referenceUrl, setReferenceUrl] = useState("");
   const [textPrompt, setTextPrompt] = useState("");
@@ -120,6 +137,49 @@ function UrlTab({
     }
   }
 
+  async function inspectWebsiteDesign() {
+    const target = referenceUrl.trim();
+    if (!target) {
+      toast.error("Enter a public website URL first.");
+      return;
+    }
+    if (designToolUrl) {
+      toast.error("Use the dedicated Figma or Stitch import for this URL.");
+      return;
+    }
+    setIsInspectingDesign(true);
+    setWebsiteInspection(null);
+    try {
+      const response = await fetch(
+        `${HTTP_BACKEND_URL}/api/design-inspector/url`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: target }),
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof payload.detail === "string"
+            ? payload.detail
+            : `Website inspection failed (HTTP ${response.status}).`
+        );
+      }
+      const inspection = parseWebsiteDesignInspection(payload);
+      setWebsiteInspection(inspection);
+      toast.success("Website design inspection completed.");
+    } catch (caught) {
+      toast.error(
+        caught instanceof Error
+          ? caught.message
+          : "Could not inspect the website design."
+      );
+    } finally {
+      setIsInspectingDesign(false);
+    }
+  }
+
   async function takeScreenshot() {
     const trimmedReferenceUrl = referenceUrl.trim();
 
@@ -136,12 +196,18 @@ function UrlTab({
             apiKey: stitchApiKey,
             url: trimmedReferenceUrl,
           });
-          importFromCode(
-            result.html,
+          const persisted = await persistStitchSourceAssets(result.assets ?? []);
+          const warnings = [...(result.warnings ?? []), ...persisted.warnings];
+          importDesignProject(
+            createStitchDesignProject(
+              { ...result, warnings },
+              textPrompt || "Google Stitch screen",
+              persisted.sourceAssets
+            ),
             Stack.HTML_CSS,
-            textPrompt,
-            textPrompt || "Google Stitch screen"
+            textPrompt
           );
+          warnings.forEach((warning) => toast(warning));
         } catch (caught) {
           toast.error(
             caught instanceof Error
@@ -151,6 +217,7 @@ function UrlTab({
         } finally {
           setIsLoading(false);
         }
+
         return;
       }
       if (source === "Figma" && figmaAccessToken?.trim()) {
@@ -180,7 +247,22 @@ function UrlTab({
           if (images.length === 0) {
             throw new Error("Figma returned no rendered frames.");
           }
-          doCreate(images, "image", textPrompt, isAssetExtractionEnabled);
+          const sourceAssets = readDesignSourceAssets(payload.sourceAssets);
+          doCreate(
+            images,
+            "image",
+            textPrompt,
+            isAssetExtractionEnabled,
+            undefined,
+            sourceAssets
+          );
+          const warnings = Array.isArray(payload.warnings)
+            ? payload.warnings.filter(
+                (warning: unknown): warning is string =>
+                  typeof warning === "string" && warning.trim().length > 0
+              )
+            : [];
+          warnings.forEach((warning: string) => toast(warning));
         } catch (caught) {
           toast.error(
             caught instanceof Error ? caught.message : "Could not import Figma."
@@ -368,22 +450,44 @@ function UrlTab({
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[11px] text-gray-400 dark:text-zinc-500">
-                Requires a ScreenshotOne API key in Settings.
+                Screenshot generation needs ScreenshotOne. Design inspection
+                uses the bundled local Chromium and needs no capture key.
               </p>
-              <button
-                type="button"
-                onClick={() => void testScreenshotOne()}
-                disabled={isTestingKey || !screenshotOneApiKey?.trim()}
-                className="flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-violet-700 hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-violet-300 dark:hover:bg-violet-950/30"
-                title="Uses one minimal ScreenshotOne request and may count against quota"
-              >
-                {isTestingKey ? (
-                  <LuLoader className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                ) : (
-                  <LuCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                )}
-                Test ScreenshotOne
-              </button>
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => void inspectWebsiteDesign()}
+                  disabled={isInspectingDesign || !referenceUrl.trim()}
+                  className="flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-violet-700 hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-violet-300 dark:hover:bg-violet-950/30"
+                >
+                  {isInspectingDesign ? (
+                    <LuLoader
+                      className="h-3.5 w-3.5 motion-safe:animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <LuSearch className="h-3.5 w-3.5" aria-hidden="true" />
+                  )}
+                  Inspect design
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void testScreenshotOne()}
+                  disabled={isTestingKey || !screenshotOneApiKey?.trim()}
+                  className="flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-violet-700 hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-violet-300 dark:hover:bg-violet-950/30"
+                  title="Uses one minimal ScreenshotOne request and may count against quota"
+                >
+                  {isTestingKey ? (
+                    <LuLoader
+                      className="h-3.5 w-3.5 motion-safe:animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <LuCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                  )}
+                  Test ScreenshotOne
+                </button>
+              </div>
             </div>
           )}
           {keyTestMessage && !designToolUrl && (
@@ -397,6 +501,31 @@ function UrlTab({
           )}
         </div>
       </div>
+
+      {websiteInspection && (
+        <WebsiteDesignInspectionResult
+          result={websiteInspection}
+          onUse={(designMd) =>
+            doCreate(
+              [
+                websiteInspection.screenshots.desktop,
+                websiteInspection.screenshots.tablet,
+                websiteInspection.screenshots.mobile,
+              ],
+              "image",
+              `${
+                textPrompt.trim() ||
+                "Recreate this public website's visual system and responsive behavior."
+              }\n\n${wrapUntrustedDesignEvidence(
+                "public website DESIGN.md",
+                designMd
+              )}`,
+              false,
+              "responsive"
+            )
+          }
+        />
+      )}
 
       <GenerationControls
         textPrompt={textPrompt}

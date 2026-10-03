@@ -23,11 +23,24 @@ interface Shot2CodeMenuState {
   isChatPanelVisible: boolean;
 }
 
+interface Shot2CodeDesignAssetFile {
+  path: string;
+  mimeType: string;
+  size: number;
+  encoding: "base64" | "utf8";
+  content: string;
+  sourceUrl: string;
+  kind: string;
+}
+
 interface Shot2CodeStitchResult {
   projectId: string;
   screenId: string;
   html: string;
   image: string;
+  assets: Shot2CodeDesignAssetFile[];
+  designMd: string;
+  warnings: string[];
 }
 
 type Shot2CodeStitchPhase =

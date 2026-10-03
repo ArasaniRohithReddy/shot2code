@@ -82,6 +82,11 @@ pnpm install --frozen-lockfile
 pnpm build
 cd ..
 
+# Reproducible Windows/web icon family
+cd backend
+uv run python ..\scripts\generate_app_icons.py
+cd ..
+
 # Backend, frozen with PyInstaller
 cd backend
 uv sync --frozen
@@ -155,6 +160,16 @@ Do these against the built artifacts, not a dev server:
 - Settings shows the new version, and the provider status you expect.
 - Generate once from a screenshot, open the Code tab, and download a project
   folder.
+- Paste a screenshot into the refinement Chat composer and send an update.
+- Import a public GitHub frontend and confirm text files plus bounded image
+  assets appear without running repository code.
+- Inspect a public website from the URL tab, download its `DESIGN.md`, and use
+  the desktop/tablet/mobile evidence for a generation.
+- Import one Figma/Stitch design and confirm reusable assets remain present
+  after a chat refinement and project-folder export.
+- Confirm the installed EXE, NSIS setup, Apps & Features/uninstaller, Start
+  shortcut, MSI shortcuts, portable EXE, sidebar logo and main/coding favicons
+  all use the new icon at Windows scaling from 100% through 400%.
 - Run the portable `.zip` from a different directory.
 - Install the `.msi` and confirm Settings reports that updates are
   administrator-managed.

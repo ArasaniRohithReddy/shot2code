@@ -28,6 +28,10 @@ const STITCH_STACK_GUIDANCE = Object.freeze({
   htmx_tailwind:
     "Use htmx interactions and Tailwind CSS in a browser-runnable implementation.",
 });
+const {
+  localizeStitchHtml,
+  readBoundedHttps,
+} = require("./stitch-assets");
 
 function emitProgress(onProgress, phase, message) {
   if (typeof onProgress === "function") onProgress({ phase, message });
@@ -44,15 +48,25 @@ Implementation direction from shot2code:
 - Preserve a clear semantic structure so shot2code can translate the rendered design into the selected stack.`;
 }
 
-async function withTimeout(operation, timeoutMs, message) {
+async function withTimeout(operation, timeoutMs, message, onTimeout) {
   let timer;
+  let timedOut = false;
   try {
     return await Promise.race([
       operation,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+        timer = setTimeout(() => {
+          timedOut = true;
+          if (typeof onTimeout === "function") onTimeout();
+          reject(new Error(message));
+        }, timeoutMs);
       }),
     ]);
+  } catch (error) {
+    if (timedOut && typeof onTimeout === "function") {
+      await operation.catch(() => {});
+    }
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -117,26 +131,44 @@ function parseStitchReference(rawUrl) {
   return { projectId, screenId };
 }
 
-async function readBounded(urlValue, maxBytes, kind) {
-  const url = new URL(cleanText(urlValue, `${kind} URL`, 4096));
-  if (url.protocol !== "https:") {
-    throw new Error(`Stitch returned an unsafe ${kind} URL.`);
+function findDesignMarkdown(value, depth = 0) {
+  if (depth > 6 || value === null || typeof value !== "object") return "";
+  if (
+    typeof value.designMd === "string" &&
+    value.designMd.trim().length > 0
+  ) {
+    return value.designMd.trim().slice(0, 100_000);
   }
-  const response = await fetch(url, {
-    redirect: "follow",
-    signal: AbortSignal.timeout(STITCH_DOWNLOAD_TIMEOUT_MS),
-  });
-  if (!response.ok) {
-    throw new Error(`Could not download Stitch ${kind} (HTTP ${response.status}).`);
+  for (const nested of Object.values(value)) {
+    const found = findDesignMarkdown(nested, depth + 1);
+    if (found) return found;
   }
-  const declared = Number(response.headers.get("content-length") || "0");
-  if (declared > maxBytes) throw new Error(`Stitch ${kind} is too large.`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > maxBytes) throw new Error(`Stitch ${kind} is too large.`);
-  return { bytes, contentType: response.headers.get("content-type") || "" };
+  return "";
 }
 
-async function screenResult(screen, client, onProgress) {
+async function loadDesignMarkdown(project, screen) {
+  const embedded =
+    findDesignMarkdown(screen?.data) || findDesignMarkdown(project?.data);
+  if (embedded) return embedded;
+  try {
+    const systems = await project.listDesignSystems();
+    for (const system of systems) {
+      const found = findDesignMarkdown(system?.data);
+      if (found) return found;
+    }
+  } catch {
+    // A missing design system does not make the generated screen unusable.
+  }
+  return "";
+}
+
+async function screenResult(
+  screen,
+  project,
+  client,
+  onProgress,
+  readResource = readBoundedHttps
+) {
   try {
     emitProgress(
       onProgress,
@@ -148,16 +180,39 @@ async function screenResult(screen, client, onProgress) {
       screen.getImage(),
     ]);
     const [htmlDownload, imageDownload] = await Promise.all([
-      readBounded(htmlUrl, MAX_HTML_BYTES, "HTML"),
-      readBounded(imageUrl, MAX_IMAGE_BYTES, "image"),
+      readResource(htmlUrl, MAX_HTML_BYTES, "HTML"),
+      readResource(imageUrl, MAX_IMAGE_BYTES, "image"),
     ]);
+    const html = Buffer.from(htmlDownload.bytes).toString("utf8");
+    const localized = await localizeStitchHtml(html, htmlUrl, readResource);
+    const imageMime =
+      imageDownload.contentType.split(";")[0] || "image/png";
+    const designMd = await loadDesignMarkdown(project, screen);
+    const previewAsset = {
+      path: `assets/stitch-preview.${
+        imageMime === "image/jpeg"
+          ? "jpg"
+          : imageMime === "image/webp"
+            ? "webp"
+            : "png"
+      }`,
+      mimeType: imageMime,
+      size: imageDownload.bytes.length,
+      encoding: "base64",
+      content: Buffer.from(imageDownload.bytes).toString("base64"),
+      sourceUrl: imageUrl,
+      kind: "preview",
+    };
     return {
       projectId: screen.projectId,
       screenId: screen.screenId,
-      html: Buffer.from(htmlDownload.bytes).toString("utf8"),
+      html: localized.html,
       image: `data:${
-        imageDownload.contentType.split(";")[0] || "image/png"
+        imageMime
       };base64,${Buffer.from(imageDownload.bytes).toString("base64")}`,
+      assets: [...localized.assets, previewAsset],
+      designMd,
+      warnings: localized.warnings,
     };
   } finally {
     await client.close().catch(() => {});
@@ -193,7 +248,8 @@ async function testStitchKey({ apiKey }) {
 async function generateStitchScreen(
   { apiKey, prompt, deviceType = "DESKTOP", stack = "html_css" },
   onProgress,
-  createClientImpl = createClient
+  createClientImpl = createClient,
+  readResourceImpl = readBoundedHttps
 ) {
   const instruction = cleanText(
     buildStitchInstruction(prompt, stack),
@@ -221,10 +277,24 @@ async function generateStitchScreen(
       STITCH_GENERATION_TIMEOUT_MS,
       "Stitch did not finish generating the screen within 10 minutes."
     );
+    const downloadController = new AbortController();
     const result = await withTimeout(
-      screenResult(screen, client, onProgress),
+      screenResult(
+        screen,
+        project,
+        client,
+        onProgress,
+        (url, maxBytes, kind) =>
+          readResourceImpl(
+            url,
+            maxBytes,
+            kind,
+            downloadController.signal
+          )
+      ),
       STITCH_DOWNLOAD_TIMEOUT_MS,
-      "Stitch did not return the generated files within 2 minutes."
+      "Stitch did not return the generated files within 2 minutes.",
+      () => downloadController.abort()
     );
     emitProgress(onProgress, "complete", "Stitch generation completed.");
     return result;
@@ -237,7 +307,8 @@ async function generateStitchScreen(
 async function importStitchScreen(
   { apiKey, url },
   onProgress,
-  createClientImpl = createClient
+  createClientImpl = createClient,
+  readResourceImpl = readBoundedHttps
 ) {
   const { projectId, screenId } = parseStitchReference(url);
   emitProgress(onProgress, "connecting", "Connecting to Google Stitch…");
@@ -249,7 +320,25 @@ async function importStitchScreen(
       ? await project.getScreen(screenId)
       : (await project.screens())[0];
     if (!screen) throw new Error("The Stitch project has no screens.");
-    const result = await screenResult(screen, client, onProgress);
+    const downloadController = new AbortController();
+    const result = await withTimeout(
+      screenResult(
+        screen,
+        project,
+        client,
+        onProgress,
+        (assetUrl, maxBytes, kind) =>
+          readResourceImpl(
+            assetUrl,
+            maxBytes,
+            kind,
+            downloadController.signal
+          )
+      ),
+      STITCH_DOWNLOAD_TIMEOUT_MS,
+      "Stitch did not return the imported files within 2 minutes.",
+      () => downloadController.abort()
+    );
     emitProgress(onProgress, "complete", "Stitch import completed.");
     return result;
   } catch (error) {

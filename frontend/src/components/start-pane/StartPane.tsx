@@ -5,6 +5,7 @@ import { MultiScreenshotMode } from "../../types";
 import UnifiedInputPane from "../unified-input/UnifiedInputPane";
 import type { InputTab } from "../unified-input/UnifiedInputPane";
 import type { EditableProjectImportHandler } from "../../lib/project-import";
+import type { DesignProjectImportHandler } from "../../lib/design-project-import";
 import type { RecentHistoryProject } from "../../lib/project-history";
 import RecentProjects from "../projects/RecentProjects";
 
@@ -16,11 +17,13 @@ interface Props {
     inputMode: "image" | "video",
     textPrompt?: string,
     isAssetExtractionEnabled?: boolean,
-    multiScreenshotMode?: MultiScreenshotMode
+    multiScreenshotMode?: MultiScreenshotMode,
+    sourceAssets?: import("../../types").DesignSourceAsset[]
   ) => void;
   doCreateFromText: (text: string) => void;
   importFromCode: (code: string, stack: Stack) => void;
-  importProject?: EditableProjectImportHandler;
+  importProject: EditableProjectImportHandler;
+  importDesignProject: DesignProjectImportHandler;
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   designSystems: DesignSystem[];
@@ -42,6 +45,7 @@ const StartPane: React.FC<Props> = ({
   doCreateFromText,
   importFromCode,
   importProject,
+  importDesignProject,
   settings,
   setSettings,
   designSystems,
@@ -64,6 +68,7 @@ const StartPane: React.FC<Props> = ({
         doCreateFromText={doCreateFromText}
         importFromCode={importFromCode}
         importProject={importProject}
+        importDesignProject={importDesignProject}
         settings={settings}
         setSettings={setSettings}
         designSystems={designSystems}

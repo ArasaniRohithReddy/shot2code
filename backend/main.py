@@ -41,11 +41,17 @@ DEFERRED_ROUTE_GROUPS = (
     (
         "project tools",
         (
+            "routes.design_assets",
+            "routes.github_repository",
             "routes.screenshot",
+            "routes.url_design_inspector",
             "routes.export",
             "routes.project_context",
         ),
         (
+            "/api/design-assets",
+            "/api/github-repository",
+            "/api/design-inspector",
             "/api/screenshot",
             "/api/export",
             "/api/project-context",

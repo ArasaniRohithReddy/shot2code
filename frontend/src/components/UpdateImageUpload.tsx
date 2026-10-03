@@ -2,18 +2,10 @@ import { useRef } from "react";
 import { toast } from "react-hot-toast";
 import { Cross2Icon } from "@radix-ui/react-icons";
 import { LuPlus } from "react-icons/lu";
-
-const MAX_UPDATE_IMAGES = 5;
-
-// Helper function to convert file to data URL
-function fileToDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (error) => reject(error);
-    reader.readAsDataURL(file);
-  });
-}
+import {
+  appendUpdateImageFiles,
+  MAX_UPDATE_IMAGES,
+} from "../lib/update-images";
 
 interface Props {
   updateImages: string[];
@@ -80,20 +72,27 @@ function UpdateImageUpload({ updateImages, setUpdateImages }: Props) {
           return;
         }
 
-        const remainingSlots = MAX_UPDATE_IMAGES - updateImages.length;
-        let filesToAdd = Array.from(files);
-        if (filesToAdd.length > remainingSlots) {
+        const result = await appendUpdateImageFiles(
+          updateImages,
+          Array.from(files)
+        );
+        if (result.truncated > 0) {
+          const remainingSlots = MAX_UPDATE_IMAGES - updateImages.length;
           toast.error(
             `Only ${remainingSlots} more image${
               remainingSlots === 1 ? "" : "s"
             } will be added to stay within the ${MAX_UPDATE_IMAGES}-image limit.`
           );
-          filesToAdd = filesToAdd.slice(0, remainingSlots);
         }
-
-        const newImagePromises = filesToAdd.map((file) => fileToDataURL(file));
-        const newImages = await Promise.all(newImagePromises);
-        setUpdateImages([...updateImages, ...newImages]);
+        if (result.rejected > 0) {
+          toast.error(
+            "Some files were skipped. Use PNG, JPEG, or WebP images up to 10 MB."
+          );
+        }
+        if (result.duplicates > 0) {
+          toast("Duplicate screenshots were not added again.");
+        }
+        setUpdateImages(result.images);
         e.target.value = "";
       } catch (error) {
         toast.error("Error reading image files");
@@ -108,7 +107,7 @@ function UpdateImageUpload({ updateImages, setUpdateImages }: Props) {
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/png,image/jpeg"
+        accept="image/png,image/jpeg,image/webp"
         onChange={handleFileInputChange}
         className="hidden"
       />

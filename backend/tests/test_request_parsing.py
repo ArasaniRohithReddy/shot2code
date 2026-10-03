@@ -33,6 +33,35 @@ def test_parse_prompt_content_filters_invalid_media_types() -> None:
     }
 
 
+def test_parse_prompt_content_keeps_bounded_design_source_assets() -> None:
+    result = parse_prompt_content(
+        {
+            "text": "Use the real logo",
+            "images": [],
+            "sourceAssets": [
+                {
+                    "name": "logo.png",
+                    "url": "http://127.0.0.1:7001/local-assets/logo.png",
+                    "mimeType": "image/png",
+                    "source": "figma",
+                    "kind": "image fill",
+                },
+                {"name": "invalid"},
+            ],
+        }
+    )
+
+    assert result.get("source_assets") == [
+        {
+            "name": "logo.png",
+            "url": "http://127.0.0.1:7001/local-assets/logo.png",
+            "mime_type": "image/png",
+            "source": "figma",
+            "kind": "image fill",
+        }
+    ]
+
+
 def test_parse_prompt_content_defaults_for_invalid_payload() -> None:
     assert parse_prompt_content(None) == {"text": "", "images": [], "videos": []}
     assert parse_prompt_content("bad") == {"text": "", "images": [], "videos": []}

@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import base64
+import re
+from collections.abc import Iterator
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+
+from image_generation.assets import persist_image_bytes
+from uploaded_assets.store import MAX_UPLOADED_ASSET_BYTES
 
 router = APIRouter()
 
 FIGMA_API_BASE = "https://api.figma.com/v1"
 MAX_FIGMA_FRAMES = 5
+MAX_FIGMA_SOURCE_ASSETS = 40
+MAX_FIGMA_EXPORTED_NODES = 20
+MAX_FIGMA_ASSET_TOTAL_BYTES = 40 * 1024 * 1024
+_UNSAFE_ASSET_NAME = re.compile(r"[^A-Za-z0-9._ -]+")
 
 
 class FigmaRateLimitError(RuntimeError):
@@ -80,6 +89,95 @@ def _top_level_renderable_ids(payload: object) -> list[str]:
     return ids
 
 
+def _walk_nodes(value: object) -> Iterator[dict[str, object]]:
+    if not isinstance(value, dict):
+        return
+    node = cast(dict[str, object], value)
+    yield node
+    children = node.get("children")
+    if isinstance(children, list):
+        for child in cast(list[object], children):
+            yield from _walk_nodes(child)
+
+
+def _selected_documents(payload: object) -> list[dict[str, object]]:
+    if not isinstance(payload, dict):
+        return []
+    nodes = cast(dict[str, object], payload).get("nodes")
+    if not isinstance(nodes, dict):
+        return []
+    documents: list[dict[str, object]] = []
+    for raw in cast(dict[str, object], nodes).values():
+        if not isinstance(raw, dict):
+            continue
+        document = cast(dict[str, object], raw).get("document")
+        if isinstance(document, dict):
+            documents.append(cast(dict[str, object], document))
+    return documents
+
+
+def _asset_name(value: object, fallback: str) -> str:
+    raw = value if isinstance(value, str) else fallback
+    cleaned = _UNSAFE_ASSET_NAME.sub("-", raw).strip(" .-_")
+    return (cleaned[:96].strip(" .-_") or fallback).lower().replace(" ", "-")
+
+
+def _collect_image_fill_refs(
+    documents: list[dict[str, object]],
+) -> list[tuple[str, str]]:
+    found: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for document in documents:
+        for node in _walk_nodes(document):
+            name = _asset_name(node.get("name"), "figma-image")
+            for field in ("fills", "strokes", "background", "backgrounds"):
+                paints = node.get(field)
+                if not isinstance(paints, list):
+                    continue
+                for raw_paint in cast(list[object], paints):
+                    if not isinstance(raw_paint, dict):
+                        continue
+                    paint = cast(dict[str, object], raw_paint)
+                    image_ref = paint.get("imageRef")
+                    if (
+                        paint.get("type") == "IMAGE"
+                        and isinstance(image_ref, str)
+                        and image_ref
+                        and image_ref not in seen
+                    ):
+                        seen.add(image_ref)
+                        found.append((image_ref, name))
+                        if len(found) >= MAX_FIGMA_SOURCE_ASSETS:
+                            return found
+    return found
+
+
+def _collect_export_nodes(
+    documents: list[dict[str, object]],
+) -> list[tuple[str, str]]:
+    found: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for document in documents:
+        for node in _walk_nodes(document):
+            node_id = node.get("id")
+            settings = node.get("exportSettings")
+            if (
+                not isinstance(node_id, str)
+                or not node_id
+                or node_id in seen
+                or not isinstance(settings, list)
+                or not settings
+            ):
+                continue
+            seen.add(node_id)
+            found.append(
+                (node_id, _asset_name(node.get("name"), "figma-export"))
+            )
+            if len(found) >= MAX_FIGMA_EXPORTED_NODES:
+                return found
+    return found
+
+
 def _raise_for_figma_rate_limit(response: httpx.Response) -> None:
     if response.status_code != 429:
         return
@@ -105,6 +203,50 @@ def _raise_for_figma_rate_limit(response: httpx.Response) -> None:
 
 
 async def import_figma_frames(url: str, token: str) -> list[str]:
+    result = await import_figma_design(url, token, "http://127.0.0.1:7001")
+    return result["images"]
+
+
+async def _download_figma_asset(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    asset_base_url: str,
+    remaining_bytes: int,
+) -> tuple[str, str, int]:
+    if not url.startswith("https://"):
+        raise ValueError("Figma returned an unsafe asset URL.")
+    limit = min(MAX_UPLOADED_ASSET_BYTES, max(0, remaining_bytes))
+    if limit <= 0:
+        raise ValueError("The 40 MB Figma asset limit was reached.")
+    async with client.stream("GET", url) as response:
+        response.raise_for_status()
+        declared = int(response.headers.get("content-length") or "0")
+        if declared > limit:
+            raise ValueError("A Figma asset exceeded the remaining import limit.")
+        body = bytearray()
+        async for chunk in response.aiter_bytes():
+            body.extend(chunk)
+            if len(body) > limit:
+                raise ValueError(
+                    "A Figma asset exceeded the remaining import limit."
+                )
+        content = bytes(body)
+        mime_hint = response.headers.get("content-type", "image/png").split(";")[0]
+    normalized = await persist_image_bytes(
+        content,
+        asset_base_url=asset_base_url,
+        provider="figma",
+        mime_hint=mime_hint,
+    )
+    return normalized.url, normalized.mime_type, len(content)
+
+
+async def import_figma_design(
+    url: str,
+    token: str,
+    asset_base_url: str,
+) -> dict[str, Any]:
     file_key, requested_node = parse_figma_url(url)
     headers = {"X-Figma-Token": token}
     async with httpx.AsyncClient(timeout=45) as client:
@@ -164,16 +306,138 @@ async def import_figma_frames(url: str, token: str) -> list[str]:
             results.append(f"data:{mime_type};base64,{encoded}")
         if not results:
             raise ValueError("Figma could not render the selected frame.")
-        return results
+        source_assets: list[dict[str, str]] = []
+        warnings: list[str] = []
+        total_asset_bytes = 0
+        try:
+            nodes_response = await client.get(
+                f"{FIGMA_API_BASE}/files/{file_key}/nodes",
+                headers=headers,
+                params={"ids": ",".join(node_ids)},
+            )
+            _raise_for_figma_rate_limit(nodes_response)
+            nodes_response.raise_for_status()
+            documents = _selected_documents(cast(object, nodes_response.json()))
+
+            image_refs = _collect_image_fill_refs(documents)
+            if image_refs:
+                fills_response = await client.get(
+                    f"{FIGMA_API_BASE}/files/{file_key}/images",
+                    headers=headers,
+                )
+                _raise_for_figma_rate_limit(fills_response)
+                fills_response.raise_for_status()
+                fills_payload = cast(object, fills_response.json())
+                meta = (
+                    cast(dict[str, object], fills_payload).get("meta")
+                    if isinstance(fills_payload, dict)
+                    else None
+                )
+                image_map = (
+                    cast(dict[str, object], meta).get("images")
+                    if isinstance(meta, dict)
+                    else None
+                )
+                if isinstance(image_map, dict):
+                    typed_images = cast(dict[str, object], image_map)
+                    for image_ref, name in image_refs:
+                        remote_url = typed_images.get(image_ref)
+                        if not isinstance(remote_url, str):
+                            continue
+                        public_url, mime_type, size = await _download_figma_asset(
+                            client,
+                            remote_url,
+                            asset_base_url=asset_base_url,
+                            remaining_bytes=(
+                                MAX_FIGMA_ASSET_TOTAL_BYTES - total_asset_bytes
+                            ),
+                        )
+                        total_asset_bytes += size
+                        source_assets.append(
+                            {
+                                "name": name,
+                                "url": public_url,
+                                "mimeType": mime_type,
+                                "source": "figma",
+                                "kind": "image fill",
+                            }
+                        )
+
+            remaining = MAX_FIGMA_SOURCE_ASSETS - len(source_assets)
+            export_nodes = _collect_export_nodes(documents)[:remaining]
+            if export_nodes:
+                export_response = await client.get(
+                    f"{FIGMA_API_BASE}/images/{file_key}",
+                    headers=headers,
+                    params={
+                        "ids": ",".join(node_id for node_id, _name in export_nodes),
+                        "format": "png",
+                        "scale": 2,
+                    },
+                )
+                _raise_for_figma_rate_limit(export_response)
+                export_response.raise_for_status()
+                export_payload = cast(object, export_response.json())
+                exported = (
+                    cast(dict[str, object], export_payload).get("images")
+                    if isinstance(export_payload, dict)
+                    else None
+                )
+                if isinstance(exported, dict):
+                    exported_images = cast(dict[str, object], exported)
+                    for node_id, name in export_nodes:
+                        remote_url = exported_images.get(node_id)
+                        if not isinstance(remote_url, str):
+                            continue
+                        public_url, mime_type, size = await _download_figma_asset(
+                            client,
+                            remote_url,
+                            asset_base_url=asset_base_url,
+                            remaining_bytes=(
+                                MAX_FIGMA_ASSET_TOTAL_BYTES - total_asset_bytes
+                            ),
+                        )
+                        total_asset_bytes += size
+                        source_assets.append(
+                            {
+                                "name": name,
+                                "url": public_url,
+                                "mimeType": mime_type,
+                                "source": "figma",
+                                "kind": "exported node",
+                            }
+                        )
+        except FigmaRateLimitError as error:
+            warnings.append(
+                f"Frames were imported, but Figma assets were rate limited. {error}"
+            )
+        except (httpx.HTTPError, ValueError) as error:
+            warnings.append(
+                "Frames were imported, but some Figma assets could not be "
+                f"downloaded: {error}"
+            )
+
+        return {
+            "images": results,
+            "sourceAssets": source_assets,
+            "warnings": warnings,
+        }
 
 
 @router.post("/api/figma/import")
-async def import_figma(request: FigmaImportRequest) -> dict[str, Any]:
+async def import_figma(
+    request: FigmaImportRequest,
+    http_request: Request,
+) -> dict[str, Any]:
     token = request.token.strip()
     if not token:
         raise HTTPException(status_code=400, detail="Add a Figma personal access token.")
     try:
-        images = await import_figma_frames(request.url, token)
+        result = await import_figma_design(
+            request.url,
+            token,
+            str(http_request.base_url).rstrip("/"),
+        )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except PermissionError as error:
@@ -192,4 +456,4 @@ async def import_figma(request: FigmaImportRequest) -> dict[str, Any]:
             status_code=502,
             detail="Could not retrieve the Figma design.",
         ) from error
-    return {"images": images}
+    return result

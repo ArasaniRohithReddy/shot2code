@@ -1,10 +1,12 @@
 import base64
+from typing import cast
 
 import httpx
 import pytest
 
 from routes.figma import (
     FigmaRateLimitError,
+    import_figma_design,
     import_figma_frames,
     parse_figma_url,
 )
@@ -89,3 +91,123 @@ async def test_import_figma_frames_preserves_actionable_rate_limit_headers(
     assert "Plan: starter" in message
     assert "Limit type: low" in message
     assert "https://www.figma.com/pricing/" in message
+
+
+@pytest.mark.asyncio
+async def test_import_figma_design_keeps_image_fills_and_exported_nodes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_get(
+        _self: httpx.AsyncClient,
+        url: str,
+        **kwargs: object,
+    ) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        params = kwargs.get("params")
+        typed_params = (
+            cast(dict[str, object], params) if isinstance(params, dict) else {}
+        )
+        if url.endswith("/files/abc123/nodes"):
+            return httpx.Response(
+                200,
+                json={
+                    "nodes": {
+                        "10:22": {
+                            "document": {
+                                "id": "10:22",
+                                "name": "Hero",
+                                "type": "FRAME",
+                                "children": [
+                                    {
+                                        "id": "20:20",
+                                        "name": "Photo",
+                                        "type": "RECTANGLE",
+                                        "fills": [
+                                            {
+                                                "type": "IMAGE",
+                                                "imageRef": "image-ref-1",
+                                            }
+                                        ],
+                                    },
+                                    {
+                                        "id": "20:30",
+                                        "name": "Logo",
+                                        "type": "VECTOR",
+                                        "exportSettings": [{"format": "SVG"}],
+                                    },
+                                ],
+                            }
+                        }
+                    }
+                },
+                request=request,
+            )
+        if url.endswith("/files/abc123/images"):
+            return httpx.Response(
+                200,
+                json={
+                    "error": False,
+                    "meta": {
+                        "images": {
+                            "image-ref-1": "https://cdn.example/photo.png"
+                        }
+                    },
+                },
+                request=request,
+            )
+        if url.endswith("/images/abc123"):
+            ids = typed_params.get("ids")
+            image_url = (
+                "https://cdn.example/logo.png"
+                if ids == "20:30"
+                else "https://cdn.example/frame.png"
+            )
+            return httpx.Response(
+                200,
+                json={"images": {str(ids): image_url}},
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            content=b"\x89PNG\r\n\x1a\nimage",
+            headers={"content-type": "image/png"},
+            request=request,
+        )
+
+    downloaded = 0
+
+    async def fake_download(
+        _client: httpx.AsyncClient,
+        _url: str,
+        *,
+        asset_base_url: str,
+        remaining_bytes: int,
+    ) -> tuple[str, str, int]:
+        nonlocal downloaded
+        assert remaining_bytes > 0
+        downloaded += 1
+        return (
+            f"{asset_base_url}/local-assets/asset-{downloaded}.png",
+            "image/png",
+            100,
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr("routes.figma._download_figma_asset", fake_download)
+
+    result = await import_figma_design(
+        "https://www.figma.com/design/abc123/Product?node-id=10-22",
+        "figma-token",
+        "http://127.0.0.1:7001",
+    )
+
+    assert len(result["images"]) == 1
+    assert [asset["kind"] for asset in result["sourceAssets"]] == [
+        "image fill",
+        "exported node",
+    ]
+    assert [asset["name"] for asset in result["sourceAssets"]] == [
+        "photo",
+        "logo",
+    ]
+    assert result["warnings"] == []

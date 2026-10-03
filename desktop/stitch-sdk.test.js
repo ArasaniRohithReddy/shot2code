@@ -49,22 +49,18 @@ test("passes the ten-minute budget into the bundled Stitch SDK client", () => {
 });
 
 test("reports real generation phases and closes the client", async () => {
-  const originalFetch = global.fetch;
   const progress = [];
   let generatedInstruction = "";
   let generatedDevice = "";
   let closed = 0;
-  global.fetch = async (url) => ({
-    ok: true,
-    headers: new Headers({
-      "content-type": String(url).endsWith(".html")
-        ? "text/html"
-        : "image/png",
-    }),
-    arrayBuffer: async () =>
-      Buffer.from(
-        String(url).endsWith(".html") ? "<main>Generated</main>" : "image"
-      ),
+  const readResource = async (url) => ({
+    contentType: String(url).endsWith(".html") ? "text/html" : "image/png",
+    bytes: Buffer.from(
+      String(url).endsWith(".html")
+        ? "<main>Generated</main>"
+        : "\x89PNG\r\n\x1a\nimage",
+      "binary"
+    ),
   });
   const screen = {
     projectId: "project-1",
@@ -90,31 +86,30 @@ test("reports real generation phases and closes the client", async () => {
     },
   });
 
-  try {
-    const result = await generateStitchScreen(
-      {
-        apiKey: "test-key",
-        prompt: "A useful interface",
-        deviceType: "DESKTOP",
-        stack: "react_tailwind",
-      },
-      (event) => progress.push(event.phase),
-      createClient
-    );
+  const result = await generateStitchScreen(
+    {
+      apiKey: "test-key",
+      prompt: "A useful interface",
+      deviceType: "DESKTOP",
+      stack: "react_tailwind",
+    },
+    (event) => progress.push(event.phase),
+    createClient,
+    readResource
+  );
 
-    assert.deepEqual(progress, [
-      "connecting",
-      "creating-project",
-      "generating-screen",
-      "downloading-output",
-      "complete",
-    ]);
-    assert.equal(result.html, "<main>Generated</main>");
-    assert.equal(result.projectId, "project-1");
-    assert.match(generatedInstruction, /React and Tailwind CSS/);
-    assert.equal(generatedDevice, "DESKTOP");
-    assert.equal(closed, 1);
-  } finally {
-    global.fetch = originalFetch;
-  }
+  assert.deepEqual(progress, [
+    "connecting",
+    "creating-project",
+    "generating-screen",
+    "downloading-output",
+    "complete",
+  ]);
+  assert.match(result.html, /<main>Generated<\/main>/);
+  assert.equal(result.projectId, "project-1");
+  assert.equal(result.assets.length, 1);
+  assert.equal(result.assets[0].kind, "preview");
+  assert.match(generatedInstruction, /React and Tailwind CSS/);
+  assert.equal(generatedDevice, "DESKTOP");
+  assert.equal(closed, 1);
 });

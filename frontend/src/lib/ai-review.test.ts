@@ -21,6 +21,7 @@ const settings: Settings = {
   screenshotOneApiKey: null,
   figmaAccessToken: "figma-secret",
   stitchApiKey: "stitch-secret",
+  githubRepositoryToken: "github-repo-secret",
   isImageGenerationEnabled: false,
   copilotWebSearchEnabled: false,
   editorTheme: EditorTheme.COBALT,
@@ -61,5 +62,6 @@ test("AI review sends only model credentials and no capture secrets", async () =
   expect(body).toContain("openai-secret");
   expect(body).not.toContain("figma-secret");
   expect(body).not.toContain("stitch-secret");
+  expect(body).not.toContain("github-repo-secret");
   expect(body).not.toContain("screenshotOneApiKey");
 });

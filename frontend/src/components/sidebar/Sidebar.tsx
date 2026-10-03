@@ -31,6 +31,12 @@ import ModelSelector, {
   ModelSelectorProps,
 } from "../settings/ModelSelector";
 import ConversationThread from "./ConversationThread";
+import {
+  appendUpdateImageFiles,
+  clipboardImageFiles,
+  MAX_UPDATE_IMAGES,
+  UPDATE_IMAGE_TYPES,
+} from "../../lib/update-images";
 
 interface SidebarProps {
   doUpdate: (instruction: string) => void;
@@ -42,8 +48,6 @@ interface SidebarProps {
   modelSelector: ModelSelectorProps;
   historyError?: string | null;
 }
-
-const MAX_UPDATE_IMAGES = 5;
 
 function isSlowModel(model?: string): boolean {
   return (
@@ -82,15 +86,37 @@ function Sidebar({
     setSelectedElement,
   } = useAppStore();
 
-  // Helper function to convert file to data URL
-  const fileToDataURL = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = (error) => reject(error);
-      reader.readAsDataURL(file);
-    });
-  };
+  const addUpdateImageFiles = useCallback(
+    async (files: File[], source: "drop" | "paste") => {
+      if (files.length === 0) return;
+      try {
+        const result = await appendUpdateImageFiles(updateImages, files);
+        if (result.truncated > 0 || updateImages.length >= MAX_UPDATE_IMAGES) {
+          toast.error(
+            `You can attach at most ${MAX_UPDATE_IMAGES} reference images.`
+          );
+        }
+        if (result.rejected > 0) {
+          toast.error(
+            "Some images were skipped. Use PNG, JPEG, or WebP files up to 10 MB."
+          );
+        }
+        if (result.duplicates > 0) {
+          toast("Duplicate screenshots were not added again.");
+        }
+        if (result.added > 0 && source === "paste") {
+          toast.success(
+            `Pasted ${result.added} screenshot${result.added === 1 ? "" : "s"}.`
+          );
+        }
+        setUpdateImages(result.images);
+      } catch (error) {
+        toast.error("Could not read the image from the clipboard.");
+        console.error("Error reading image files:", error);
+      }
+    },
+    [updateImages, setUpdateImages]
+  );
 
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
@@ -98,38 +124,21 @@ function Sidebar({
       setIsDragging(false);
 
       const files = Array.from(e.dataTransfer.files).filter(
-        (file) => file.type === "image/png" || file.type === "image/jpeg"
+        (file) => UPDATE_IMAGE_TYPES.has(file.type.toLowerCase())
       );
+      await addUpdateImageFiles(files, "drop");
+    },
+    [addUpdateImageFiles]
+  );
 
-      if (files.length === 0) return;
-
-      try {
-        if (updateImages.length >= MAX_UPDATE_IMAGES) {
-          toast.error(
-            `You’ve reached the limit of ${MAX_UPDATE_IMAGES} reference images. Remove one to add another.`
-          );
-          return;
-        }
-
-        const remainingSlots = MAX_UPDATE_IMAGES - updateImages.length;
-        let filesToAdd = files;
-        if (filesToAdd.length > remainingSlots) {
-          toast.error(
-            `Only ${remainingSlots} more image${
-              remainingSlots === 1 ? "" : "s"
-            } will be added to stay within the ${MAX_UPDATE_IMAGES}-image limit.`
-          );
-          filesToAdd = filesToAdd.slice(0, remainingSlots);
-        }
-
-        const newImagePromises = filesToAdd.map((file) => fileToDataURL(file));
-        const newImages = await Promise.all(newImagePromises);
-        setUpdateImages([...updateImages, ...newImages]);
-      } catch (error) {
-        console.error("Error reading files:", error);
+  const handlePaste = useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = clipboardImageFiles(event.clipboardData);
+      if (files.length > 0) {
+        void addUpdateImageFiles(files, "paste");
       }
     },
-    [updateImages, setUpdateImages]
+    [addUpdateImageFiles]
   );
 
   const { head, commits, latestCommitHash, setHead } = useProjectStore();
@@ -504,6 +513,7 @@ function Sidebar({
                   setUpdateInstruction(e.target.value);
                   autoResize();
                 }}
+                onPaste={handlePaste}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -516,6 +526,10 @@ function Sidebar({
                 rows={1}
                 className="max-h-40 w-full resize-none border-0 bg-transparent px-3.5 pt-3.5 pb-5 text-[15px] leading-6 text-gray-800 placeholder:text-gray-400 focus:outline-none dark:text-zinc-100 dark:placeholder:text-zinc-500"
               />
+              <p className="sr-only" aria-live="polite">
+                Paste screenshots with Control V or Command V. Up to five PNG,
+                JPEG, or WebP images can be attached.
+              </p>
               {/* The controls wrap under the composer when the panel is narrow;
                   Send is never part of that wrap, so it stays reachable. */}
               <div className="flex items-end justify-between gap-2 px-2.5 pb-2.5">
