@@ -19,6 +19,19 @@ _available: Optional[bool] = None
 _probe_lock: asyncio.Lock | None = None
 
 
+def _probe_playwright_isolated_sync() -> bool:
+    """Warm Chromium on a worker loop so process launch cannot starve FastAPI."""
+
+    async def run() -> bool:
+        backend = PlaywrightBackend()
+        try:
+            return await backend.available()
+        finally:
+            await backend.close()
+
+    return asyncio.run(run())
+
+
 def _get_probe_lock() -> asyncio.Lock:
     global _probe_lock
     if _probe_lock is None:
@@ -43,7 +56,10 @@ async def probe_screenshot_preview(force: bool = False) -> bool:
     async with _get_probe_lock():
         if _available is not None and not force:
             return _available
-        _available = await _backend.available()
+        if isinstance(_backend, PlaywrightBackend):
+            _available = await asyncio.to_thread(_probe_playwright_isolated_sync)
+        else:
+            _available = await _backend.available()
     return _available
 
 

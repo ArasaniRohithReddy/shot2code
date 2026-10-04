@@ -5,10 +5,45 @@ import pytest
 
 import main
 from optional_startup import OptionalStartupTasks
+from preview_screenshot import registry as screenshot_registry
 
 
 def test_packaged_optional_discovery_waits_for_core_health() -> None:
     assert main.OPTIONAL_DISCOVERY_START_DELAY_SECONDS >= 5
+
+
+@pytest.mark.asyncio
+async def test_chromium_probe_cannot_block_the_api_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(screenshot_registry, "_available", None)
+    monkeypatch.setattr(screenshot_registry, "_probe_lock", None)
+    monkeypatch.setattr(
+        screenshot_registry,
+        "_backend",
+        screenshot_registry.PlaywrightBackend(),
+    )
+
+    def blocking_probe() -> bool:
+        time.sleep(0.1)
+        return True
+
+    monkeypatch.setattr(
+        screenshot_registry,
+        "_probe_playwright_isolated_sync",
+        blocking_probe,
+    )
+
+    probe = asyncio.create_task(
+        screenshot_registry.probe_screenshot_preview(force=True)
+    )
+    before = time.perf_counter()
+    await asyncio.sleep(0.02)
+    elapsed = time.perf_counter() - before
+
+    assert elapsed < 0.08
+    assert probe.done() is False
+    assert await probe is True
 
 
 @pytest.mark.asyncio

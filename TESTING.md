@@ -159,6 +159,10 @@ They also cover Stitch's bounded asset localizer, private-address refusal, SVG
 sanitization, icon synchronization, required ICO resolutions and the renderer
 health guard that reloads one blank window before showing a recovery screen.
 
+`backend/tests/test_optional_startup.py` additionally proves that the packaged
+Chromium availability probe can block its worker thread without blocking the
+FastAPI event loop.
+
 Regenerate the icon family from its single source script:
 
 ```powershell

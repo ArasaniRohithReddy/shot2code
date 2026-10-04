@@ -511,10 +511,12 @@ waits for `/api/health`, then loads the built frontend from disk.
 Backend startup keeps only health, settings/model, design-system and history
 routes on the critical import path. Generation, project tools and eval routes
 are loaded on first use, while Chromium and Copilot capability probes run as
-bounded background tasks after a five-second core-health head start. Do not
-remove that delay or move optional discovery back into an awaited FastAPI
-startup hook: frozen imports and antivirus scanning can make those probes take
-minutes even though the core API is healthy.
+bounded background tasks after a five-second core-health head start. The
+Playwright availability probe launches/closes an isolated backend on a worker
+event loop; never run first-launch Chromium process creation on FastAPI's loop.
+Do not remove that delay or move optional discovery back into an awaited startup
+hook: frozen imports and antivirus scanning can take minutes even though the
+core API is healthy.
 
 The native application menu is built in `desktop/app-menu.js`, which returns the
 whole template as plain data and never requires Electron, so `app-menu.test.js`

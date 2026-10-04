@@ -48,8 +48,9 @@ updates.
 A cold start boots the bundled Python backend and probes Chromium and Copilot.
 The splash screen stays up until the backend answers. Later launches are faster
 because the Copilot check is cached. Optional Chromium/Copilot discovery starts
-five seconds after core health so first-run antivirus scanning cannot create a
-false backend-readiness timeout.
+five seconds after core health, and Chromium warming runs on a separate worker
+event loop, so first-run antivirus scanning cannot freeze Health, History or
+Settings or create a false backend-readiness timeout.
 
 **The window is blank, or never appears**
 
