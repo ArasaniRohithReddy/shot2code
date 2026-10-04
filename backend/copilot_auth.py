@@ -54,6 +54,45 @@ async def _stop_client(client: "copilot.CopilotClient") -> None:
         pass
 
 
+def _inspect_copilot_sync(
+    github_token: str | None,
+    *,
+    use_logged_in_user: bool,
+) -> CopilotAuthSnapshot:
+    """Run SDK process discovery on a worker loop, never FastAPI's loop."""
+
+    async def run() -> CopilotAuthSnapshot:
+        client = copilot.CopilotClient(
+            github_token=github_token,
+            use_logged_in_user=use_logged_in_user,
+            log_level="error",
+        )
+        try:
+            return await asyncio.wait_for(
+                _inspect_client(client),
+                timeout=COPILOT_PROBE_TIMEOUT_SECONDS,
+            )
+        finally:
+            await _stop_client(client)
+
+    return asyncio.run(run())
+
+
+async def _inspect_copilot_off_loop(
+    github_token: str | None,
+    *,
+    use_logged_in_user: bool,
+) -> CopilotAuthSnapshot:
+    return await asyncio.wait_for(
+        asyncio.to_thread(
+            _inspect_copilot_sync,
+            github_token,
+            use_logged_in_user=use_logged_in_user,
+        ),
+        timeout=COPILOT_PROBE_TIMEOUT_SECONDS + COPILOT_STOP_TIMEOUT_SECONDS + 1,
+    )
+
+
 async def probe_copilot_auth(force: bool = False) -> bool:
     """Return whether usable Copilot credentials exist, caching the result."""
     global _cached_available, _cached_login, _cached_models
@@ -65,15 +104,10 @@ async def probe_copilot_auth(force: bool = False) -> bool:
         if _cached_available is not None and not force:
             return _cached_available
 
-        client = copilot.CopilotClient(
-            github_token=COPILOT_GITHUB_TOKEN,
-            use_logged_in_user=not COPILOT_GITHUB_TOKEN,
-            log_level="error",
-        )
         try:
-            snapshot = await asyncio.wait_for(
-                _inspect_client(client),
-                timeout=COPILOT_PROBE_TIMEOUT_SECONDS,
+            snapshot = await _inspect_copilot_off_loop(
+                COPILOT_GITHUB_TOKEN,
+                use_logged_in_user=not COPILOT_GITHUB_TOKEN,
             )
 
             # Publish the cache atomically. The startup probe runs in the
@@ -89,12 +123,10 @@ async def probe_copilot_auth(force: bool = False) -> bool:
             _cached_login = None
             _cached_models = []
         except Exception as exc:
-            print(f"[copilot] auth probe failed: {exc}")
+            print(f"[copilot] auth probe failed: {type(exc).__name__}")
             _cached_available = False
             _cached_login = None
             _cached_models = []
-        finally:
-            await _stop_client(client)
 
     return _cached_available
 
@@ -120,15 +152,10 @@ async def get_copilot_snapshot(
         if not force and fingerprint in _token_snapshots:
             return _token_snapshots[fingerprint]
 
-        client = copilot.CopilotClient(
-            github_token=github_token,
-            use_logged_in_user=False,
-            log_level="error",
-        )
         try:
-            snapshot = await asyncio.wait_for(
-                _inspect_client(client),
-                timeout=COPILOT_PROBE_TIMEOUT_SECONDS,
+            snapshot = await _inspect_copilot_off_loop(
+                github_token,
+                use_logged_in_user=False,
             )
             _token_snapshots[fingerprint] = snapshot
             return snapshot
@@ -138,8 +165,6 @@ async def get_copilot_snapshot(
         except Exception as exc:
             print(f"[copilot] token auth probe failed: {type(exc).__name__}")
             return CopilotAuthSnapshot(available=False, login=None, models=[])
-        finally:
-            await _stop_client(client)
 
 
 async def _collect_models(client: "copilot.CopilotClient") -> list[dict[str, object]]:

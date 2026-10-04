@@ -512,8 +512,8 @@ Backend startup keeps only health, settings/model, design-system and history
 routes on the critical import path. Generation, project tools and eval routes
 are loaded on first use, while Chromium and Copilot capability probes run as
 bounded background tasks after a five-second core-health head start. The
-Playwright availability probe launches/closes an isolated backend on a worker
-event loop; never run first-launch Chromium process creation on FastAPI's loop.
+Playwright availability and Copilot authentication/model discovery each run on
+isolated worker event loops; never run their process creation on FastAPI's loop.
 Do not remove that delay or move optional discovery back into an awaited startup
 hook: frozen imports and antivirus scanning can take minutes even though the
 core API is healthy.

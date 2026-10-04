@@ -71,9 +71,9 @@ Checksums: [docs/releases/v0.6.1/SHA256SUMS.txt](docs/releases/v0.6.1/SHA256SUMS
   if it remains blank, shot2code shows a recovery screen instead of an
   unexplained white window.
 - Packaged optional discovery now waits five seconds after core startup, and
-  Chromium warming runs on an isolated worker event loop. First-run antivirus
-  scanning can no longer starve `/api/health`, History or Settings and create a
-  false 90-second backend timeout.
+  Chromium warming plus Copilot authentication/model discovery run on isolated
+  worker event loops. First-run process scanning can no longer starve
+  `/api/health`, History or Settings and create a false backend timeout.
 - The release workflow now verifies the tag against
   `desktop/package.json` rather than rewriting that file through PowerShell.
 
