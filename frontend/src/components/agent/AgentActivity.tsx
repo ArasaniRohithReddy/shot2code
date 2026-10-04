@@ -24,8 +24,10 @@ import {
   BsFiles,
   BsBookmarkCheck,
   BsBoundingBox,
+  BsBook,
   BsCamera,
   BsPlug,
+  BsSearch,
 } from "react-icons/bs";
 import { parseMcpToolName } from "../../lib/integrations";
 import ReactMarkdown from "react-markdown";
@@ -38,8 +40,17 @@ import { vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import WorkingPulse from "../core/WorkingPulse";
 import ImageFailureTile from "./ImageFailureTile";
 import FreeImageResults from "./FreeImageResults";
+import IconSearchResults from "./IconSearchResults";
 import { imageEventTitle, readImageItem } from "./image-results";
+import {
+  READ_WEB_PAGE_TOOL_NAME,
+  WEB_SEARCH_TOOL_NAME,
+} from "../../lib/web-search";
 import { FREE_IMAGE_SEARCH_TOOL_NAME } from "../../lib/free-image-search";
+import {
+  ICON_SEARCH_TOOL_NAME,
+  iconEventTitle,
+} from "../../lib/icon-search";
 import { groupCompletedAgentEvents } from "./activity-order";
 import {
   formatDurationBetween,
@@ -206,6 +217,9 @@ function getEventIcon(type: AgentEventType, toolName?: string) {
     // A distinct icon from generate_images: found, not invented.
     return <BsImages className="text-emerald-500" />;
   }
+  if (toolName === ICON_SEARCH_TOOL_NAME) {
+    return <BsBoundingBox className="text-indigo-500" />;
+  }
   if (toolName === "generate_images") {
     return <BsImage className="text-pink-500" />;
   }
@@ -226,6 +240,12 @@ function getEventIcon(type: AgentEventType, toolName?: string) {
   }
   if (toolName === "screenshot_preview") {
     return <BsCamera className="text-cyan-500" />;
+  }
+  if (toolName === WEB_SEARCH_TOOL_NAME) {
+    return <BsSearch className="text-blue-500" />;
+  }
+  if (toolName === READ_WEB_PAGE_TOOL_NAME) {
+    return <BsBook className="text-cyan-600" />;
   }
   // An MCP tool is named `MCP · <server> · <tool>` by the backend, so it is
   // recognised by shape rather than by a list this build would have to know.
@@ -251,6 +271,8 @@ function getEventTitle(event: AgentEvent): string {
     if (event.toolName === "edit_file") {
       return event.status === "running" ? "Editing file" : "Edited file";
     }
+    const iconTitle = iconEventTitle(event);
+    if (iconTitle) return iconTitle;
     // Image tools count successes, not tiles: a batch where every prompt
     // failed must not read as a batch that produced images.
     const imageTitle = imageEventTitle(event);
@@ -301,6 +323,12 @@ function getEventTitle(event: AgentEvent): string {
         ? "Screenshotting preview"
         : "Screenshotted preview";
     }
+    if (event.toolName === WEB_SEARCH_TOOL_NAME) {
+      return event.status === "running" ? "Searching the web" : "Searched the web";
+    }
+    if (event.toolName === READ_WEB_PAGE_TOOL_NAME) {
+      return event.status === "running" ? "Reading web page" : "Read web page";
+    }
     // Server and tool name only; the arguments stay in the details pane, which
     // is where every other tool's input already lives.
     const mcp = parseMcpToolName(event.toolName);
@@ -341,6 +369,7 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
   const error = getStringField(output, "error");
   const hasError = Boolean(error);
   const images = getArrayField(output, "images");
+  const icons = getArrayField(output, "icons");
   // An image batch now reports a per-item reason even when the whole call
   // failed, so the item list stays visible instead of collapsing to one
   // top-level message that says nothing about which prompt went wrong.
@@ -434,6 +463,21 @@ function renderToolDetails(event: AgentEvent, variantCode?: string) {
           ) : images ? (
             <FreeImageResults
               items={images}
+              rejected={getArrayField(output, "rejected") ?? []}
+            />
+          ) : null}
+        </div>
+      )}
+
+      {event.toolName === ICON_SEARCH_TOOL_NAME && (
+        <div>
+          {event.status === "running" ? (
+            <div className="text-xs text-gray-600 dark:text-gray-400">
+              Searching Iconify and sanitizing selected SVGs…
+            </div>
+          ) : icons ? (
+            <IconSearchResults
+              items={icons}
               rejected={getArrayField(output, "rejected") ?? []}
             />
           ) : null}

@@ -140,6 +140,11 @@ appears, read the log rather than the console:
 %APPDATA%\shot2code-desktop\shot2code-backend.log
 ```
 
+The packaged shell's renderer-health guard reloads a truly empty React root
+once and then shows a static recovery screen. Startup changes must keep that
+bounded behavior, the preload/renderer diagnostics and the no-data-deletion
+guarantee.
+
 Run the shell against a locally built renderer:
 
 ```powershell

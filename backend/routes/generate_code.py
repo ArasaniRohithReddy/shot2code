@@ -40,6 +40,12 @@ from free_images.config import (
     FreeImageSearchSettings,
     parse_free_image_settings,
 )
+from icon_search.config import (
+    EMPTY_ICON_SEARCH,
+    IconSearchConfigError,
+    IconSearchSettings,
+    parse_icon_search_settings,
+)
 from web_search.config import (
     EMPTY_WEB_SEARCH,
     WebSearchConfigError,
@@ -452,6 +458,9 @@ class ExtractedParams:
     free_image_search: FreeImageSearchSettings = field(
         default_factory=FreeImageSearchSettings
     )
+    # Fixed-origin, sanitized Iconify SVG search. Also keyless and off until
+    # the user explicitly consents to sending a query.
+    icon_search: IconSearchSettings = field(default_factory=IconSearchSettings)
     # Which image backend the image tools run on, already validated. Holds the
     # provider credentials, so it stays backend-only like the two above.
     image_settings: ImageGenerationSettings = field(
@@ -560,6 +569,14 @@ class ParameterExtractionStage:
         try:
             free_image_search = parse_free_image_settings(params)
         except FreeImageConfigError as error:
+            await self.throw_error(str(error))
+            raise
+
+        # Iconify icon search is a separate opt-in from web and free-image
+        # search. It carries no credential and never changes model routing.
+        try:
+            icon_search = parse_icon_search_settings(params)
+        except IconSearchConfigError as error:
             await self.throw_error(str(error))
             raise
 
@@ -704,6 +721,7 @@ class ParameterExtractionStage:
             integrations=integrations,
             web_search=web_search,
             free_image_search=free_image_search,
+            icon_search=icon_search,
             image_settings=image_settings,
         )
 
@@ -992,6 +1010,7 @@ class AgenticGenerationStage:
         integrations: IntegrationSettings | None = None,
         web_search: WebSearchSettings | None = None,
         free_image_search: FreeImageSearchSettings | None = None,
+        icon_search: IconSearchSettings | None = None,
         image_settings: ImageGenerationSettings | None = None,
     ):
         self.send_message = send_message
@@ -1005,6 +1024,7 @@ class AgenticGenerationStage:
         self.integrations = integrations or IntegrationSettings()
         self.web_search = web_search or EMPTY_WEB_SEARCH
         self.free_image_search = free_image_search or EMPTY_FREE_IMAGE_SEARCH
+        self.icon_search = icon_search or EMPTY_ICON_SEARCH
         self.image_settings = image_settings
         self.should_generate_images = should_generate_images
         self.copilot_web_search_enabled = copilot_web_search_enabled
@@ -1153,6 +1173,7 @@ class AgenticGenerationStage:
                 copilot_web_search_enabled=self.copilot_web_search_enabled,
                 web_search=self.web_search,
                 free_image_search=self.free_image_search,
+                icon_search=self.icon_search,
                 image_settings=self.image_settings,
             )
             completion = await runner.run(
@@ -1400,6 +1421,7 @@ class CodeGenerationMiddleware(Middleware):
                 integrations=context.extracted_params.integrations,
                 web_search=context.extracted_params.web_search,
                 free_image_search=context.extracted_params.free_image_search,
+                icon_search=context.extracted_params.icon_search,
                 image_settings=context.extracted_params.image_settings,
             )
 

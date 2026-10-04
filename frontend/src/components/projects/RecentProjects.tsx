@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   LuClock3,
   LuFolderOpen,
+  LuHistory,
   LuPlus,
   LuTrash2,
 } from "react-icons/lu";
@@ -26,6 +27,7 @@ interface RecentProjectsProps {
   onOpen: (projectId: string) => Promise<boolean>;
   onDelete: (projectId: string) => Promise<boolean>;
   onNew: () => void;
+  onFullHistory: () => void;
 }
 
 function formatUpdatedAt(value: Date): string {
@@ -49,6 +51,7 @@ export default function RecentProjects({
   onOpen,
   onDelete,
   onNew,
+  onFullHistory,
 }: RecentProjectsProps) {
   const [projectToDelete, setProjectToDelete] =
     useState<RecentHistoryProject | null>(null);
@@ -76,10 +79,21 @@ export default function RecentProjects({
             Stored locally on this device.
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={onNew}>
-          <LuPlus className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-          New project
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onFullHistory}
+          >
+            <LuHistory className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+            Full history
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={onNew}>
+            <LuPlus className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+            New project
+          </Button>
+        </div>
       </div>
 
       {error && (

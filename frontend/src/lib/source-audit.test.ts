@@ -83,9 +83,13 @@ describe("automated composed-source audit", () => {
         (finding) =>
           finding.evidence.length > 0 &&
           finding.guidance.length > 0 &&
-          finding.affectedFile === "pages/dashboard.html"
+          finding.affectedFile === "pages/dashboard.html" &&
+          finding.origin === "source"
       )
     ).toBe(true);
+    expect(new Set(findings.map((finding) => finding.category))).toEqual(
+      new Set(["accessibility", "structure", "responsive", "document"])
+    );
   });
 
   it("recognizes native labels, nested labels, and ARIA names", () => {

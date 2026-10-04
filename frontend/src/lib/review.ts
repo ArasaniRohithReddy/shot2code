@@ -1,4 +1,6 @@
+import type { PreviewRuntimeMetrics } from "./preview-bridge";
 import type {
+  AuditCategory,
   AuditFinding,
   AuditSeverity,
 } from "./source-audit";
@@ -8,6 +10,13 @@ export const REVIEW_MAX_WIDTH = 1920;
 export const REVIEW_MIN_VIEWPORTS = 2;
 export const REVIEW_MAX_VIEWPORTS = 4;
 export const REVIEW_VIEWPORTS_STORAGE_KEY = "review-viewport-presets-v1";
+
+export const AUDIT_CATEGORY_LABELS: Record<AuditCategory, string> = {
+  accessibility: "Accessibility",
+  structure: "Structure",
+  responsive: "Responsive",
+  document: "Document",
+};
 
 export interface ReviewViewportPreset {
   id: string;
@@ -43,12 +52,36 @@ export interface ReviewFindingCounts {
   total: number;
 }
 
+export type ReviewCategoryCounts = Record<AuditCategory, number>;
+
+export type ReviewRuntimeFrameState =
+  | { status: "checking" }
+  | { status: "ready"; metrics: PreviewRuntimeMetrics }
+  | { status: "error"; message: string };
+
+export interface ReviewRuntimeViewport {
+  id: string;
+  label: string;
+  requestedWidth: number;
+  status: ReviewRuntimeFrameState["status"];
+  findingCount: number;
+  measuredViewportWidth?: number;
+  documentWidth?: number;
+  horizontalOverflow?: boolean;
+  inspectedElementCount?: number;
+  inspectionTruncated?: boolean;
+  findingsTruncated?: boolean;
+  error?: string;
+}
+
 export interface ReviewRun {
   binding: ReviewBinding;
   createdAt: string;
   artifactPath: string;
   findings: AuditFinding[];
   counts: ReviewFindingCounts;
+  categoryCounts: ReviewCategoryCounts;
+  runtimeViewports: ReviewRuntimeViewport[];
 }
 
 export interface HorizontalOverflowMetrics {
@@ -58,24 +91,56 @@ export interface HorizontalOverflowMetrics {
 }
 
 export type ReviewSeverityFilter = AuditSeverity | "all";
+export type ReviewCategoryFilter = AuditCategory | "all";
+
+export interface ReviewHealthSummary {
+  state:
+    | "not-run"
+    | "stale"
+    | "needs-attention"
+    | "warnings"
+    | "partial"
+    | "advisory"
+    | "healthy";
+  title: string;
+  detail: string;
+}
 
 export function filterReviewFindings(
   findings: readonly AuditFinding[],
   severity: ReviewSeverityFilter,
+  category: ReviewCategoryFilter,
   query: string
 ): AuditFinding[] {
   const needle = query.trim().toLowerCase();
   return findings.filter((finding) => {
     if (severity !== "all" && finding.severity !== severity) return false;
+    if (category !== "all" && finding.category !== category) return false;
     if (!needle) return true;
     return [
       finding.ruleId,
+      finding.category,
+      finding.origin,
       finding.message,
       finding.evidence,
       finding.affectedFile,
       finding.guidance,
+      finding.viewportWidth === undefined ? "" : `${finding.viewportWidth}px`,
     ].some((value) => value.toLowerCase().includes(needle));
   });
+}
+
+export function updateFilteredFindingSelection(
+  current: ReadonlySet<string>,
+  filteredFindings: readonly Pick<AuditFinding, "id">[],
+  selected: boolean
+): Set<string> {
+  const next = new Set(current);
+  for (const finding of filteredFindings) {
+    if (selected) next.add(finding.id);
+    else next.delete(finding.id);
+  }
+  return next;
 }
 
 export type ReviewWidthValidation =
@@ -255,21 +320,32 @@ export function createReviewBinding({
   };
 }
 
-export function isReviewRunStale(
-  run: Pick<ReviewRun, "binding"> | null,
+export function getReviewStaleReasons(
+  previous: ReviewBinding,
   current: ReviewBinding
-): boolean {
-  if (!run) return false;
-  const previous = run.binding;
-  return (
-    previous.commitHash !== current.commitHash ||
-    previous.variantIndex !== current.variantIndex ||
-    previous.codeHash !== current.codeHash ||
+): string[] {
+  const reasons: string[] = [];
+  if (previous.commitHash !== current.commitHash) reasons.push("commit");
+  if (previous.variantIndex !== current.variantIndex) {
+    reasons.push("selected option");
+  }
+  if (previous.codeHash !== current.codeHash) reasons.push("code");
+  if (
     previous.viewportWidths.length !== current.viewportWidths.length ||
     previous.viewportWidths.some(
       (width, index) => width !== current.viewportWidths[index]
     )
-  );
+  ) {
+    reasons.push("viewport set");
+  }
+  return reasons;
+}
+
+export function isReviewRunStale(
+  run: Pick<ReviewRun, "binding"> | null,
+  current: ReviewBinding
+): boolean {
+  return run ? getReviewStaleReasons(run.binding, current).length > 0 : false;
 }
 
 export function classifyAuditFindings(
@@ -286,6 +362,162 @@ export function classifyAuditFindings(
   return {
     ...counts,
     total: findings.length,
+  };
+}
+
+export function classifyAuditCategories(
+  findings: readonly Pick<AuditFinding, "category">[]
+): ReviewCategoryCounts {
+  const counts: ReviewCategoryCounts = {
+    accessibility: 0,
+    structure: 0,
+    responsive: 0,
+    document: 0,
+  };
+  for (const finding of findings) {
+    counts[finding.category] += 1;
+  }
+  return counts;
+}
+
+function safeArtifactPath(value: string): string {
+  const wasAbsolute = /^[A-Za-z]:[\\/]/.test(value) || /^[\\/]/.test(value);
+  const parts = value
+    .replace(/^[A-Za-z]:/, "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((part) => part && part !== "." && part !== "..");
+  if (wasAbsolute) {
+    return parts[parts.length - 1] || "composed-preview.html";
+  }
+  return parts.join("/") || "composed-preview.html";
+}
+
+export function buildReviewRuntimeSnapshot(
+  presets: readonly ReviewViewportPreset[],
+  states: Readonly<Record<string, ReviewRuntimeFrameState>>,
+  artifactPath: string
+): { findings: AuditFinding[]; viewports: ReviewRuntimeViewport[] } {
+  const findings: AuditFinding[] = [];
+  const viewports = presets.map((preset): ReviewRuntimeViewport => {
+    const state = states[preset.id] ?? { status: "checking" as const };
+    if (state.status === "error") {
+      return {
+        id: preset.id,
+        label: preset.label,
+        requestedWidth: preset.width,
+        status: "error",
+        findingCount: 0,
+        error: state.message.slice(0, 300),
+      };
+    }
+    if (state.status === "checking") {
+      return {
+        id: preset.id,
+        label: preset.label,
+        requestedWidth: preset.width,
+        status: "checking",
+        findingCount: 0,
+      };
+    }
+
+    const viewportFindings = state.metrics.findings.map((finding, index) => ({
+      id: `runtime-${preset.width}-${finding.ruleId}-${index + 1}`,
+      severity: finding.severity,
+      category: finding.category,
+      origin: "runtime" as const,
+      ruleId: finding.ruleId,
+      message: finding.message,
+      evidence: `${preset.label} ${preset.width}px viewport: ${finding.evidence}`,
+      affectedFile: safeArtifactPath(
+        finding.sourcePath || artifactPath || "composed-preview.html"
+      ),
+      guidance: finding.guidance,
+      viewportWidth: preset.width,
+    }));
+    findings.push(...viewportFindings);
+
+    return {
+      id: preset.id,
+      label: preset.label,
+      requestedWidth: preset.width,
+      status: "ready",
+      findingCount: viewportFindings.length,
+      measuredViewportWidth: Math.round(state.metrics.viewportWidth),
+      documentWidth: Math.ceil(state.metrics.documentWidth),
+      horizontalOverflow: state.metrics.horizontalOverflow,
+      inspectedElementCount: state.metrics.inspectedElementCount,
+      inspectionTruncated: state.metrics.inspectionTruncated,
+      findingsTruncated: state.metrics.findingsTruncated,
+    };
+  });
+  return { findings, viewports };
+}
+
+export function summarizeReviewHealth(
+  run: ReviewRun | null,
+  stale: boolean
+): ReviewHealthSummary {
+  if (!run) {
+    return {
+      state: "not-run",
+      title: "Review not run",
+      detail: "Run the local checks to bind findings to this code and viewport set.",
+    };
+  }
+  if (stale) {
+    return {
+      state: "stale",
+      title: "Results are stale",
+      detail: "Rerun before fixing or exporting; the bound target changed.",
+    };
+  }
+
+  const ready = run.runtimeViewports.filter(
+    (viewport) => viewport.status === "ready"
+  ).length;
+  const failed = run.runtimeViewports.filter(
+    (viewport) => viewport.status === "error"
+  ).length;
+  const pending = run.runtimeViewports.length - ready - failed;
+  const coverage = `${ready}/${run.runtimeViewports.length} runtime viewports captured`;
+  const incomplete = failed > 0 || pending > 0;
+  const incompleteDetail = incomplete
+    ? `; ${failed} failed and ${pending} still checking`
+    : "";
+
+  if (run.counts.error > 0) {
+    return {
+      state: "needs-attention",
+      title: `${run.counts.error} error${run.counts.error === 1 ? "" : "s"} need attention`,
+      detail: `${run.counts.warning} warnings, ${run.counts.info} advisories; ${coverage}${incompleteDetail}.`,
+    };
+  }
+  if (run.counts.warning > 0) {
+    return {
+      state: "warnings",
+      title: `${run.counts.warning} warning${run.counts.warning === 1 ? "" : "s"} to review`,
+      detail: `${run.counts.info} advisories; ${coverage}${incompleteDetail}.`,
+    };
+  }
+  if (incomplete) {
+    return {
+      state: "partial",
+      title: "Runtime coverage is partial",
+      detail: `${coverage}${incompleteDetail}. Source checks still completed.`,
+    };
+  }
+  if (run.counts.info > 0) {
+    return {
+      state: "advisory",
+      title: `${run.counts.info} advisory finding${run.counts.info === 1 ? "" : "s"}`,
+      detail: `${coverage}; no deterministic errors or warnings were found.`,
+    };
+  }
+  return {
+    state: "healthy",
+    title: "No deterministic findings",
+    detail: `${coverage}. Manual keyboard and assistive-technology testing is still required.`,
   };
 }
 
@@ -310,19 +542,6 @@ export function formatHorizontalOverflowMessage(
   return `Horizontal overflow: content is ${excess}px wider than the ${measuredViewport}px measured viewport.`;
 }
 
-function safeArtifactPath(value: string): string {
-  const wasAbsolute = /^[A-Za-z]:[\\/]/.test(value) || /^[\\/]/.test(value);
-  const parts = value
-    .replace(/^[A-Za-z]:/, "")
-    .replace(/\\/g, "/")
-    .split("/")
-    .filter((part) => part && part !== "." && part !== "..");
-  if (wasAbsolute) {
-    return parts[parts.length - 1] || "composed-preview.html";
-  }
-  return parts.join("/") || "composed-preview.html";
-}
-
 export function buildFixFindingsInstruction(
   findings: readonly AuditFinding[],
   viewportWidths: readonly number[]
@@ -331,6 +550,7 @@ export function buildFixFindingsInstruction(
     string,
     {
       ruleId: string;
+      category: AuditCategory;
       guidance: string;
       files: Set<string>;
       evidence: string[];
@@ -341,6 +561,7 @@ export function buildFixFindingsInstruction(
   for (const finding of findings) {
     const group = groups.get(finding.ruleId) ?? {
       ruleId: finding.ruleId,
+      category: finding.category,
       guidance: finding.guidance,
       files: new Set<string>(),
       evidence: [],
@@ -356,19 +577,25 @@ export function buildFixFindingsInstruction(
   const lines = [
     `Fix the ${findings.length} selected finding${
       findings.length === 1 ? "" : "s"
-    } from the local automated source audit.`,
+    } from the local automated review.`,
     "Preserve existing behavior and unrelated styling. Do not treat this as WCAG certification.",
   ];
 
   for (const group of groups.values()) {
     const examples = group.evidence.join("; ");
     lines.push(
-      `- [${group.ruleId}] ${group.count} in ${[...group.files].join(
-        ", "
-      )}: ${examples}${group.count > group.evidence.length ? "; plus the remaining matching occurrences" : ""}. ${group.guidance}`
+      `- [${group.ruleId} · ${AUDIT_CATEGORY_LABELS[group.category]}] ${group.count} in ${[
+        ...group.files,
+      ].join(", ")}: ${examples}${
+        group.count > group.evidence.length
+          ? "; plus the remaining matching occurrences"
+          : ""
+      }. ${group.guidance}`
     );
   }
-  lines.push(`Verify the result at ${widths.map((width) => `${width}px`).join(", ")}.`);
+  lines.push(
+    `Verify the result at ${widths.map((width) => `${width}px`).join(", ")}.`
+  );
   return lines.join("\n");
 }
 
@@ -376,12 +603,15 @@ export function serializeReviewReport(
   run: ReviewRun,
   stale: boolean
 ): string {
+  const readyRuntimeViewports = run.runtimeViewports.filter(
+    (viewport) => viewport.status === "ready"
+  ).length;
   return JSON.stringify(
     {
-      schemaVersion: 1,
-      kind: "shot2code-local-source-review",
+      schemaVersion: 2,
+      kind: "shot2code-local-review",
       notice:
-        "Automated source audit only; not WCAG certification. Runtime/framework DOM may differ.",
+        "Automated source and bounded runtime checks only; not WCAG certification. Manual keyboard, screen-reader, zoom, and interaction testing is still required.",
       createdAt: run.createdAt,
       stale,
       target: {
@@ -391,14 +621,28 @@ export function serializeReviewReport(
         viewportWidths: run.binding.viewportWidths,
         artifactPath: safeArtifactPath(run.artifactPath),
       },
-      summary: run.counts,
+      summary: {
+        ...run.counts,
+        categories: run.categoryCounts,
+        runtimeCoverage: {
+          ready: readyRuntimeViewports,
+          total: run.runtimeViewports.length,
+        },
+      },
+      runtimeViewports: run.runtimeViewports.map((viewport) => ({
+        ...viewport,
+        error: viewport.error || undefined,
+      })),
       findings: run.findings.map((finding) => ({
         severity: finding.severity,
+        category: finding.category,
+        origin: finding.origin,
         ruleId: finding.ruleId,
         message: finding.message,
         evidence: finding.evidence,
         affectedFile: safeArtifactPath(finding.affectedFile),
         guidance: finding.guidance,
+        viewportWidth: finding.viewportWidth,
       })),
     },
     null,

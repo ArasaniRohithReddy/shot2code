@@ -67,6 +67,19 @@ test("explains that no Copilot subscription is needed and the runtime is experim
   expect(html).toContain("experimental");
 });
 
+test("offers a no-paid-API local Ollama preset with capability caveats", () => {
+  const html = render({ settings: settings({ enabled: false }) });
+
+  expect(html).toContain('data-testid="ollama-local-preset"');
+  expect(html).toContain("Local Ollama preset");
+  expect(html).toContain("http://localhost:11434/v1");
+  expect(html).toContain("No paid API is required");
+  expect(html).toContain("shot2code does not bundle them");
+  expect(html).toContain("image input and tool calling");
+  expect(html).toContain("Ollama cloud");
+  expect(html).toContain("https://docs.ollama.com/api/openai-compatibility");
+});
+
 test("says each model becomes its own option, comparable side by side", () => {
   const html = render();
 
@@ -610,10 +623,14 @@ test("marks a pinned protocol as selected and stops calling it automatic", () =>
 
 test("explains that Automatic is provider-neutral, not vendor-specific", () => {
   const html = advanced({ wireApi: null });
+  const wireSection = html.slice(
+    html.indexOf("How requests are shaped."),
+    html.indexOf('data-testid="byok-validate"')
+  );
 
-  expect(html).toContain("Automatic picks Chat Completions");
-  expect(html).toContain("its own base URL");
-  expect(html).toContain("Pin one only if");
+  expect(wireSection).toContain("Automatic picks Chat Completions");
+  expect(wireSection).toContain("its own base URL");
+  expect(wireSection).toContain("Pin one only if");
   // No vendor is named as the reason for the choice.
-  expect(html).not.toMatch(/qwen|llama|mistral/i);
+  expect(wireSection).not.toMatch(/qwen|llama|mistral/i);
 });

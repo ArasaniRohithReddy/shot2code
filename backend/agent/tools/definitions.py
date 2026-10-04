@@ -2,9 +2,10 @@ from typing import Any, Dict, List
 
 from agent.tools.types import CanonicalToolDefinition
 from free_images.tool import free_image_search_tool_definition
+from icon_search.tool import icon_search_tool_definition
 from image_generation.replicate import P_IMAGE_EDIT_ASPECT_RATIOS
 from uploaded_assets.tools import SAVE_ASSETS_TOOL_DEFINITION
-from web_search.tool import web_search_tool_definition
+from web_search.tool import page_fetch_tool_definition, web_search_tool_definition
 
 
 def _create_schema() -> Dict[str, Any]:
@@ -194,7 +195,9 @@ def canonical_tool_definitions(
     screenshot_enabled: bool = True,
     background_removal_enabled: bool = True,
     web_search_enabled: bool = False,
+    page_fetch_enabled: bool = False,
     free_image_search_enabled: bool = False,
+    icon_search_enabled: bool = False,
 ) -> List[CanonicalToolDefinition]:
     tools: List[CanonicalToolDefinition] = [
         CanonicalToolDefinition(
@@ -300,6 +303,15 @@ def canonical_tool_definitions(
                 parameters=search_tool.parameters,
             )
         )
+    if page_fetch_enabled:
+        page_tool = page_fetch_tool_definition()
+        tools.append(
+            CanonicalToolDefinition(
+                name=page_tool.name,
+                description=page_tool.description,
+                parameters=page_tool.parameters,
+            )
+        )
     if free_image_search_enabled:
         # A separate tool from generate_images on purpose: one invents a
         # picture, this one finds a real public-domain photograph. Described by
@@ -310,6 +322,15 @@ def canonical_tool_definitions(
                 name=free_image_tool.name,
                 description=free_image_tool.description,
                 parameters=free_image_tool.parameters,
+            )
+        )
+    if icon_search_enabled:
+        icon_tool = icon_search_tool_definition()
+        tools.append(
+            CanonicalToolDefinition(
+                name=icon_tool.name,
+                description=icon_tool.description,
+                parameters=icon_tool.parameters,
             )
         )
     tools.extend(

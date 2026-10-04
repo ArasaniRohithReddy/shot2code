@@ -19,6 +19,7 @@ from agent.tools import CanonicalToolDefinition, canonical_tool_definitions
 from config import COPILOT_GITHUB_TOKEN, REPLICATE_API_KEY
 from fs_logging.agent_runs import AgentRunRecorder
 from free_images.config import EMPTY_FREE_IMAGE_SEARCH, FreeImageSearchSettings
+from icon_search.config import EMPTY_ICON_SEARCH, IconSearchSettings
 from image_generation.settings import ImageGenerationSettings
 from integrations.config import (
     EMPTY_INTEGRATIONS,
@@ -99,6 +100,7 @@ def create_provider_session(
     web_search: Optional[WebSearchSettings] = None,
     image_settings: Optional[ImageGenerationSettings] = None,
     free_image_search: Optional[FreeImageSearchSettings] = None,
+    icon_search: Optional[IconSearchSettings] = None,
 ) -> ProviderSession:
     settings = integrations or EMPTY_INTEGRATIONS
     search_settings = web_search or EMPTY_WEB_SEARCH
@@ -106,6 +108,7 @@ def create_provider_session(
     # no Replicate/Cloudflare/endpoint configuration can still find real
     # public-domain photographs, and configuring one does not switch this off.
     free_images = free_image_search or EMPTY_FREE_IMAGE_SEARCH
+    icons = icon_search or EMPTY_ICON_SEARCH
     # The canonical `search_web` tool is only advertised when a provider is
     # actually configured and usable, so a model is never told about a tool
     # this run cannot execute.
@@ -146,7 +149,9 @@ def create_provider_session(
             # screenshot_preview needs headless Chromium; skip it if it can't launch.
             screenshot_enabled=is_screenshot_preview_available(),
             web_search_enabled=canonical_web_search,
+            page_fetch_enabled=search_settings.page_fetch_enabled,
             free_image_search_enabled=free_images.is_usable,
+            icon_search_enabled=icons.is_usable,
         )
     )
     skill_directories = (
@@ -224,7 +229,9 @@ def create_provider_session(
                 asset_extraction_enabled=should_extract_assets and bool(gemini_api_key),
                 screenshot_enabled=False,
                 web_search_enabled=canonical_web_search,
+                page_fetch_enabled=search_settings.page_fetch_enabled,
                 free_image_search_enabled=free_images.is_usable,
+                icon_search_enabled=icons.is_usable,
             )
 
         # No key check: an explicit token is optional. Without one the SDK

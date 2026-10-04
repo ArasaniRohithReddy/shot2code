@@ -1,6 +1,10 @@
 import {
   DEFAULT_WEB_SEARCH_SETTINGS,
   ALLOWANCE_CAVEAT,
+  PAGE_FETCH_MAX_BYTES,
+  PAGE_FETCH_MAX_PER_GENERATION,
+  PAGE_FETCH_MAX_PER_TURN,
+  PAGE_FETCH_MAX_TEXT_CHARS,
   WEB_SEARCH_MAX_INCLUDE_DOMAINS,
   WEB_SEARCH_MAX_PER_GENERATION,
   WEB_SEARCH_MAX_PER_TURN,
@@ -42,6 +46,7 @@ function keyed(overrides: Partial<WebSearchSettings> = {}): WebSearchSettings {
     provider: "tavily",
     accessMode: "api-key",
     apiKey: KEY,
+    pageFetchEnabled: false,
     ...overrides,
   };
 }
@@ -60,6 +65,7 @@ describe("defaults and backward compatibility", () => {
   test("web search is off by default", () => {
     expect(DEFAULT_WEB_SEARCH_SETTINGS.enabled).toBe(false);
     expect(DEFAULT_WEB_SEARCH_SETTINGS.apiKey).toBeNull();
+    expect(DEFAULT_WEB_SEARCH_SETTINGS.pageFetchEnabled).toBe(false);
     expect(DEFAULT_INTEGRATION_SETTINGS.webSearch).toEqual(
       DEFAULT_WEB_SEARCH_SETTINGS
     );
@@ -110,6 +116,15 @@ describe("normalization mirrors the backend", () => {
     expect(normalized.apiKey).toBeNull();
   });
 
+  test("bounded page reading is a separate persisted opt-in", () => {
+    expect(
+      normalizeWebSearchSettings({
+        enabled: false,
+        pageFetchEnabled: true,
+      }).pageFetchEnabled
+    ).toBe(true);
+  });
+
   test("a key with whitespace or control characters is refused", () => {
     expect(isValidWebSearchApiKey("tvly-ok")).toBe(true);
     expect(isValidWebSearchApiKey("tvly ok")).toBe(false);
@@ -125,6 +140,10 @@ describe("normalization mirrors the backend", () => {
     expect(WEB_SEARCH_MAX_TOTAL_CHARS).toBe(4000);
     expect(WEB_SEARCH_MAX_PER_TURN).toBe(3);
     expect(WEB_SEARCH_MAX_PER_GENERATION).toBe(10);
+    expect(PAGE_FETCH_MAX_BYTES).toBe(512 * 1024);
+    expect(PAGE_FETCH_MAX_TEXT_CHARS).toBe(16_000);
+    expect(PAGE_FETCH_MAX_PER_TURN).toBe(2);
+    expect(PAGE_FETCH_MAX_PER_GENERATION).toBe(5);
   });
 });
 
@@ -173,6 +192,7 @@ describe("wire payloads and secrets", () => {
       enabled: true,
       provider: "tavily",
       accessMode: "api-key",
+      pageFetchEnabled: false,
     });
     expect(JSON.stringify(stripped)).not.toContain(KEY);
   });
@@ -185,9 +205,13 @@ describe("wire payloads and secrets", () => {
   });
 
   test("the generation payload includes the block and the key", () => {
-    const payload = buildGenerationIntegrationPayload(slice(), []);
+    const payload = buildGenerationIntegrationPayload(
+      slice(keyed({ pageFetchEnabled: true })),
+      []
+    );
 
     expect(payload.webSearch.apiKey).toBe(KEY);
+    expect(payload.webSearch.pageFetchEnabled).toBe(true);
   });
 
   test("the plain wire payload includes the block too", () => {
@@ -304,10 +328,17 @@ describe("backend response parsing", () => {
       usable: true,
       reason: null,
       maxResults: 5,
+      pageFetchEnabled: true,
+      maxPageBytes: PAGE_FETCH_MAX_BYTES,
+      maxPageTextChars: PAGE_FETCH_MAX_TEXT_CHARS,
+      maxPageFetchesPerTurn: PAGE_FETCH_MAX_PER_TURN,
+      maxPageFetchesPerGeneration: PAGE_FETCH_MAX_PER_GENERATION,
     });
 
     expect(summary?.hasApiKey).toBe(true);
     expect(summary?.maxSearchesPerTurn).toBe(WEB_SEARCH_MAX_PER_TURN);
+    expect(summary?.pageFetchEnabled).toBe(true);
+    expect(summary?.maxPageTextChars).toBe(PAGE_FETCH_MAX_TEXT_CHARS);
     expect(JSON.stringify(summary)).not.toContain(KEY);
   });
 

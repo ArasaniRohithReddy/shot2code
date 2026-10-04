@@ -34,6 +34,7 @@ import {
   type ProjectImportAnalysis,
   type ProjectImportSourceKind,
 } from "../../../lib/project-import";
+import BuiltStorybookImport from "./BuiltStorybookImport";
 
 export interface ImportTabProps {
   importFromCode: (
@@ -51,7 +52,7 @@ export interface ImportTabProps {
   modelSelector?: ModelSelectorProps;
 }
 
-type ImportMode = "page" | "project";
+type ImportMode = "page" | "project" | "storybook";
 
 function stackName(stack: Stack) {
   return STACK_DESCRIPTIONS[stack].components.join(" + ");
@@ -289,7 +290,7 @@ function ImportTab({
               Import existing code
             </h3>
             <p className="mt-1 text-sm leading-5 text-gray-600 dark:text-zinc-400">
-              Open a page directly, or inspect a project before choosing how to use it.
+              Open a page, inspect a project, or add Built Storybook metadata as context.
             </p>
           </div>
         </div>
@@ -297,7 +298,7 @@ function ImportTab({
         <div
           role="tablist"
           aria-label="Import type"
-          className="mt-5 grid grid-cols-2 rounded-lg bg-gray-100 p-1 dark:bg-zinc-800"
+          className="mt-5 grid grid-cols-1 rounded-lg bg-gray-100 p-1 dark:bg-zinc-800 sm:grid-cols-3"
         >
           <button
             type="button"
@@ -324,6 +325,19 @@ function ImportTab({
             }`}
           >
             Folder, ZIP or source files
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "storybook"}
+            onClick={() => setMode("storybook")}
+            className={`min-h-11 rounded-md px-3 text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+              mode === "storybook"
+                ? "bg-white text-gray-900 shadow-sm dark:bg-zinc-700 dark:text-white"
+                : "text-gray-600 hover:text-gray-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+            }`}
+          >
+            Built Storybook
           </button>
         </div>
 
@@ -433,7 +447,7 @@ function ImportTab({
               Press Cmd/Ctrl + Enter to import
             </p>
           </section>
-        ) : (
+        ) : mode === "project" ? (
           <section className="mt-5 space-y-4" aria-label="Import a project">
             <div>
               <h4 className="text-sm font-semibold text-gray-800 dark:text-zinc-100">
@@ -672,6 +686,8 @@ function ImportTab({
               </div>
             )}
           </section>
+        ) : (
+          <BuiltStorybookImport setProjectContext={setProjectContext} />
         )}
       </div>
     </div>

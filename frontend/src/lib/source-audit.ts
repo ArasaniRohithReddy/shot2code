@@ -1,13 +1,22 @@
 export type AuditSeverity = "error" | "warning" | "info";
+export type AuditCategory =
+  | "accessibility"
+  | "structure"
+  | "responsive"
+  | "document";
+export type AuditOrigin = "source" | "runtime";
 
 export interface AuditFinding {
   id: string;
   severity: AuditSeverity;
+  category: AuditCategory;
+  origin: AuditOrigin;
   ruleId: string;
   message: string;
   evidence: string;
   affectedFile: string;
   guidance: string;
+  viewportWidth?: number;
 }
 
 export interface SourceAuditInput {
@@ -58,6 +67,21 @@ const VOID_ELEMENTS = new Set([
 
 const RAW_TEXT_ELEMENTS = new Set(["script", "style", "textarea", "title"]);
 const HIDDEN_TEXT_ELEMENTS = new Set(["script", "style", "template"]);
+
+const CATEGORY_BY_RULE: Record<string, AuditCategory> = {
+  "document-html-lang": "document",
+  "document-title": "document",
+  "document-viewport": "document",
+  "heading-structure": "structure",
+  "landmark-main": "structure",
+  "table-caption": "structure",
+  "table-headers": "structure",
+  "fixed-width-overflow": "responsive",
+};
+
+function categoryForRule(ruleId: string): AuditCategory {
+  return CATEGORY_BY_RULE[ruleId] ?? "accessibility";
+}
 
 const GUIDANCE = {
   htmlLang:
@@ -521,6 +545,8 @@ export function auditComposedPreviewSource({
     findings.push({
       id: `${ruleId}-${ordinal}`,
       severity,
+      category: categoryForRule(ruleId),
+      origin: "source",
       ruleId,
       message,
       evidence,

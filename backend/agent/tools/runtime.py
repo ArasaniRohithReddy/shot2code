@@ -9,6 +9,7 @@ from agent.tools.extract_assets import run_extract_assets
 from asset_urls import guess_image_mime, local_asset_url_to_data_url
 from agent.tools.screenshot_preview import run_screenshot_preview
 from free_images.tool import FREE_IMAGE_SEARCH_TOOL_NAME, FreeImageSearchRuntime
+from icon_search.tool import ICON_SEARCH_TOOL_NAME, IconSearchRuntime
 from image_generation.assets import (
     NormalizedImage,
     normalize_image_result,
@@ -25,12 +26,17 @@ from image_generation.replicate import (
     remove_background as remove_background_once,
 )
 from image_generation.settings import ImageGenerationSettings
+from uploaded_assets.store import persist_sanitized_svg_as_asset
 from uploaded_assets.tools import run_save_assets
 
 from agent.state import AgentFileState, ensure_str
 from agent.tools.types import ToolCall, ToolExecutionResult, ToolMultimodalPart
 from agent.tools.summaries import summarize_text
-from web_search.tool import WEB_SEARCH_TOOL_NAME, WebSearchRuntime
+from web_search.tool import (
+    READ_WEB_PAGE_TOOL_NAME,
+    WEB_SEARCH_TOOL_NAME,
+    WebSearchRuntime,
+)
 
 
 IMAGE_TOOL_BATCH_SIZE = 20
@@ -103,6 +109,7 @@ class AgentToolRuntime:
         web_search: Optional[WebSearchRuntime] = None,
         image_settings: Optional[ImageGenerationSettings] = None,
         free_image_search: Optional[FreeImageSearchRuntime] = None,
+        icon_search: Optional[IconSearchRuntime] = None,
     ):
         self.file_state = file_state
         self.should_generate_images = should_generate_images
@@ -124,6 +131,11 @@ class AgentToolRuntime:
         # every image *generation* credential: a run with none of them can
         # still find real public-domain photographs.
         self.free_image_search = free_image_search
+        # Fixed-origin Iconify search. Independent of image generation and free
+        # image search, with its own consent and budget.
+        self.icon_search = icon_search
+        self._image_generation_blocked: dict[str, str] | None = None
+        self._image_generation_failed_batches = 0
 
     def _effective_replicate_api_key(self) -> str | None:
         return self.replicate_api_key or REPLICATE_API_KEY
@@ -197,8 +209,12 @@ class AgentToolRuntime:
             return await run_save_assets(tool_call.arguments, user_id=self.user_id)
         if tool_call.name == WEB_SEARCH_TOOL_NAME:
             return await self._search_web(tool_call.arguments)
+        if tool_call.name == READ_WEB_PAGE_TOOL_NAME:
+            return await self._read_web_page(tool_call.arguments)
         if tool_call.name == FREE_IMAGE_SEARCH_TOOL_NAME:
             return await self._search_free_images(tool_call.arguments)
+        if tool_call.name == ICON_SEARCH_TOOL_NAME:
+            return await self._search_icons(tool_call.arguments)
         if tool_call.name == "retrieve_option":
             return self._retrieve_option(tool_call.arguments)
         return ToolExecutionResult(
@@ -367,6 +383,26 @@ class AgentToolRuntime:
 
     async def _generate_images(self, args: Dict[str, Any]) -> ToolExecutionResult:
         settings = self._image_settings()
+        if self._image_generation_blocked is not None:
+            blocked = self._image_generation_blocked
+            return ToolExecutionResult(
+                ok=False,
+                result={
+                    "error": (
+                        "Image generation is unavailable for the rest of this "
+                        "run after an earlier provider failure. Do not retry "
+                        "generate_images. Use search_free_images, search_icons, "
+                        "extracted assets, CSS or SVG instead."
+                    ),
+                    "errorCode": "image_generation_blocked_for_run",
+                    "errorCategory": blocked["category"],
+                    "action": blocked["action"],
+                },
+                summary={
+                    "error": "Image generation blocked for this run",
+                    "errorCategory": blocked["category"],
+                },
+            )
         if not self.should_generate_images:
             return ToolExecutionResult(
                 ok=False,
@@ -394,6 +430,13 @@ class AgentToolRuntime:
             )
         if not settings.has_generation_credential:
             message = missing_credential_message(settings.provider)
+            self._image_generation_blocked = {
+                "category": "credentials",
+                "action": (
+                    "Configure the selected image provider in Settings, or use "
+                    "public-domain photos, localized icons, CSS or SVG."
+                ),
+            }
             return ToolExecutionResult(
                 ok=False,
                 result={"error": message, "errorCategory": "credentials"},
@@ -423,6 +466,7 @@ class AgentToolRuntime:
         # failure carrying the reason so the model can stop asking for images
         # it cannot get, and the UI can show what to do about it.
         if batch.all_failed:
+            self._image_generation_failed_batches += 1
             failure = batch.dominant_failure()
             error_message = failure.message if failure else batch.summary_message()
             result["error"] = error_message
@@ -431,8 +475,25 @@ class AgentToolRuntime:
                 result["errorCategory"] = failure.category
                 result["action"] = failure.action
                 summary["errorCategory"] = failure.category
+                if failure.category != "network":
+                    self._image_generation_blocked = {
+                        "category": failure.category,
+                        "action": failure.action,
+                    }
+            if self._image_generation_failed_batches >= 2:
+                self._image_generation_blocked = {
+                    "category": (
+                        failure.category if failure is not None else "unknown"
+                    ),
+                    "action": (
+                        failure.action
+                        if failure is not None
+                        else "Use another asset path for this run."
+                    ),
+                }
             return ToolExecutionResult(ok=False, result=result, summary=summary)
 
+        self._image_generation_failed_batches = 0
         return ToolExecutionResult(
             ok=True,
             result=result,
@@ -807,6 +868,28 @@ class AgentToolRuntime:
             ok=outcome.ok, result=outcome.result, summary=outcome.summary
         )
 
+    async def _read_web_page(self, args: Dict[str, Any]) -> ToolExecutionResult:
+        if self.web_search is None:
+            return ToolExecutionResult(
+                ok=False,
+                result={
+                    "error": (
+                        "Bounded page reading is not configured for this run. "
+                        "Continue with search snippets or the information "
+                        "already available."
+                    ),
+                    "error_code": "not_configured",
+                },
+                summary={
+                    "error": "Bounded page reading is not configured",
+                    "status": "error",
+                },
+            )
+        outcome = await self.web_search.read_page(args)
+        return ToolExecutionResult(
+            ok=outcome.ok, result=outcome.result, summary=outcome.summary
+        )
+
     async def _search_free_images(self, args: Dict[str, Any]) -> ToolExecutionResult:
         """Find public-domain images and persist them as local assets.
 
@@ -900,6 +983,76 @@ class AgentToolRuntime:
             summary=summary,
             multimodal_parts=multimodal_parts or None,
         )
+
+    async def _search_icons(self, args: Dict[str, Any]) -> ToolExecutionResult:
+        """Find, sanitize and persist Iconify SVGs as local assets."""
+
+        if self.icon_search is None:
+            return ToolExecutionResult(
+                ok=False,
+                result={
+                    "error": (
+                        "Icon search is not enabled for this run. Continue with "
+                        "CSS shapes or another local asset."
+                    ),
+                    "error_code": "not_enabled",
+                },
+                summary={"error": "Icon search is not enabled", "status": "error"},
+            )
+
+        outcome = await self.icon_search.execute(args)
+        result = dict(outcome.result)
+        summary = dict(outcome.summary)
+        items = result.get("icons")
+        if not isinstance(items, list) or not outcome.assets:
+            return ToolExecutionResult(
+                ok=outcome.ok, result=result, summary=summary
+            )
+
+        persisted: List[Dict[str, Any]] = []
+        for item, asset in zip(cast(List[Dict[str, Any]], items), outcome.assets):
+            entry = dict(item)
+            try:
+                saved = await persist_sanitized_svg_as_asset(
+                    asset.data,
+                    self.asset_base_url,
+                    filename_stem=asset.filename_stem,
+                    user_id=self.user_id,
+                )
+            except OSError:
+                saved = None
+            if saved is None:
+                entry["status"] = "error"
+                entry["error"] = "The sanitized SVG could not be saved locally."
+                entry["error_code"] = "save_failed"
+                entry["url"] = None
+            else:
+                entry["url"] = saved.public_url
+                entry["mime_type"] = saved.content_type
+            persisted.append(entry)
+
+        saved_count = sum(1 for entry in persisted if entry.get("url"))
+        requested = int(result.get("requested") or len(persisted))
+        message = (
+            f"Found {saved_count} icon{'s' if saved_count != 1 else ''}."
+            if saved_count == requested
+            else f"Found {saved_count} of {requested} icons."
+        )
+        result["icons"] = persisted
+        summary["icons"] = persisted
+        result["found"] = saved_count
+        summary["found"] = saved_count
+        result["message"] = message
+        summary["message"] = message
+        if saved_count == 0:
+            error = "None of the sanitized icons could be saved locally."
+            result["error"] = error
+            result["error_code"] = "save_failed"
+            summary["error"] = error
+            summary["status"] = "error"
+            return ToolExecutionResult(ok=False, result=result, summary=summary)
+
+        return ToolExecutionResult(ok=True, result=result, summary=summary)
 
     def _retrieve_option(self, args: Dict[str, Any]) -> ToolExecutionResult:
         raw_option_number = args.get("option_number")

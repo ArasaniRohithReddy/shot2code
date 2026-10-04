@@ -61,18 +61,18 @@ function DesignSystemSelector({
           className={
             hasSelection
               ? "flex h-11 max-w-full w-auto items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-0 text-xs font-medium text-gray-700 shadow-none hover:bg-gray-50 focus:ring-0 focus:ring-offset-0 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 [&>svg:last-child]:hidden"
-              : "flex h-11 w-11 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-gray-400 shadow-none hover:bg-gray-100 hover:text-gray-600 focus:ring-0 focus:ring-offset-0 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 [&>svg:last-child]:hidden"
+              : "flex h-11 w-auto items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent px-2 text-xs font-medium text-gray-500 shadow-none hover:bg-gray-100 hover:text-gray-700 focus:ring-0 focus:ring-offset-0 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 [&>svg:last-child]:hidden"
           }
           data-testid="design-system-select"
           aria-label={
             hasSelection
               ? `Design system: ${selectedDesignSystem.name}`
-              : "Add a design system"
+              : "Choose a design system"
           }
           title={
             hasSelection
               ? `Design system: ${selectedDesignSystem.name}`
-              : "Add a design system"
+              : "Choose a design system"
           }
         >
           <LuPalette className="h-3.5 w-3.5 shrink-0" />
@@ -84,6 +84,7 @@ function DesignSystemSelector({
               <LuChevronDown className="h-3 w-3 shrink-0 opacity-60" />
             </>
           )}
+          {!hasSelection && <span>Design</span>}
         </SelectTrigger>
       ) : hasSelection ? (
         <div className="grid grid-cols-3 items-center gap-4 text-sm">

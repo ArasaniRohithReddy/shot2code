@@ -6,6 +6,7 @@ from playwright.async_api import BrowserContext, ViewportSize
 
 from babel_cdn import normalize_babel_cdn
 from preview_screenshot.base import ScreenshotBackend
+from preview_screenshot.diagnostics import ScreenshotEvidence
 from preview_screenshot.playwright_backend import PlaywrightBackend
 
 # The active backend. Defaults to local Chromium; a deployment can swap in an
@@ -77,7 +78,34 @@ async def capture_preview_screenshot(
     is invisible to callers. Normalizes the Babel CDN first so generated React
     pages (old and new) actually mount before we capture.
     """
-    return await _backend.capture(normalize_babel_cdn(html), device, full_page)
+    return (
+        await capture_preview_evidence(
+            html,
+            device=device,
+            full_page=full_page,
+        )
+    ).image
+
+
+async def capture_preview_evidence(
+    html: str,
+    device: str = "desktop",
+    full_page: bool = True,
+) -> ScreenshotEvidence:
+    """Render a preview and return bounded browser diagnostics when available."""
+    normalized = normalize_babel_cdn(html)
+    capture_evidence = getattr(_backend, "capture_evidence", None)
+    if callable(capture_evidence):
+        result = capture_evidence(normalized, device, full_page)
+        if not inspect.isawaitable(result):
+            raise RuntimeError("The screenshot backend returned invalid evidence.")
+        evidence = await result
+        if not isinstance(evidence, ScreenshotEvidence):
+            raise RuntimeError("The screenshot backend returned invalid evidence.")
+        return evidence
+    return ScreenshotEvidence(
+        image=await _backend.capture(normalized, device, full_page)
+    )
 
 
 async def create_screenshot_browser_context(

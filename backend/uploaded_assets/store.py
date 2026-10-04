@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from typing import Any, cast
@@ -20,6 +21,8 @@ SUPPORTED_IMAGE_TYPES = {
     "image/png": ".png",
     "image/webp": ".webp",
 }
+
+_SAFE_FILENAME_STEM = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 @dataclass(frozen=True)
@@ -179,6 +182,7 @@ def _finalize_asset_bytes(
     content_type: str,
     asset_base_url: str,
     user_id: str | None,
+    filename_stem: str | None = None,
 ) -> SavedAsset:
     """Write asset bytes to the served ``LOCAL_ASSET_DIR`` and return a SavedAsset.
 
@@ -190,7 +194,12 @@ def _finalize_asset_bytes(
     _ = user_id
     digest = _digest_for_bytes(image_bytes)
     asset_id = _asset_id_for_digest(digest)
-    permanent_filename = f"asset_{digest}{extension}"
+    if filename_stem:
+        safe_stem = _SAFE_FILENAME_STEM.sub("-", filename_stem).strip("-_")
+        safe_stem = safe_stem[:96].rstrip("-_") or "asset"
+        permanent_filename = f"{safe_stem}-{digest}{extension}"
+    else:
+        permanent_filename = f"asset_{digest}{extension}"
 
     os.makedirs(LOCAL_ASSET_DIR, exist_ok=True)
     destination_path = os.path.join(LOCAL_ASSET_DIR, permanent_filename)
@@ -255,6 +264,32 @@ async def persist_data_url_as_asset(
     image_bytes, content_type, extension = decoded
     return _finalize_asset_bytes(
         image_bytes, extension, content_type, asset_base_url, user_id
+    )
+
+
+async def persist_sanitized_svg_as_asset(
+    svg_bytes: bytes,
+    asset_base_url: str,
+    *,
+    filename_stem: str,
+    user_id: str | None = None,
+) -> SavedAsset | None:
+    """Persist SVG bytes only after a caller has applied its SVG sanitizer.
+
+    SVG is deliberately not added to ``SUPPORTED_IMAGE_TYPES``: uploads and
+    provider data URLs must not gain a path for unsanitized active SVG. This
+    narrow entry point is reserved for a boundary that sanitized the bytes.
+    """
+
+    if not svg_bytes or len(svg_bytes) > MAX_UPLOADED_ASSET_BYTES:
+        return None
+    return _finalize_asset_bytes(
+        svg_bytes,
+        ".svg",
+        "image/svg+xml",
+        asset_base_url,
+        user_id,
+        filename_stem=filename_stem,
     )
 
 

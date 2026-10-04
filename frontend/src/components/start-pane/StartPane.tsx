@@ -36,6 +36,7 @@ interface Props {
   onOpenProject: (projectId: string) => Promise<boolean>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
   onNewProject: () => void;
+  onFullHistory: () => void;
 }
 
 const StartPane: React.FC<Props> = ({
@@ -58,6 +59,7 @@ const StartPane: React.FC<Props> = ({
   onOpenProject,
   onDeleteProject,
   onNewProject,
+  onFullHistory,
 }) => {
   return (
     <div className="flex flex-col items-center gap-8 py-8">
@@ -83,6 +85,7 @@ const StartPane: React.FC<Props> = ({
         onOpen={onOpenProject}
         onDelete={onDeleteProject}
         onNew={onNewProject}
+        onFullHistory={onFullHistory}
       />
     </div>
   );

@@ -1,5 +1,10 @@
 import { useRef, useState } from "react";
-import { LuExternalLink, LuFigma, LuKeyRound } from "react-icons/lu";
+import {
+  LuExternalLink,
+  LuEye,
+  LuFigma,
+  LuKeyRound,
+} from "react-icons/lu";
 import toast from "react-hot-toast";
 import { HTTP_BACKEND_URL } from "../../../config";
 import { readDesignSourceAssets } from "../../../lib/design-source-assets";
@@ -8,6 +13,7 @@ import type { DesignSourceAsset } from "../../../types";
 import type { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
 import type { ModelSelectorProps } from "../../settings/ModelSelector";
 import { Input } from "../../ui/input";
+import { Button } from "../../ui/button";
 import GenerationControls from "../GenerationControls";
 
 interface Props {
@@ -26,6 +32,13 @@ interface Props {
   modelSelector?: ModelSelectorProps;
 }
 
+interface FigmaInspection {
+  url: string;
+  images: string[];
+  sourceAssets: DesignSourceAsset[];
+  warnings: string[];
+}
+
 export default function FigmaTab({
   doCreate,
   figmaAccessToken,
@@ -37,79 +50,123 @@ export default function FigmaTab({
   const [url, setUrl] = useState("");
   const [instruction, setInstruction] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [inspection, setInspection] = useState<FigmaInspection | null>(null);
+  const [selectedPreview, setSelectedPreview] = useState(0);
   const [isAssetExtractionEnabled, setIsAssetExtractionEnabled] =
     useState(false);
   const instructionRef = useRef<HTMLTextAreaElement>(null);
   const hasToken = Boolean(figmaAccessToken?.trim());
 
-  const importFigma = async () => {
+  const readFigma = async (): Promise<FigmaInspection> => {
     const figmaUrl = url.trim();
     if (!/^https:\/\/([\w.-]*\.)?figma\.com\//i.test(figmaUrl)) {
-      toast.error("Paste a valid https://www.figma.com design URL.");
-      return;
+      throw new Error("Paste a valid https://www.figma.com design URL.");
     }
 
     if (!hasToken) {
       toast.error(
         "Add a scoped Figma personal access token in Settings, or export the frame and use Upload."
       );
-      return;
+      throw new Error("Figma access is not configured.");
     }
-    setIsLoading(true);
-    try {
-      const response = await fetch(`${HTTP_BACKEND_URL}/api/figma/import`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: figmaUrl,
-          token: figmaAccessToken,
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(
-          typeof payload.detail === "string"
-            ? payload.detail
-            : `Figma import failed (HTTP ${response.status}).`
-        );
-      }
-      const images = Array.isArray(payload.images)
-        ? payload.images.filter(
-            (image: unknown): image is string => typeof image === "string"
-          )
-        : [];
-      if (images.length === 0) {
-        throw new Error("Figma returned no renderable frames.");
-      }
-      const sourceAssets = readDesignSourceAssets(payload.sourceAssets);
-      const warnings = Array.isArray(payload.warnings)
+    const response = await fetch(`${HTTP_BACKEND_URL}/api/figma/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: figmaUrl,
+        token: figmaAccessToken,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        typeof payload.detail === "string"
+          ? payload.detail
+          : `Figma import failed (HTTP ${response.status}).`
+      );
+    }
+    const images = Array.isArray(payload.images)
+      ? payload.images.filter(
+          (image: unknown): image is string => typeof image === "string"
+        )
+      : [];
+    if (images.length === 0) {
+      throw new Error("Figma returned no renderable frames.");
+    }
+    return {
+      url: figmaUrl,
+      images,
+      sourceAssets: readDesignSourceAssets(payload.sourceAssets),
+      warnings: Array.isArray(payload.warnings)
         ? payload.warnings.filter(
             (warning: unknown): warning is string =>
               typeof warning === "string" && warning.trim().length > 0
           )
-        : [];
+        : [],
+    };
+  };
+
+  const previewFigma = async () => {
+    setIsPreviewing(true);
+    try {
+      const result = await readFigma();
+      setInspection(result);
+      setSelectedPreview(0);
+      toast.success(
+        `Loaded ${result.images.length} Figma frame preview${
+          result.images.length === 1 ? "" : "s"
+        }.`
+      );
+      result.warnings.forEach((warning) => toast(warning));
+    } catch (caught) {
+      if (
+        !(caught instanceof Error) ||
+        caught.message !== "Figma access is not configured."
+      ) {
+        toast.error(
+          caught instanceof Error ? caught.message : "Could not import Figma."
+        );
+      }
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
+  const importFigma = async () => {
+    setIsLoading(true);
+    try {
+      const figmaUrl = url.trim();
+      const result =
+        inspection?.url === figmaUrl ? inspection : await readFigma();
+      setInspection(result);
       doCreate(
-        images,
+        result.images,
         "image",
         instruction,
         isAssetExtractionEnabled,
         undefined,
-        sourceAssets
+        result.sourceAssets
       );
-      if (sourceAssets.length > 0) {
+      if (result.sourceAssets.length > 0) {
         toast.success(
-          `Imported ${images.length} Figma frame${
-            images.length === 1 ? "" : "s"
-          } and ${sourceAssets.length} reusable asset${
-            sourceAssets.length === 1 ? "" : "s"
+          `Imported ${result.images.length} Figma frame${
+            result.images.length === 1 ? "" : "s"
+          } and ${result.sourceAssets.length} reusable asset${
+            result.sourceAssets.length === 1 ? "" : "s"
           }.`
         );
       }
-      warnings.forEach((warning: string) => toast(warning));
+      result.warnings.forEach((warning) => toast(warning));
     } catch (caught) {
-      toast.error(
-        caught instanceof Error ? caught.message : "Could not import Figma."
-      );
+      if (
+        !(caught instanceof Error) ||
+        caught.message !== "Figma access is not configured."
+      ) {
+        toast.error(
+          caught instanceof Error ? caught.message : "Could not import Figma."
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -144,7 +201,10 @@ export default function FigmaTab({
           type="url"
           inputMode="url"
           value={url}
-          onChange={(event) => setUrl(event.target.value)}
+          onChange={(event) => {
+            setUrl(event.target.value);
+            setInspection(null);
+          }}
           placeholder="https://www.figma.com/design/…"
           className="mt-2"
         />
@@ -186,7 +246,74 @@ export default function FigmaTab({
             </a>
           </div>
         </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-4 min-h-11 w-full gap-2 bg-white dark:bg-zinc-900"
+          onClick={() => void previewFigma()}
+          disabled={!url.trim() || !hasToken || isPreviewing || isLoading}
+        >
+          <LuEye className="h-4 w-4" aria-hidden="true" />
+          {isPreviewing ? "Loading frame previews…" : "Preview Figma frames"}
+        </Button>
       </section>
+
+      {inspection && (
+        <section
+          aria-labelledby="figma-frame-preview-heading"
+          className="rounded-xl border border-gray-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h4
+                id="figma-frame-preview-heading"
+                className="text-sm font-semibold text-gray-900 dark:text-zinc-100"
+              >
+                Figma frame previews
+              </h4>
+              <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+                These rendered frames will be sent to the selected models when
+                you generate. No Figma code is executed.
+              </p>
+            </div>
+            <span className="text-xs tabular-nums text-gray-500 dark:text-zinc-400">
+              {selectedPreview + 1} of {inspection.images.length}
+            </span>
+          </div>
+          <div className="mt-3 flex h-80 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-zinc-700 dark:bg-zinc-950">
+            <img
+              src={inspection.images[selectedPreview]}
+              alt={`Figma frame preview ${selectedPreview + 1}`}
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+          {inspection.images.length > 1 && (
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              {inspection.images.map((image, index) => (
+                <button
+                  key={`${index}-${image.slice(0, 48)}`}
+                  type="button"
+                  onClick={() => setSelectedPreview(index)}
+                  aria-label={`Show Figma frame ${index + 1}`}
+                  aria-pressed={selectedPreview === index}
+                  className={`h-20 w-28 shrink-0 overflow-hidden rounded-md border-2 bg-white p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:bg-zinc-900 ${
+                    selectedPreview === index
+                      ? "border-violet-500"
+                      : "border-gray-200 dark:border-zinc-700"
+                  }`}
+                >
+                  <img
+                    src={image}
+                    alt=""
+                    className="h-full w-full object-contain"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <GenerationControls
         textPrompt={instruction}

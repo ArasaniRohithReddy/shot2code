@@ -167,6 +167,12 @@ untrusted input.
   assets cross a separate binary-project boundary and are decoded explicitly
   during Preview/export; repository code and configuration are still never
   executed.
+- Built Storybook import reads only root `index.json` plus optional
+  `manifests/components.json` and `manifests/docs.json`. Archive traversal,
+  symlinks, encryption, duplicate/case-colliding paths, unsupported schemas,
+  oversized JSON and duplicate JSON keys are refused. `iframe.html`, bundles,
+  CSF modules, addons, decorators, loaders, play functions and manifest
+  references are never loaded or executed.
 - Figma asset retrieval is bounded and partial: rendered frames can succeed even
   when optional image fills/export nodes are unavailable or rate-limited.
 - Stitch HTML and referenced assets are treated as hostile input. HTTPS hosts
@@ -175,7 +181,9 @@ untrusted input.
   removed, and no SDK filesystem downloader is used.
 - Public website design inspection accepts only public HTTP(S) destinations,
   blocks service workers and non-public subrequests, caps requests/elements and
-  captures only rendered evidence. It does not claim to recover original source,
+  captures only rendered evidence. Lazy-content scrolling is bounded,
+  screenshots have a 40,000px and 36-million-pixel ceiling, and blank/truncated
+  evidence is labelled. It does not claim to recover original source,
   authenticated content or asset rights.
 - Raw imported source is not written into persisted project context. Only the
   compact summary is stored; the normalized file payload exists for the active
@@ -210,6 +218,23 @@ untrusted input.
 - Disabled, untrusted or incomplete server drafts are skipped with diagnostics
   and cannot block an otherwise valid direct-provider generation.
 
+## Localized icon search
+
+- Icon search is off by default and uses only the fixed
+  `https://api.iconify.design` origin. Custom providers, cookies,
+  authorization, environment proxies and redirects are not accepted.
+- Search JSON and SVG downloads have independent timeout, byte, result and call
+  ceilings. Automatic results are restricted to a fixed permissive SPDX
+  allowlist; unknown, copyleft, share-alike, attribution-only and
+  non-commercial collections are skipped.
+- Downloaded SVG is parsed as bounded XML. Document types/entities, scripts,
+  handlers, styles, `foreignObject`, animation, media, external URL references
+  and other active content are removed or refused before bytes reach the
+  local-asset store.
+- Every saved SVG embeds source, author, collection, licence and retrieval-date
+  provenance. Metadata remains third-party data, and brand/trademark rights are
+  never implied by a permissive copyright licence.
+
 ## Web search
 
 - Off by default. No query leaves the device, and no search-provider key is
@@ -218,8 +243,8 @@ untrusted input.
   (`api.tavily.com/search` or `api.exa.ai/search`). The endpoint is not
   user-configurable, so a query cannot be redirected to an arbitrary host.
 - Each request carries an explicit timeout, does not follow redirects, and asks
-  for ranked snippets only. Raw page content, generated answers and page
-  fetching are never requested.
+  for ranked snippets only. Raw page content and generated answers are never
+  requested by the search tool.
 - Results are treated as untrusted third-party text. Every successful response
   is prefixed with a warning telling the model that results are reference
   material and never instructions, and each search is bounded to five results
@@ -234,6 +259,27 @@ untrusted input.
   commit snapshot.
 - Copilot's built-in `web_search` and the canonical `search_web` are never
   enabled together: exactly one search tool is offered per session.
+
+## Bounded public-page reading
+
+- Page reading is off by default and has a separate consent switch from web
+  search. A run receives `read_web_page` only when that switch is on.
+- URLs must be public `http` or `https`, use the standard port, contain no
+  embedded credentials or query string, and stay within 2,048 characters.
+- Every DNS result must be public. Private, loopback, link-local, reserved,
+  multicast, unspecified and cloud-metadata addresses are refused; accepted
+  addresses are pinned for the request. Redirects are disabled at the client
+  and up to three `Location` targets are revalidated from scratch.
+- Requests carry no cookies, authorization header or browser state and load no
+  subresources. Only HTML/XHTML, plain text, Markdown and JSON are accepted.
+- Downloads stop at 512 KB. HTML scripts, styles, templates, frames, SVG and
+  canvas content are removed before extraction, and at most 16,000 characters
+  reach a model with an explicit untrusted-content warning.
+- Calls are limited to two per turn and five per generation. Failed attempts
+  consume budget. Logs retain only the sanitized public URL without a query.
+- Copilot's runtime-owned `web_fetch` remains blocked. Its result reaches the
+  model before the application can inspect or bound it, so it is never offered
+  as a fallback for the canonical reader.
 
 ## Out of scope
 

@@ -280,6 +280,8 @@ function UnifiedInputPane({
             token={settings.githubRepositoryToken}
             fallbackStack={settings.generatedCodeConfig}
             importDesignProject={importDesignProject}
+            modelSelector={modelSelectorProps}
+            designSystem={designSystemSelectorProps}
           />
         </TabsContent>
 

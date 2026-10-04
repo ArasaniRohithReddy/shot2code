@@ -71,6 +71,35 @@ test("parses rendered website evidence and documents its limits", () => {
       tablet: "data:image/png;base64,tablet",
       mobile: "data:image/png;base64,mobile",
     },
+    screenshotMetadata: {
+      desktop: {
+        width: 1440,
+        viewportHeight: 900,
+        documentHeight: 2600,
+        captureHeight: 2600,
+        fullPage: true,
+        truncated: false,
+        blank: false,
+      },
+      tablet: {
+        width: 768,
+        viewportHeight: 1024,
+        documentHeight: 3200,
+        captureHeight: 3200,
+        fullPage: true,
+        truncated: false,
+        blank: false,
+      },
+      mobile: {
+        width: 390,
+        viewportHeight: 844,
+        documentHeight: 50000,
+        captureHeight: 40000,
+        fullPage: false,
+        truncated: true,
+        blank: true,
+      },
+    },
     requestCount: 8,
   });
 
@@ -81,6 +110,11 @@ test("parses rendered website evidence and documents its limits", () => {
   expect(markdown).toContain("does not recover original source");
   expect(markdown).toContain("Images missing an `alt` attribute: 1");
   expect(markdown).toContain("https://example.com/hero.png");
+  expect(markdown).toContain("desktop: 1440px wide, full page, 2600px high");
+  expect(markdown).toContain(
+    "mobile: 390px wide, captured first 40000px of 50000px"
+  );
+  expect(markdown).toContain("warning: the page rendered nearly blank");
 });
 
 test("wraps imported design text as explicitly untrusted JSON data", () => {

@@ -50,7 +50,7 @@ pnpm build
 cd ..\desktop
 node --check main.js
 node --check preload.js
-node --test update-lifecycle.test.js
+npm test
 ```
 
 If export or import changed, also run the full export validator (it really runs
@@ -105,7 +105,7 @@ Copy-Item -Recurse backend\dist-pyinstaller\shot2code-backend desktop\backend-di
 
 # Installers
 cd desktop
-npm install
+npm ci
 npx electron-builder --win nsis msi zip --publish never
 ```
 
@@ -158,13 +158,28 @@ Do these against the built artifacts, not a dev server:
   router or an asset path regressed). If it is blank, read
   `%APPDATA%\shot2code-desktop\shot2code-backend.log`.
 - Settings shows the new version, and the provider status you expect.
+- Configure the local Ollama preset, confirm it targets
+  `http://localhost:11434/v1`, then clear it without changing native provider
+  keys.
+- Turn on bounded public-page reading and confirm its separate consent, limits
+  and blocked built-in `web_fetch` explanation appear.
+- Enable Iconify, open Chat **Tools**, and confirm public-domain photos,
+  generated images, icons, valid MCP write scope and enabled Skills are
+  represented honestly.
+- Inspect Built Storybook metadata from a synthetic local fixture and confirm
+  no story/preview code runs.
 - Generate once from a screenshot, open the Code tab, and download a project
   folder.
 - Paste a screenshot into the refinement Chat composer and send an update.
 - Import a public GitHub frontend and confirm text files plus bounded image
-  assets appear without running repository code.
+  assets appear without running repository code. Confirm a blank first
+  refinement opens locally and a non-empty one reveals the model selector.
+- Open **Full history** from Recent projects and project History, search for a
+  saved project, inspect version/option/model/prompt/status details, and open it.
 - Inspect a public website from the URL tab, download its `DESIGN.md`, and use
-  the desktop/tablet/mobile evidence for a generation.
+  the scrollable full-page desktop/tablet/mobile evidence for a generation.
+- Preview a synthetic Figma-frame response before generation and confirm the
+  same evidence is reused.
 - Import one Figma/Stitch design and confirm reusable assets remain present
   after a chat refinement and project-folder export.
 - Confirm the installed EXE, NSIS setup, Apps & Features/uninstaller, Start
@@ -188,6 +203,9 @@ Capture from the packaged build with an isolated, credential-free profile.
 - workspace/settings evidence:
   `review-workspace-og-light.png` (1920×1008),
   `mcp-menu-light.png` and `byok-settings-dark.png` (1440×900),
+  `ollama-settings-light.png`, `page-reader-settings-dark.png`,
+  `iconify-settings-light.png`, `chat-tools-light.png`,
+  `full-history-light.png`, `history-expanded-light.png` (1440×900), and
   `review-workspace-tablet.png` (768×1024).
 
 Use only the synthetic Northwind Analytics fixture, `https://example.com`, and

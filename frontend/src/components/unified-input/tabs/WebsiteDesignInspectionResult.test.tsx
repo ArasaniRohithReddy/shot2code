@@ -35,6 +35,35 @@ test("shows bounded website evidence and DESIGN.md actions", () => {
           tablet: "data:image/png;base64,tablet",
           mobile: "data:image/png;base64,mobile",
         },
+        screenshotMetadata: {
+          desktop: {
+            width: 1440,
+            viewportHeight: 900,
+            documentHeight: 2600,
+            captureHeight: 2600,
+            fullPage: true,
+            truncated: false,
+            blank: false,
+          },
+          tablet: {
+            width: 768,
+            viewportHeight: 1024,
+            documentHeight: 3200,
+            captureHeight: 3200,
+            fullPage: true,
+            truncated: false,
+            blank: false,
+          },
+          mobile: {
+            width: 390,
+            viewportHeight: 844,
+            documentHeight: 50000,
+            captureHeight: 40000,
+            fullPage: false,
+            truncated: true,
+            blank: true,
+          },
+        },
         requestCount: 12,
       }}
       onUse={jest.fn()}
@@ -45,4 +74,8 @@ test("shows bounded website evidence and DESIGN.md actions", () => {
   expect(html).toContain("12 bounded requests");
   expect(html).toContain("Use screenshots + DESIGN.md");
   expect(html).toContain("Download DESIGN.md");
+  expect(html).toContain("Full-page responsive previews");
+  expect(html).toContain("1440×2600");
+  expect(html).toContain("capped from 50000px");
+  expect(html).toContain("rendered nearly blank");
 });

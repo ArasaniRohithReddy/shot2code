@@ -18,6 +18,7 @@ import McpServersSettings from "./McpServersSettings";
 import WebSearchSettings from "./WebSearchSettings";
 import ImageGenerationSettings from "./ImageGenerationSettings";
 import FreeImageSearchSettings from "./FreeImageSearchSettings";
+import IconSearchSettings from "./IconSearchSettings";
 import SkillLibrary from "./SkillLibrary";
 import CopilotSignIn from "./CopilotSignIn";
 import ProviderConnectionChecks from "./ProviderConnectionChecks";
@@ -38,6 +39,7 @@ import {
   isImageGenerationUsable,
 } from "../../lib/image-providers";
 import { normalizeFreeImageSearchSettings } from "../../lib/free-image-search";
+import { normalizeIconSearchSettings } from "../../lib/icon-search";
 import {
   describePreviewRemediation,
   isPackagedDesktopRuntime,
@@ -77,6 +79,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   const freeImageSearchSettings = normalizeFreeImageSearchSettings(
     settings.freeImageSearch
   );
+  const iconSearchSettings = normalizeIconSearchSettings(settings.iconSearch);
   // Only used to word how the two relate; free image search is offered either
   // way, and a paid provider never switches it off.
   const hasPaidImageProvider = isImageGenerationUsable({
@@ -961,20 +964,21 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
               />
             </div>
 
-            {/* Copilot also ships a built-in `web_fetch`. It is deliberately
-                not offered, and saying so here is better than leaving a user
-                to wonder why the model cannot open a link. */}
+            {/* The runtime-owned built-in stays blocked. The canonical page
+                reader above is the safe replacement because shot2code sees and
+                bounds its result before a model does. */}
             <div
               data-testid="copilot-web-fetch-unavailable"
               className="mt-4 border-t border-gray-100 pt-4 dark:border-zinc-700"
             >
               <p className="text-sm text-gray-700 dark:text-zinc-300">
-                Page fetching is not available
+                Copilot&apos;s built-in page fetching stays blocked
               </p>
               <p className="mt-1 max-w-2xl text-xs leading-5 text-gray-500 dark:text-zinc-400">
                 Copilot's runtime also has a built-in{" "}
                 <code className="font-mono">web_fetch</code> tool that opens a
-                URL and returns the whole page. shot2code does not offer it:
+                URL and returns the whole page. shot2code still does not offer
+                that built-in:
                 the Copilot SDK hands a built-in's result straight to the model
                 and only tells the app afterwards, so there is no point at
                 which shot2code could cap that text, mark it as untrusted, or
@@ -982,11 +986,13 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                 enter the model's context unchecked.
               </p>
               <p className="mt-1 max-w-2xl text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                Web search (all models) above is the supported way to bring in
-                outside information. shot2code runs that search itself, so each
-                result is capped, labelled as untrusted and counted against a
-                per-turn and per-generation budget. Any URL the Copilot runtime
-                asks to open during a run is denied.
+                Use <strong>Bounded page reading</strong> under Web research
+                (all models) above when search snippets are not enough.
+                shot2code performs that request itself, validates the public
+                address and redirects, strips active HTML, caps bytes and text,
+                labels the result untrusted and counts it against separate
+                per-turn and per-generation budgets. Any URL the Copilot
+                runtime asks to open through its built-in remains denied.
               </p>
             </div>
           </div>
@@ -1018,6 +1024,19 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                 ...current,
                 freeImageSearch: update(
                   normalizeFreeImageSearchSettings(current.freeImageSearch)
+                ),
+              }))
+            }
+          />
+
+          {/* Iconify SVG search — fixed-origin, sanitized and separately gated */}
+          <IconSearchSettings
+            settings={iconSearchSettings}
+            onChange={(update) =>
+              setSettings((current) => ({
+                ...current,
+                iconSearch: update(
+                  normalizeIconSearchSettings(current.iconSearch)
                 ),
               }))
             }

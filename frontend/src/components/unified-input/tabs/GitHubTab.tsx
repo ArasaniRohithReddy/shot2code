@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { LuGithub, LuKeyRound, LuLoader2 } from "react-icons/lu";
+import { LuBrain, LuGitBranch, LuGithub, LuKeyRound, LuLoader2 } from "react-icons/lu";
 import toast from "react-hot-toast";
 import { HTTP_BACKEND_URL } from "../../../config";
 import {
@@ -14,17 +14,28 @@ import { Stack } from "../../../lib/stacks";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Textarea } from "../../ui/textarea";
+import ModelSelector, {
+  type ModelSelectorProps,
+} from "../../settings/ModelSelector";
+import DesignSystemSelector, {
+  type DesignSystemSelectorProps,
+} from "../../settings/DesignSystemSelector";
+import { githubImportActionLabel } from "./github-import-mode";
 
 interface Props {
   token: string | null;
   fallbackStack: Stack;
   importDesignProject: DesignProjectImportHandler;
+  modelSelector?: ModelSelectorProps;
+  designSystem: DesignSystemSelectorProps;
 }
 
 export default function GitHubTab({
   token,
   fallbackStack,
   importDesignProject,
+  modelSelector,
+  designSystem,
 }: Props) {
   const [url, setUrl] = useState("");
   const [instruction, setInstruction] = useState("");
@@ -173,6 +184,55 @@ export default function GitHubTab({
           onChange={(event) => setInstruction(event.target.value)}
           placeholder="For example: preserve the component APIs but modernize the dashboard visuals."
         />
+        <p className="text-xs leading-5 text-gray-500 dark:text-zinc-400">
+          Leave this blank to inspect and open the repository locally with no
+          model request. Add an instruction to open it first, then immediately
+          run a refinement with the selected models.
+        </p>
+
+        <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-3 dark:border-zinc-700 dark:bg-zinc-900/60">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-gray-800 dark:text-zinc-100">
+            <LuGitBranch className="h-3.5 w-3.5" aria-hidden="true" />
+            Repository stack
+          </p>
+          <p className="mt-1 text-xs leading-5 text-gray-600 dark:text-zinc-300">
+            shot2code detects and preserves the repository&apos;s existing
+            stack. The current default stack is used only when the repository
+            has no detectable frontend stack.
+          </p>
+        </div>
+
+        {modelSelector && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/60">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-zinc-200">
+                <LuBrain className="h-4 w-4" aria-hidden="true" />
+                Models for the first refinement
+              </p>
+              <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                Used only when the instruction above is not empty. If no picker
+                appears, add a model provider in Settings; the repository can
+                still open locally.
+              </p>
+            </div>
+            <ModelSelector
+              {...modelSelector}
+              planContext={{ generationType: "update", inputMode: "text" }}
+            />
+          </div>
+        )}
+        <div className="rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/60">
+          <p className="text-sm font-medium text-gray-700 dark:text-zinc-200">
+            Design system for the first refinement
+          </p>
+          <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+            Applied only when the instruction above runs; local repository
+            opening remains unchanged.
+          </p>
+          <div className="mt-2">
+            <DesignSystemSelector {...designSystem} />
+          </div>
+        </div>
         <Button
           type="button"
           className="w-full"
@@ -189,7 +249,7 @@ export default function GitHubTab({
               Inspecting repository…
             </>
           ) : (
-            "Inspect & Open Repository"
+            githubImportActionLabel(instruction, false)
           )}
         </Button>
       </section>

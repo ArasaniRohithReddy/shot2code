@@ -1,4 +1,10 @@
-import { LuClipboard, LuDownload, LuSparkles } from "react-icons/lu";
+import {
+  LuAlertTriangle,
+  LuClipboard,
+  LuDownload,
+  LuImage,
+  LuSparkles,
+} from "react-icons/lu";
 import toast from "react-hot-toast";
 import {
   downloadTextArtifact,
@@ -15,11 +21,18 @@ export default function WebsiteDesignInspectionResult({
   onUse: (designMd: string) => void;
 }) {
   const designMd = websiteDesignMarkdown(result);
+  const previews = (
+    ["desktop", "tablet", "mobile"] as const
+  ).map((name) => ({
+    name,
+    image: result.screenshots[name],
+    metadata: result.screenshotMetadata[name],
+  }));
 
   return (
     <section
       aria-labelledby="website-design-result-heading"
-      className="w-full max-w-2xl rounded-xl border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900 sm:p-6"
+      className="w-full max-w-5xl rounded-xl border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900 sm:p-6"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
@@ -74,6 +87,64 @@ export default function WebsiteDesignInspectionResult({
           </div>
         ))}
       </dl>
+
+      <section className="mt-5" aria-labelledby="website-preview-heading">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h4
+              id="website-preview-heading"
+              className="flex items-center gap-2 text-sm font-semibold text-gray-950 dark:text-zinc-50"
+            >
+              <LuImage className="h-4 w-4" aria-hidden="true" />
+              Full-page responsive previews
+            </h4>
+            <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+              Scroll each frame to inspect the captured page. Very tall pages
+              are capped and labelled instead of being silently cut off.
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          {previews.map(({ name, image, metadata }) => (
+            <figure
+              key={name}
+              className="min-w-0 rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-zinc-700 dark:bg-zinc-950"
+            >
+              <div
+                className="h-64 overflow-y-auto rounded-md border border-gray-200 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:border-zinc-700"
+                tabIndex={0}
+                aria-label={`Scrollable ${name} full-page website preview`}
+              >
+                <img
+                  src={image}
+                  alt={`${name} website preview at ${metadata.width} by ${metadata.captureHeight} pixels`}
+                  className="block h-auto w-full"
+                />
+              </div>
+              <figcaption className="px-1 pb-1 pt-2 text-xs text-gray-600 dark:text-zinc-300">
+                <span className="font-semibold capitalize text-gray-900 dark:text-zinc-100">
+                  {name}
+                </span>
+                {" · "}
+                {metadata.width}×{metadata.captureHeight}
+                {metadata.truncated
+                  ? ` · capped from ${metadata.documentHeight}px`
+                  : " · full page"}
+                {metadata.blank && (
+                  <span className="mt-1 flex items-start gap-1 text-amber-700 dark:text-amber-300">
+                    <LuAlertTriangle
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    This viewport rendered nearly blank. The site may block
+                    automated browsers or delay its content.
+                  </span>
+                )}
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </section>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button

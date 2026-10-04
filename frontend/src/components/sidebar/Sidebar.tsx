@@ -31,12 +31,16 @@ import ModelSelector, {
   ModelSelectorProps,
 } from "../settings/ModelSelector";
 import ConversationThread from "./ConversationThread";
+import ChatToolsMenu from "./ChatToolsMenu";
 import {
   appendUpdateImageFiles,
   clipboardImageFiles,
   MAX_UPDATE_IMAGES,
   UPDATE_IMAGE_TYPES,
 } from "../../lib/update-images";
+import { isImageGenerationUsable } from "../../lib/image-providers";
+import { validateMcpServers } from "../../lib/mcp-servers";
+import type { Settings } from "../../types";
 
 interface SidebarProps {
   doUpdate: (instruction: string) => void;
@@ -46,6 +50,8 @@ interface SidebarProps {
   onOpenCode: () => void;
   designSystem: DesignSystemSelectorProps;
   modelSelector: ModelSelectorProps;
+  settings: Settings;
+  onOpenSettings: () => void;
   historyError?: string | null;
 }
 
@@ -65,6 +71,8 @@ function Sidebar({
   onOpenCode,
   designSystem,
   modelSelector,
+  settings,
+  onOpenSettings,
   historyError,
 }: SidebarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -73,6 +81,13 @@ function Sidebar({
   const [isDragging, setIsDragging] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const mcpValidationErrors = validateMcpServers(settings.mcpServers);
+  const activeMcpServers = settings.mcpServers.filter(
+    (server) =>
+      server.enabled &&
+      server.trusted &&
+      !mcpValidationErrors[server.id]
+  );
 
   const {
     appState,
@@ -551,6 +566,23 @@ function Sidebar({
                   >
                     <LuMousePointerClick className="w-[18px] h-[18px]" />
                   </button>
+                  <ChatToolsMenu
+                    access={{
+                      webSearchEnabled: settings.webSearch.enabled,
+                      pageFetchEnabled: settings.webSearch.pageFetchEnabled,
+                      freeImageSearchEnabled:
+                        settings.freeImageSearch.enabled,
+                      generatedImagesEnabled:
+                        settings.isImageGenerationEnabled &&
+                        isImageGenerationUsable(settings),
+                      iconSearchEnabled: settings.iconSearch.enabled,
+                      activeMcpServers: activeMcpServers.length,
+                      writeEnabledMcpServers: activeMcpServers.filter(
+                        (server) => server.allowWriteTools
+                      ).length,
+                    }}
+                    onManage={onOpenSettings}
+                  />
                   <DesignSystemSelector {...designSystem} compact />
                   <ModelSelector {...modelSelector} />
                 </div>

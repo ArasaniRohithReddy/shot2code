@@ -12,6 +12,11 @@ from playwright.async_api import (
 )
 
 from preview_screenshot.base import VIEWPORT_SIZES
+from preview_screenshot.diagnostics import (
+    ScreenshotEvidence,
+    bounded_runtime_messages,
+    png_is_nearly_blank,
+)
 
 PAGE_LOAD_TIMEOUT_MS = 15000
 RENDER_SETTLE_MS = 250
@@ -123,12 +128,37 @@ class PlaywrightBackend:
         device: str = "desktop",
         full_page: bool = True,
     ) -> bytes:
+        return (
+            await self.capture_evidence(
+                html,
+                device=device,
+                full_page=full_page,
+            )
+        ).image
+
+    async def capture_evidence(
+        self,
+        html: str,
+        device: str = "desktop",
+        full_page: bool = True,
+    ) -> ScreenshotEvidence:
         browser = await self._get_browser()
         width, height = VIEWPORT_SIZES.get(device, VIEWPORT_SIZES["desktop"])
         page = await browser.new_page(
             viewport={"width": width, "height": height},
             device_scale_factor=1,
         )
+        console_errors: list[str] = []
+        page_errors: list[str] = []
+        page.on(
+            "console",
+            lambda message: (
+                console_errors.append(message.text)
+                if message.type == "error"
+                else None
+            ),
+        )
+        page.on("pageerror", lambda error: page_errors.append(str(error)))
         try:
             try:
                 await page.set_content(
@@ -145,6 +175,34 @@ class PlaywrightBackend:
             except Exception:
                 pass
             await page.wait_for_timeout(RENDER_SETTLE_MS)
-            return await page.screenshot(full_page=full_page, type="png")
+            metrics = await page.evaluate(
+                """
+                () => ({
+                  bodyTextChars: (document.body?.innerText || "").trim().length,
+                  renderedElements: document.body
+                    ? document.body.querySelectorAll("*").length
+                    : 0,
+                })
+                """
+            )
+            image = await page.screenshot(full_page=full_page, type="png")
+            body_text_chars = (
+                int(metrics.get("bodyTextChars", 0))
+                if isinstance(metrics, dict)
+                else 0
+            )
+            rendered_elements = (
+                int(metrics.get("renderedElements", 0))
+                if isinstance(metrics, dict)
+                else 0
+            )
+            return ScreenshotEvidence(
+                image=image,
+                nearly_blank=png_is_nearly_blank(image),
+                body_text_chars=body_text_chars,
+                rendered_elements=rendered_elements,
+                console_errors=bounded_runtime_messages(console_errors),
+                page_errors=bounded_runtime_messages(page_errors),
+            )
         finally:
             await page.close()

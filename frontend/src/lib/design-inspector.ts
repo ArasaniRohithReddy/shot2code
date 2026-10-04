@@ -46,7 +46,21 @@ export interface WebsiteDesignInspection {
     tablet: string;
     mobile: string;
   };
+  screenshotMetadata: Record<
+    "desktop" | "tablet" | "mobile",
+    WebsiteScreenshotMetadata
+  >;
   requestCount: number;
+}
+
+export interface WebsiteScreenshotMetadata {
+  width: number;
+  viewportHeight: number;
+  documentHeight: number;
+  captureHeight: number;
+  fullPage: boolean;
+  truncated: boolean;
+  blank: boolean;
 }
 
 const MAX_VALUES_PER_GROUP = 24;
@@ -61,6 +75,33 @@ function stringValue(value: unknown): string {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function booleanValue(value: unknown): boolean {
+  return value === true;
+}
+
+function screenshotMetadata(
+  value: unknown,
+  fallback: { width: number; height: number }
+): WebsiteScreenshotMetadata {
+  const raw = isRecord(value) ? value : {};
+  const width = numberValue(raw.width) || fallback.width;
+  const viewportHeight =
+    numberValue(raw.viewportHeight) || fallback.height;
+  const documentHeight =
+    numberValue(raw.documentHeight) || viewportHeight;
+  const captureHeight =
+    numberValue(raw.captureHeight) || viewportHeight;
+  return {
+    width,
+    viewportHeight,
+    documentHeight,
+    captureHeight,
+    fullPage: booleanValue(raw.fullPage),
+    truncated: booleanValue(raw.truncated),
+    blank: booleanValue(raw.blank),
+  };
 }
 
 function tokenCounts(value: unknown): DesignTokenCount[] {
@@ -129,6 +170,9 @@ export function parseWebsiteDesignInspection(
       )
     : {};
   const screenshots = isRecord(value.screenshots) ? value.screenshots : {};
+  const metadata = isRecord(value.screenshotMetadata)
+    ? value.screenshotMetadata
+    : {};
   const parsed: WebsiteDesignInspection = {
     url: stringValue(value.url),
     title: stringValue(value.title),
@@ -164,6 +208,20 @@ export function parseWebsiteDesignInspection(
       desktop: stringValue(screenshots.desktop),
       tablet: stringValue(screenshots.tablet),
       mobile: stringValue(screenshots.mobile),
+    },
+    screenshotMetadata: {
+      desktop: screenshotMetadata(metadata.desktop, {
+        width: 1440,
+        height: 900,
+      }),
+      tablet: screenshotMetadata(metadata.tablet, {
+        width: 768,
+        height: 1024,
+      }),
+      mobile: screenshotMetadata(metadata.mobile, {
+        width: 390,
+        height: 844,
+      }),
     },
     requestCount: numberValue(value.requestCount),
   };
@@ -421,6 +479,20 @@ export function websiteDesignMarkdown(
           .map((asset) => `- ${asset}`)
           .join("\n")
       : "- No public image assets detected.";
+  const responsiveEvidence = (
+    ["desktop", "tablet", "mobile"] as const
+  )
+    .map((name) => {
+      const metadata = result.screenshotMetadata[name];
+      const coverage = metadata.truncated
+        ? `captured first ${metadata.captureHeight}px of ${metadata.documentHeight}px`
+        : `full page, ${metadata.captureHeight}px high`;
+      const blank = metadata.blank
+        ? "; warning: the page rendered nearly blank"
+        : "";
+      return `- ${name}: ${metadata.width}px wide, ${coverage}${blank}`;
+    })
+    .join("\n");
 
   return `${base}
 
@@ -431,7 +503,10 @@ export function websiteDesignMarkdown(
 - Description: ${result.description || "Not provided"}
 - Document language: ${result.lang || "Not declared"}
 - Network requests observed: ${result.requestCount}
-- Responsive evidence: desktop 1440×900, tablet 768×1024, mobile 390×844
+
+### Responsive screenshot evidence
+
+${responsiveEvidence}
 
 This is a bounded rendered-page inspection. It does not recover original source
 components, server code, authenticated content, unpublished files, or ownership

@@ -7,6 +7,7 @@ import {
   LuExternalLink,
   LuLoader,
   LuPlus,
+  LuServer,
   LuX,
   LuZap,
 } from "react-icons/lu";
@@ -19,6 +20,7 @@ import {
   BYOK_WIRE_API_AUTOMATIC_LABEL,
   BYOK_WIRE_API_LABELS,
   MAX_MODEL_SELECTIONS,
+  OLLAMA_LOCAL_BASE_URL,
   byokCustomSelectionId,
   byokUnusableReason,
   configuredWireModels,
@@ -29,6 +31,7 @@ import {
   isLoopbackHost,
   isValidWireModel,
   validateByokSettings,
+  withOllamaLocalPreset,
   type ByokProvider,
   type ByokWireApi,
   type CopilotSdkByokSettings,
@@ -297,6 +300,50 @@ export default function CopilotSdkByokSettings({
           re-routed. Gemini has no SDK provider, so Gemini models always use the
           Gemini API key.
         </p>
+
+        <div
+          data-testid="ollama-local-preset"
+          className="rounded-lg border border-cyan-200 bg-cyan-50/70 p-3 dark:border-cyan-900/70 dark:bg-cyan-950/20"
+        >
+          <div className="flex items-start gap-2">
+            <LuServer
+              className="mt-0.5 h-4 w-4 shrink-0 text-cyan-700 dark:text-cyan-300"
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-900 dark:text-zinc-100">
+                Local Ollama preset
+              </p>
+              <p className="mt-1 text-xs leading-5 text-gray-600 dark:text-zinc-300">
+                Configure the local OpenAI-compatible server at{" "}
+                <code>{OLLAMA_LOCAL_BASE_URL}</code>. No paid API is required
+                for local inference. Install Ollama and a model separately;
+                shot2code does not bundle them. You supply the hardware and
+                must choose a model that supports image input and tool calling.
+                Ollama cloud and individual model licences are separate.
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-cyan-300 bg-white px-3 text-xs font-medium text-cyan-800 transition-colors hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 dark:border-cyan-800 dark:bg-zinc-900 dark:text-cyan-200 dark:hover:bg-cyan-950/40"
+                  onClick={() => update(withOllamaLocalPreset(settings))}
+                >
+                  <LuServer className="h-3.5 w-3.5" aria-hidden="true" />
+                  Configure local Ollama
+                </button>
+                <a
+                  href="https://docs.ollama.com/api/openai-compatibility"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 items-center gap-1.5 px-2 text-xs font-medium text-cyan-800 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 dark:text-cyan-200"
+                >
+                  Ollama setup docs
+                  <LuExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {settings.enabled && (
           <>

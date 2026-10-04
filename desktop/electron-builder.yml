@@ -15,6 +15,7 @@ files:
   - update-lifecycle.js
   - zoom-controls.js
   - window-state.js
+  - renderer-health.js
   - stitch-sdk.js
   - stitch-assets.js
   - github-oauth.js

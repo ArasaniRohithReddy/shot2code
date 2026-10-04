@@ -109,6 +109,14 @@ credential is required unless the endpoint is an OpenAI-compatible server on
 localhost. A direct provider key is never offered as a fallback, because it
 belongs to the native runtime and must keep working there untouched.
 
+The Ollama quick setup is only a preset for that existing localhost BYOK path:
+OpenAI-compatible, `http://localhost:11434/v1`, no credential, Automatic wire
+API and no preselected model. It is not a sixth native provider and must not
+read or reroute another key. State that local inference needs separately
+installed Ollama/models, user hardware, and a model with image input plus tool
+calling; do not describe optional cloud use or model licences as permanently
+free.
+
 Credentials are read from the current Settings at send time and nothing else.
 `CommitGenerationContext` and the history serializers carry model ids only -
 `serializeGenerationContext` is a closed allowlist, and
@@ -174,6 +182,23 @@ does. If a future SDK allows post-processing a built-in result, or accepts a
 URL allowlist at session creation, revisit
 `COPILOT_BUILTIN_WEB_FETCH_SUPPORTED` — and add the opt-in setting separately
 from web search, because one capability must never imply the other.
+
+shot2code's supported replacement is the separate canonical
+**`read_web_page`** tool. It is independently opted in with
+`pageFetchEnabled`; search consent never implies page consent. Every runtime
+receives the same tool through the existing canonical serializers. It accepts
+only public HTTP(S) on default ports, refuses credentials and query strings,
+requires every DNS answer to be public, pins resolution, revalidates redirects,
+sends no cookies or authorization, accepts only HTML/XHTML/text/Markdown/JSON,
+caps the body at 512 KB and extracted text at 16,000 characters, strips active
+HTML, and prefixes an untrusted-content warning. The runtime budget is two
+reads per turn and five per generation, including failures.
+
+Keep `read_web_page` distinct from `search_web`: page reading may coexist with
+Copilot built-in search because it is not another search tool. Raw tool
+arguments must pass through `summarize_page_fetch_input` before run logs persist
+them; only a query-free public URL may remain. Never unblock built-in
+`web_fetch` just because the canonical reader exists.
 
 `config.py` mirrors `integrations/config.py`: it validates the request block,
 holds the only credential in the package, and keeps it out of
@@ -297,6 +322,13 @@ return a success-shaped item with an empty URL, and never count tiles instead
 of successes — `frontend/src/components/agent/image-results.ts` mirrors those
 counting rules for the activity feed.
 
+A non-retryable all-failed batch (credentials, billing, quota, permissions,
+model or configuration) trips `AgentToolRuntime`'s per-generation circuit
+breaker. Later `generate_images` calls must fail without contacting the
+provider and direct the model to `search_free_images`, `search_icons`, extracted
+assets, CSS or SVG. Two all-failed network/unknown batches trip it too. A
+partial or successful batch resets the transient failure count.
+
 **Everything a provider returns goes through `normalize_image_result`.** It
 keeps a public `http(s)` URL, writes bytes/base64/`data:` payloads to the
 served asset directory, and refuses anything else (`file:`, loopback that is
@@ -354,6 +386,39 @@ Web search is deliberately not involved. A web image result grants no reuse
 right, and `test_free_image_search.py` asserts by AST that this package imports
 and calls nothing from `web_search`, Tavily or Exa.
 
+## Iconify design add-on
+
+`backend/icon_search/` owns one canonical tool, **`search_icons`**, offered to
+native OpenAI, Anthropic and Gemini plus both Copilot runtimes only when the
+separate Settings switch is on. The only network origin is the constant
+`https://api.iconify.design`; requests never accept a custom host, never follow
+a redirect, and carry no cookie, authorization header or shot2code credential.
+The public API is described as **currently keyless**, with Iconify-owned limits
+and availability that can change - never as permanently free or unlimited.
+
+Search returns Iconify's collection metadata, but automatic/model use accepts
+only the fixed permissive SPDX allowlist in `icon_search/config.py`. Unknown,
+copyleft, share-alike, attribution-only and non-commercial sets are skipped.
+Every accepted SVG carries embedded collection, author, source URL, licence
+name/SPDX/URL and retrieval date provenance. Brand/logo collections also carry
+the standing trademark warning: a copyright licence grants no trademark right
+or endorsement.
+
+`sanitize.py` is the hostile-input boundary. It rejects DTD/entity and
+non-SVG documents, caps raw bytes, decoded characters, elements and attributes,
+then removes scripts, event handlers, `foreignObject`, animation, embedded
+images, style/active elements and every external `href`/`url(...)` reference.
+Only sanitized bytes may call `persist_sanitized_svg_as_asset`; SVG must not be
+added to the generic upload data-URL allowlist. Persistence uses a cleaned icon
+id plus a content digest, so filenames are deterministic and traversal-safe.
+Generated markup uses the returned `/local-assets/` URL - never an Iconify
+hotlink and never `@iconify/react`.
+
+Tool arguments are reduced by `summarize_icon_search_input` before activity
+streaming or run logging. Keep response metadata bounded and labelled as
+third-party data, and preserve the per-turn/per-generation budget shape used by
+the other network tools.
+
 ## Imported project context
 
 The Import tab can analyse a folder, ZIP, or selected source files through
@@ -373,6 +438,13 @@ The Import tab can analyse a folder, ZIP, or selected source files through
 - Generation previews remain self-contained. Imported component paths are
   naming/API context, not permission to emit local imports that the preview
   cannot resolve.
+- Built Storybook is a metadata-only import in
+  `routes/storybook_context.py`. Accept only root `index.json` and optional
+  `manifests/components.json` / `manifests/docs.json` from bounded local
+  files/folders/ZIPs or guarded public HTTPS fixed paths. Never load
+  `iframe.html`, stories, bundles, CSF, addons, decorators, loaders, play
+  functions or manifest references. Component paths use synthetic
+  `storybook://` labels so metadata can never authorize an unresolved import.
 
 Multiple screenshots carry an explicit `multiImageMode`: `pages`, `responsive`,
 `states`, or `references`. When absent with more than one image, `pages` is the
@@ -404,12 +476,18 @@ folder/ZIP scanner.
   keyless. Private repos require a separate fine-grained token limited to the
   selected repository with `Contents: read`; never broaden or reuse the
   `read:user` Copilot OAuth token.
+- The GitHub tab's blank instruction opens the detected-stack project locally
+  without a model call. A non-empty first-refinement instruction invokes
+  `doUpdate` after opening and must show the update-mode model selector; that
+  selector chooses edit variants, never a replacement repository stack.
 - Public website inspection runs in a fresh local-Chromium context with service
   workers blocked and every network host checked for public addresses. It
   returns computed design evidence, semantics, public asset references and
-  bounded responsive screenshots. `DESIGN.md` must say that this does not
-  recover original source, server code, authenticated content or ownership
-  rights.
+  bounded full-page responsive screenshots. Lazy scrolling is capped, each
+  screenshot is bounded to 40,000px and 36 million pixels, and blank/truncated
+  metadata must remain visible in the UI and `DESIGN.md`. The document must say
+  this does not recover original source, server code, authenticated content or
+  ownership rights.
 - Binary design/repository assets are project files with
   `metadata.encoding="base64"` and a MIME type. Preview and export must decode
   them; never write the base64 text itself into a PNG/font in the ZIP.
@@ -460,6 +538,9 @@ asserts labels, accelerators, enablement and click routing under `node --test`.
   item is worse than an honest message.
 - New files in `desktop/` must be added to `files:` in `electron-builder.yml` or
   they are missing from the packaged app.
+- `renderer-health.js` checks the React root after `did-finish-load`. A truly
+  empty renderer reloads once, then receives a static recovery screen; never
+  loop reloads or erase user data to recover a blank window.
 - `scripts/generate_app_icons.py` is the single icon source. It must keep
   `desktop/build/icon.png`, the multi-resolution `icon.ico`, and the main/coding
   browser favicons synchronized. Favicon paths must stay relative for packaged
@@ -492,8 +573,8 @@ A blank or missing window is diagnosed from the log, not the console:
 %APPDATA%\shot2code-desktop\shot2code-backend.log
 ```
 
-It captures backend startup, `did-fail-load`, renderer crashes and console
-errors.
+It captures backend startup, `did-fail-load`, preload/renderer crashes,
+unresponsive transitions, blank-renderer recovery and console errors.
 
 Packaging notes:
 

@@ -1,5 +1,7 @@
 from typing import Dict, Protocol, Tuple
 
+from preview_screenshot.diagnostics import ScreenshotEvidence
+
 # Device viewports the screenshot_preview tool renders at. Shared by every
 # backend so previews are consistently sized regardless of how they're rendered.
 VIEWPORT_SIZES: Dict[str, Tuple[int, int]] = {
@@ -19,6 +21,12 @@ class ScreenshotBackend(Protocol):
 
     async def capture(self, html: str, device: str, full_page: bool) -> bytes:
         """Render ``html`` to PNG bytes at the given device viewport."""
+        ...
+
+    async def capture_evidence(
+        self, html: str, device: str, full_page: bool
+    ) -> ScreenshotEvidence:
+        """Render a screenshot plus bounded runtime diagnostics."""
         ...
 
     async def available(self) -> bool:

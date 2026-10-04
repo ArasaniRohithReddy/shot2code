@@ -11,6 +11,23 @@ sys.modules["moviepy.editor"] = MagicMock()
 from prompts.pipeline import build_prompt_messages
 from prompts.plan import derive_prompt_construction_plan
 from prompts.prompt_types import Stack
+from prompts.system_prompt import SYSTEM_PROMPT
+
+
+def test_react_prompt_prevents_invalid_css_variable_style_objects() -> None:
+    assert "quote CSS custom-property" in SYSTEM_PROMPT
+    assert '"--brand"' in SYSTEM_PROMPT
+    assert '"var(--brand)"' in SYSTEM_PROMPT
+    assert "blank preview" in SYSTEM_PROMPT
+
+
+def test_image_prompt_prefers_licensed_free_assets_and_stops_failed_retries() -> None:
+    assert "search_free_images" in SYSTEM_PROMPT
+    assert "CC0/Public Domain Mark" in SYSTEM_PROMPT
+    assert "Google Images" in SYSTEM_PROMPT
+    assert "does not grant permission" in SYSTEM_PROMPT
+    assert "search_icons" in SYSTEM_PROMPT
+    assert "do not repeat the same failing call" in SYSTEM_PROMPT
 
 # Type definitions for test structures
 class ExpectedResult(TypedDict):

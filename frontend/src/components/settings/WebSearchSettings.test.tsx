@@ -18,6 +18,7 @@ function keyed(overrides: Partial<WebSearchConfig> = {}): WebSearchConfig {
     provider: "tavily",
     accessMode: "api-key",
     apiKey: KEY,
+    pageFetchEnabled: false,
     ...overrides,
   };
 }
@@ -95,6 +96,19 @@ describe("disclosure", () => {
     expect(markup).toContain("3 searches");
     expect(markup).toContain("10 per generation");
     expect(markup).toContain("no redirects");
+  });
+
+  test("bounded page reading is a separate opt-in with explicit limits", () => {
+    const markup = render(keyed({ enabled: false, pageFetchEnabled: true }));
+
+    expect(markup).toContain("Allow bounded page reading");
+    expect(markup).toContain("read_web_page");
+    expect(markup).toContain('data-testid="page-fetch-boundary"');
+    expect(markup).toContain("512 KB");
+    expect(markup).toContain("16,000 characters");
+    expect(markup).toContain("2 reads");
+    expect(markup).toContain("5 per generation");
+    expect(markup).toContain("query-string URLs are refused");
   });
 });
 

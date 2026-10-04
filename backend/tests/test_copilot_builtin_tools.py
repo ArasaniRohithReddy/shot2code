@@ -89,7 +89,8 @@ def test_web_fetch_is_declared_unsupported_with_a_reason() -> None:
     # The reason must name the actual blocker, not a vague "unsupported".
     lowered = reason.lower()
     assert "bound" in lowered or "budget" in lowered
-    assert "web search" in lowered
+    assert "search_web" in lowered
+    assert "read_web_page" in lowered
 
 
 def test_a_built_in_we_do_offer_is_not_blocked() -> None:

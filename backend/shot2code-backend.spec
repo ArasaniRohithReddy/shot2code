@@ -71,6 +71,7 @@ hiddenimports += [
     "routes.eval_sets",
     "routes.figma",
     "routes.project_context",
+    "routes.storybook_context",
     "routes.mcp_registry",
     "routes.skills",
     "routes.web_search",

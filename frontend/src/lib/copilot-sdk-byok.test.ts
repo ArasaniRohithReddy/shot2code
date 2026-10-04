@@ -1,6 +1,7 @@
 import {
   BYOK_SELECTION_PREFIX,
   DEFAULT_COPILOT_SDK_BYOK_SETTINGS,
+  OLLAMA_LOCAL_BASE_URL,
   baseModelOfSelectionId,
   byokBaseProvider,
   byokSelectionId,
@@ -15,6 +16,7 @@ import {
   runtimeOfSelectionId,
   toByokWirePayload,
   validateByokSettings,
+  withOllamaLocalPreset,
   type CopilotSdkByokSettings,
 } from "./copilot-sdk-byok";
 
@@ -46,6 +48,27 @@ describe("defaults and normalisation", () => {
       wireModel: null,
       wireModels: [],
       azureApiVersion: null,
+    });
+  });
+
+  test("the Ollama preset configures a credential-free local endpoint", () => {
+    expect(
+      withOllamaLocalPreset(
+        settings({
+          provider: "anthropic",
+          baseUrl: "https://api.anthropic.com",
+          bearerToken: "old-bearer",
+          wireApi: "responses",
+          wireModel: "old-model",
+          wireModels: ["old-model"],
+          azureApiVersion: "2024-10-21",
+        })
+      )
+    ).toEqual({
+      ...DEFAULT_COPILOT_SDK_BYOK_SETTINGS,
+      enabled: true,
+      provider: "openai",
+      baseUrl: OLLAMA_LOCAL_BASE_URL,
     });
   });
 

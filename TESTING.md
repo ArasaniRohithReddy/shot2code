@@ -31,30 +31,46 @@ Type checking (must stay clean for files you touch):
 uv run pyright
 ```
 
-Web search (provider-neutral `search_web` tool):
+Web research (`search_web` and the bounded `read_web_page` tool):
 
 ```bash
-uv run pytest tests/test_web_search.py
+uv run pytest tests/test_web_search.py tests/test_page_fetch.py
 ```
 
 Every provider adapter is stubbed at the HTTP transport, so this suite makes no
 network request and needs no Tavily or Exa key. It covers tool serialization
 for all five runtimes, gating, the per-turn and per-generation budgets, secret
 stripping, response bounding, error mapping and the Copilot built-in collision.
+Page-reader tests additionally cover public-only DNS pinning, private-address
+and query-string refusal, redirect revalidation, MIME and byte limits, active
+HTML removal, untrusted-content labelling, safe logs and independent consent.
+
+Iconify SVG search and localization:
+
+```bash
+uv run pytest tests/test_icon_search.py tests/test_agent_runs.py
+```
+
+This suite covers explicit consent, all five model runtimes, the fixed Iconify
+origin, no-cookie/no-auth requests, redirect and response bounds, permissive
+SPDX filtering, provenance and trademark warnings, hostile SVG sanitization,
+deterministic local persistence, budgets and closed run-log summaries.
 
 Design-source imports and public-page inspection:
 
 ```bash
 uv run pytest tests/test_figma.py tests/test_design_assets.py
 uv run pytest tests/test_github_repository.py tests/test_url_design_inspector.py
+uv run pytest tests/test_storybook_context.py tests/test_deferred_routes.py
 uv run pytest tests/test_request_parsing.py tests/test_uploaded_assets.py
 ```
 
 These tests pin Figma image-fill/export ingestion, Stitch/GitHub asset
 persistence, repository traversal and never-execute boundaries, public-only URL
 inspection, source-asset prompt/history handling and actionable partial-success
-errors. The URL inspector has a separate optional live smoke because it launches
-Chromium and visits a public site.
+errors. Storybook tests enforce fixed JSON-only metadata paths and no execution.
+The URL inspector has a separate optional live smoke because it launches
+Chromium, scrolls bounded lazy content and visits a public site.
 
 Export-specific validation:
 
@@ -82,6 +98,20 @@ actual sandboxed preview bridge with nonce-validated parent/iframe messaging.
 It requires the installed Playwright Chromium browser and public CDN access.
 The deterministic prompt, editor, CodePen, export, and re-import matrices remain
 part of the normal backend/frontend test suites.
+
+Review runtime inspection in real Chromium:
+
+```powershell
+$env:RUN_PREVIEW_REVIEW_BROWSER = "true"
+$env:SHOT2CODE_TEST_CHROME_PATH = "<path-to-chrome-headless-shell.exe>"
+cd frontend
+pnpm test -- --runInBand src/lib/preview-runtime-review.browser.test.ts
+```
+
+This verifies viewport-specific runtime findings, the 2,500-element inspection
+bound and continued inspection when generated scripts throw. Normal Jest tests
+cover categories, filtered selection, stale/partial health, schema-v2 reports
+and per-frame failure isolation.
 
 ## Frontend
 
@@ -126,7 +156,8 @@ each external link resolves to a published release-hub page, and that the menu
 commands, the accelerators and the IPC channel names still match
 `frontend/src/lib/app-shortcuts.ts` and `frontend/src/lib/desktop-menu.ts`.
 They also cover Stitch's bounded asset localizer, private-address refusal, SVG
-sanitization, icon synchronization and required ICO resolutions.
+sanitization, icon synchronization, required ICO resolutions and the renderer
+health guard that reloads one blank window before showing a recovery screen.
 
 Regenerate the icon family from its single source script:
 

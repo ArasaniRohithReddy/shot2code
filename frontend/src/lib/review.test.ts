@@ -2,16 +2,21 @@ import type { AuditFinding } from "./source-audit";
 import {
   DEFAULT_REVIEW_VIEWPORTS,
   buildFixFindingsInstruction,
+  buildReviewRuntimeSnapshot,
+  classifyAuditCategories,
   classifyAuditFindings,
   createReviewBinding,
   filterReviewFindings,
   formatHorizontalOverflowMessage,
+  getReviewStaleReasons,
   getReviewViewportDimensions,
   hashReviewProjectFiles,
   hashReviewSource,
   isReviewRunStale,
   normalizeReviewViewportPresets,
   serializeReviewReport,
+  summarizeReviewHealth,
+  updateFilteredFindingSelection,
   validateReviewWidth,
   type ReviewRun,
 } from "./review";
@@ -22,6 +27,14 @@ const finding = (
 ): AuditFinding => ({
   id: `${ruleId}-1`,
   severity,
+  category: ruleId.startsWith("document-")
+    ? "document"
+    : ruleId === "table-caption"
+      ? "structure"
+      : ruleId === "fixed-width"
+        ? "responsive"
+        : "accessibility",
+  origin: "source",
   ruleId,
   message: "An image has no alt attribute.",
   evidence: "<img.hero> at line 8 omits alt.",
@@ -76,16 +89,16 @@ describe("review viewport preferences", () => {
     ];
 
     test("filters by severity", () => {
-      expect(filterReviewFindings(findings, "warning", "")).toHaveLength(1);
-      expect(filterReviewFindings(findings, "warning", "")[0].ruleId).toBe(
+      expect(filterReviewFindings(findings, "warning", "all", "")).toHaveLength(1);
+      expect(filterReviewFindings(findings, "warning", "all", "")[0].ruleId).toBe(
         "fixed-width"
       );
     });
 
     test("searches rule, evidence, guidance and affected file", () => {
-      expect(filterReviewFindings(findings, "all", "card.css")).toHaveLength(1);
-      expect(filterReviewFindings(findings, "all", "900px")).toHaveLength(1);
-      expect(filterReviewFindings(findings, "all", "decorative")).toHaveLength(
+      expect(filterReviewFindings(findings, "all", "all", "card.css")).toHaveLength(1);
+      expect(filterReviewFindings(findings, "all", "all", "900px")).toHaveLength(1);
+      expect(filterReviewFindings(findings, "all", "all", "decorative")).toHaveLength(
         1
       );
     });
@@ -235,8 +248,8 @@ describe("review summaries and messages", () => {
     );
 
     expect(instruction).toContain("3 selected findings");
-    expect(instruction).toContain("[image-alt] 2");
-    expect(instruction).toContain("[document-title] 1");
+    expect(instruction).toContain("[image-alt · Accessibility] 2");
+    expect(instruction).toContain("[document-title · Document] 1");
     expect(instruction).toContain("1440px, 390px");
   });
 
@@ -252,21 +265,216 @@ describe("review summaries and messages", () => {
       artifactPath: "C:\\private\\project\\index.html",
       findings: [finding("error")],
       counts: { error: 1, warning: 0, info: 0, total: 1 },
+      categoryCounts: {
+        accessibility: 1,
+        structure: 0,
+        responsive: 0,
+        document: 0,
+      },
+      runtimeViewports: [],
     };
     const report = serializeReviewReport(run, false);
 
     expect(report).not.toContain("private source must not be exported");
     expect(report).not.toContain("C:\\\\");
     expect(JSON.parse(report)).toMatchObject({
-      schemaVersion: 1,
-      kind: "shot2code-local-source-review",
+      schemaVersion: 2,
+      kind: "shot2code-local-review",
       stale: false,
       target: {
         commitHash: "abc123",
         variantIndex: 0,
         viewportWidths: [390, 768],
       },
-      summary: { error: 1, warning: 0, info: 0, total: 1 },
+      summary: {
+        error: 1,
+        warning: 0,
+        info: 0,
+        total: 1,
+        categories: { accessibility: 1 },
+        runtimeCoverage: { ready: 0, total: 0 },
+      },
+      findings: [
+        expect.objectContaining({
+          category: "accessibility",
+          origin: "source",
+        }),
+      ],
     });
+  });
+});
+
+describe("categorized review workflow", () => {
+  const runtimeMetrics = {
+    viewportWidth: 390,
+    documentWidth: 640,
+    horizontalOverflow: true,
+    inspectedElementCount: 18,
+    inspectionTruncated: false,
+    findingsTruncated: false,
+    findings: [
+      {
+        ruleId: "runtime-horizontal-overflow",
+        severity: "warning" as const,
+        category: "responsive" as const,
+        message: "Rendered content extends beyond this viewport.",
+        evidence: "<div.hero> extends 250px beyond the measured viewport.",
+        guidance: "Use fluid sizing and wrapping.",
+        sourcePath: "src/components/Hero.tsx",
+      },
+    ],
+  };
+
+  it("attaches viewport and file evidence while preserving failed frame states", () => {
+    const snapshot = buildReviewRuntimeSnapshot(
+      [
+        { id: "mobile", label: "Mobile", width: 390 },
+        { id: "tablet", label: "Tablet", width: 768 },
+      ],
+      {
+        mobile: { status: "ready", metrics: runtimeMetrics },
+        tablet: { status: "error", message: "Frame timed out" },
+      },
+      "C:\\private\\composed-preview.html"
+    );
+
+    expect(snapshot.findings).toEqual([
+      expect.objectContaining({
+        id: "runtime-390-runtime-horizontal-overflow-1",
+        origin: "runtime",
+        category: "responsive",
+        viewportWidth: 390,
+        affectedFile: "src/components/Hero.tsx",
+        evidence: expect.stringContaining("Mobile 390px viewport"),
+      }),
+    ]);
+    expect(snapshot.viewports).toEqual([
+      expect.objectContaining({
+        id: "mobile",
+        status: "ready",
+        findingCount: 1,
+        horizontalOverflow: true,
+      }),
+      expect.objectContaining({
+        id: "tablet",
+        status: "error",
+        error: "Frame timed out",
+      }),
+    ]);
+  });
+
+  it("filters by category and selects only the filtered view", () => {
+    const findings = [
+      finding("error", "image-alt"),
+      {
+        ...finding("warning", "fixed-width"),
+        id: "responsive-1",
+        viewportWidth: 390,
+        origin: "runtime" as const,
+      },
+    ];
+    const filtered = filterReviewFindings(
+      findings,
+      "all",
+      "responsive",
+      "390px"
+    );
+    expect(filtered.map((item) => item.id)).toEqual(["responsive-1"]);
+
+    const selected = updateFilteredFindingSelection(
+      new Set(["image-alt-1"]),
+      filtered,
+      true
+    );
+    expect([...selected].sort()).toEqual(["image-alt-1", "responsive-1"]);
+    expect(
+      [...updateFilteredFindingSelection(selected, filtered, false)]
+    ).toEqual(["image-alt-1"]);
+  });
+
+  it("counts categories and summarizes not-run, partial, healthy, and stale states", () => {
+    const findings = [
+      finding("error", "image-alt"),
+      { ...finding("warning", "fixed-width"), category: "responsive" as const },
+    ];
+    expect(classifyAuditCategories(findings)).toEqual({
+      accessibility: 1,
+      structure: 0,
+      responsive: 1,
+      document: 0,
+    });
+    expect(summarizeReviewHealth(null, false).state).toBe("not-run");
+
+    const partialRun: ReviewRun = {
+      binding: createReviewBinding({
+        commitHash: "abc",
+        variantIndex: 0,
+        source: "<main />",
+        viewportWidths: [390, 768],
+      }),
+      createdAt: "2026-10-04T10:00:00.000Z",
+      artifactPath: "index.html",
+      findings: [],
+      counts: { error: 0, warning: 0, info: 0, total: 0 },
+      categoryCounts: {
+        accessibility: 0,
+        structure: 0,
+        responsive: 0,
+        document: 0,
+      },
+      runtimeViewports: [
+        {
+          id: "mobile",
+          label: "Mobile",
+          requestedWidth: 390,
+          status: "ready",
+          findingCount: 0,
+        },
+        {
+          id: "tablet",
+          label: "Tablet",
+          requestedWidth: 768,
+          status: "error",
+          findingCount: 0,
+          error: "Frame timed out",
+        },
+      ],
+    };
+
+    expect(summarizeReviewHealth(partialRun, false)).toMatchObject({
+      state: "partial",
+      title: "Runtime coverage is partial",
+    });
+    expect(summarizeReviewHealth(partialRun, true).state).toBe("stale");
+    expect(
+      summarizeReviewHealth(
+        {
+          ...partialRun,
+          runtimeViewports: partialRun.runtimeViewports.map((viewport) => ({
+            ...viewport,
+            status: "ready" as const,
+            error: undefined,
+          })),
+        },
+        false
+      ).state
+    ).toBe("healthy");
+  });
+
+  it("names every stale binding dimension", () => {
+    const previous = createReviewBinding({
+      commitHash: "old",
+      variantIndex: 0,
+      source: "old",
+      viewportWidths: [390, 768],
+    });
+    expect(
+      getReviewStaleReasons(previous, {
+        commitHash: "new",
+        variantIndex: 1,
+        codeHash: "changed",
+        viewportWidths: [390, 1440],
+      })
+    ).toEqual(["commit", "selected option", "code", "viewport set"]);
   });
 });

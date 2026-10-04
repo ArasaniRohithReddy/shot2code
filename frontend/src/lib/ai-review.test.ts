@@ -8,6 +8,7 @@ import { DEFAULT_COPILOT_SDK_BYOK_SETTINGS } from "./copilot-sdk-byok";
 import { DEFAULT_WEB_SEARCH_SETTINGS } from "./web-search";
 import { DEFAULT_IMAGE_GENERATION_SETTINGS } from "./image-providers";
 import { DEFAULT_FREE_IMAGE_SEARCH_SETTINGS } from "./free-image-search";
+import { DEFAULT_ICON_SEARCH_SETTINGS } from "./icon-search";
 import { EditorTheme, type Settings } from "../types";
 import { CodeGenerationModel } from "./models";
 import { Stack } from "./stacks";
@@ -38,6 +39,7 @@ const settings: Settings = {
   webSearch: DEFAULT_WEB_SEARCH_SETTINGS,
   imageGeneration: DEFAULT_IMAGE_GENERATION_SETTINGS,
   freeImageSearch: DEFAULT_FREE_IMAGE_SEARCH_SETTINGS,
+  iconSearch: DEFAULT_ICON_SEARCH_SETTINGS,
 };
 
 test("AI review sends only model credentials and no capture secrets", async () => {
@@ -58,10 +60,16 @@ test("AI review sends only model credentials and no capture secrets", async () =
     settings,
   });
 
-  const body = JSON.stringify(JSON.parse(fetchMock.mock.calls[0][1].body));
+  const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+  const body = JSON.stringify(payload);
   expect(body).toContain("openai-secret");
   expect(body).not.toContain("figma-secret");
   expect(body).not.toContain("stitch-secret");
   expect(body).not.toContain("github-repo-secret");
   expect(body).not.toContain("screenshotOneApiKey");
+  expect(payload).not.toHaveProperty("mcpServers");
+  expect(payload).not.toHaveProperty("webSearch");
+  expect(payload).not.toHaveProperty("skills");
+  expect(payload).not.toHaveProperty("tools");
+  expect(payload).not.toHaveProperty("imageGeneration");
 });

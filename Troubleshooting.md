@@ -60,6 +60,11 @@ Check the log:
 It records backend startup, renderer load failures, crashes and console errors.
 Include the tail of that file if you open an issue.
 
+Current builds also verify that the React root rendered after
+`did-finish-load`. A completely empty renderer is reloaded once. If it remains
+blank, shot2code replaces the white window with a recovery screen and records
+that outcome in the same log; local SQLite projects are not deleted.
+
 ## Generating code
 
 **"No API key found and no GitHub Copilot credentials detected"**
@@ -141,6 +146,14 @@ There is no Gemini BYOK provider in the Copilot SDK.
 Configuring BYOK never unlocks or re-routes the native OpenAI or Anthropic
 groups. Those still need their own direct keys.
 
+**The local Ollama preset is configured but no model appears**
+
+The preset only points BYOK at `http://localhost:11434/v1`; shot2code does not
+install Ollama or download a model. Start Ollama, pull a model, then use
+**Test model access** to read `/models`. The selected model must support both
+image input and tool calling. Local inference needs no paid API, but it uses
+your machine's RAM/VRAM and the model's own licence still applies.
+
 **My endpoint's model list is empty, or "listing is not available"**
 
 `/models` is optional. shot2code asks an OpenAI-compatible endpoint for its list
@@ -207,6 +220,19 @@ from the SDK runtime.
 An unfinished, disabled or untrusted server draft is skipped with a notice and
 does not block a direct-provider generation.
 
+**Chat says an MCP server is active but it still cannot run**
+
+The **Tools** menu counts only servers that are enabled, trusted and valid.
+MCP and Skills are Copilot SDK capabilities; native OpenAI, Anthropic and
+Gemini options do not receive them. Open **Manage tools**, validate the server,
+and confirm the selected model is a Copilot subscription or SDK-BYOK entry.
+
+**An enabled Skill does not affect a native provider**
+
+Expected: imported Skills are available only to Copilot runtimes. They remain
+disabled after import until explicitly enabled, and script files stay inert
+resources. Chat **Tools** reports how many are enabled.
+
 **An imported project has no components or tokens**
 
 The scanner reads HTML, CSS, JavaScript, TypeScript, Vue, JSON, Markdown and
@@ -248,6 +274,9 @@ separately. Wait for the displayed `Retry-After` period, or export the missing
 asset from Figma and add it through Upload. REST provides design structure and
 assets, not production application source code.
 
+Use **Preview Figma frames** to inspect rendered evidence before any model call.
+The Generate action reuses those frames rather than downloading them again.
+
 **A Stitch screen imported without an image/font**
 
 Only HTTPS assets with a supported image/font/stylesheet type are localized.
@@ -274,6 +303,15 @@ Repositories over 30 MB, unsupported binary-only repositories, traversal paths
 and dependency/build folders are refused or skipped, and no repository code is
 executed.
 
+**Importing a GitHub repository unexpectedly called a model**
+
+The repository itself is always inspected and opened first. Leave **First
+refinement instruction** blank for a completely local open with no model
+request. If that field contains text, shot2code immediately applies it after
+opening with the models shown in **Models for the first refinement**. The
+detected repository stack is preserved; the model selector chooses the edit
+variants, not a replacement framework.
+
 **Website design inspection is refused**
 
 The inspector accepts only a public HTTP(S) page that resolves exclusively to
@@ -281,6 +319,28 @@ public internet addresses and loads without signing in. Localhost, private
 networks, cloud metadata, credential-bearing URLs and private subrequests are
 blocked. The result is rendered evidence and an inferred `DESIGN.md`, not the
 site's original source code or a licence to copy its assets.
+
+**A website screenshot stops before the bottom**
+
+Current inspection scrolls bounded lazy content and captures the full rendered
+document at desktop, tablet and mobile widths. The result shows the actual
+document/capture height. Extreme pages are capped at 40,000px and 36 million
+pixels per image and explicitly say they were truncated.
+
+**The website preview is nearly blank**
+
+shot2code retries once after settling. If it remains nearly uniform, that
+viewport is labelled. The site may require authentication, block automation,
+delay rendering beyond the inspection budget or rely on unsupported browser
+features.
+
+**Built Storybook metadata is refused**
+
+Select a built Storybook root containing `index.json`, optionally with
+`manifests/components.json` and `manifests/docs.json`. Source stories,
+`iframe.html`, JavaScript bundles and arbitrary JSON files are intentionally
+not accepted. ZIP traversal, links, encryption, duplicate paths, unsupported
+schemas and oversized metadata are refused rather than guessed.
 
 **Only one of several screenshots appears in the result**
 
@@ -311,6 +371,11 @@ images at once), no credit (top up on the provider's dashboard), bad
 credentials (recheck the key), or a timeout (try again). A partially successful
 batch keeps the images it did get and says how many.
 
+After a credential, billing, quota, permission, model or configuration failure,
+shot2code blocks more `generate_images` calls for that generation. This stops
+repeated provider requests. Use Openverse public-domain photos, Iconify icons,
+extracted assets, CSS/SVG, or fix Settings and start a new generation.
+
 **"Background removal runs on Replicate only"** is literal. No other provider
 here has an equivalent endpoint and none is substituted, so `remove_backgrounds`
 is not offered without a Replicate key — even when images are being generated
@@ -334,13 +399,35 @@ shot2code excludes. Try a broader subject. **"Found 1 of 3"** means the rest
 were skipped because their URLs failed a safety check (a private address, a
 mismatched content type, or a file over the size limit).
 
-**"The model won't open a link"** is deliberate. Copilot's built-in `web_fetch`
-is not offered, because the Copilot SDK hands a built-in's result straight to
-the model and only tells shot2code afterwards — there is no point at which a
-whole fetched page could be capped, marked untrusted or budgeted. Any URL the
-Copilot runtime asks to open during a run is denied. Use **Web search (all
-models)** in Settings instead: shot2code runs that search itself, so results
-are capped, labelled and counted against a budget.
+**Why not Google Images or Bing Images?**
+
+A search result does not grant reuse rights, so shot2code will not silently put
+arbitrary web images into an exported project. Use keyless Openverse for
+CC0/Public Domain Mark photography. For interface icons, enable Iconify:
+automatic results use a permissive allowlist, SVG is sanitized/localized, and
+provenance remains embedded. Provider access and keyless limits can change.
+
+**Iconify returns no icons**
+
+The query may match only excluded/unknown licences, the public API may be rate
+limiting, or candidates may fail SVG sanitization. Try a broader semantic
+query. Brand icons retain a trademark warning even when copyright metadata is
+permissive.
+
+**"The model won't open a link"**
+
+Page reading is separate from web search and is off by default. Turn on
+**Read public pages (all models)** in Settings when a model needs the text of a
+specific public page. The URL must use public HTTP(S) on its standard port and
+must not contain credentials or a query string. Private addresses, oversized
+pages, unsupported content types and unsafe redirects are refused.
+
+Copilot's built-in `web_fetch` remains unavailable because the SDK hands its
+whole result straight to the model before shot2code can cap, label or budget
+it. The opt-in replacement is shot2code's own `read_web_page`: it strips active
+HTML, caps the download at 512 KB and extracted text at 16,000 characters,
+marks the result untrusted, and allows two reads per turn and five per
+generation.
 
 **Video / screen-recording input** requires a Gemini key.
 
@@ -369,9 +456,11 @@ Rerun it before exporting the report or inserting findings into Chat.
 
 **The audit missed something**
 
-The audit is deterministic and local, but it checks the composed source rather
-than certifying the runtime experience. It is not WCAG certification; continue
-with keyboard, screen-reader and browser testing.
+Review combines deterministic source checks with bounded runtime evidence from
+each sandboxed viewport. Use category filters and the runtime-coverage summary;
+a failed frame is isolated and reported as partial rather than blanking the
+workspace. It is still not WCAG certification—continue with keyboard,
+screen-reader, zoom and interaction testing.
 
 ## Settings and layout
 

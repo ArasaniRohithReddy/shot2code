@@ -138,7 +138,7 @@ function parseComponent(value: unknown, index: number): ProjectComponentSummary 
   };
 }
 
-function parseProjectContext(value: unknown): ProjectContext {
+export function parseProjectContext(value: unknown): ProjectContext {
   const context = requireRecord(value, "context");
   if (!Array.isArray(context.components)) {
     throw new Error("context.components is not an array.");

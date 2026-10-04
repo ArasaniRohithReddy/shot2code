@@ -7,7 +7,8 @@ but the more precise your report is, the faster it gets fixed.
 **[Troubleshooting.md](Troubleshooting.md)** — install warnings, blank windows,
 "backend did not become ready", Copilot sign-in, provider connection checks,
 missing models, BYOK endpoints and model lists, imports that find nothing, and
-the extra keys some features need.
+the extra keys some features need, bounded web/image/icon tools, Review and
+Full history.
 
 ## Where to go
 
@@ -51,9 +52,9 @@ Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md) and include:
   check reported (`credentials`, `billing`, `quota`, `permissions`, `model`,
   `network`, `configuration`) and its message — it is written to be safe to
   paste, but check it for anything private first
-- Whether an MCP server, Agent Skill, Figma/Stitch/GitHub import, public website
-  design inspection, pasted screenshot, image provider or the Review workspace
-  was involved
+- Whether an MCP server, Agent Skill, Figma/Stitch/GitHub/Storybook import,
+  public website design inspection, Chat Tools state, pasted screenshot,
+  Openverse/Iconify/image provider, Full history or Review was involved
 - For the desktop app, the **tail of the log** — this is usually enough on its own:
 
   ```
@@ -77,8 +78,8 @@ name, but never post a private URL, repository token or provider credential.
 Use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md).
 Describe the problem you are trying to solve before the solution you have in
 mind, say where in shot2code it would live (upload, generation, editor,
-preview, Review, export, import, history, settings, MCP, desktop shell), and mention any
-workaround you use today.
+preview, Review, export, import, Storybook, history, Chat Tools, settings, MCP,
+Skills or desktop shell), and mention any workaround you use today.
 
 Requests that would require executing imported project code, or that would make
 previews less isolated, are unlikely to be accepted — see the reasoning in

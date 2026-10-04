@@ -25,6 +25,7 @@ interface Props
   html: string;
   refreshToken?: number;
   onRuntimeMetrics?: (metrics: PreviewRuntimeMetrics) => void;
+  onRuntimeError?: (message: string) => void;
 }
 
 const SandboxedPreviewFrame = forwardRef<HTMLIFrameElement, Props>(
@@ -33,14 +34,18 @@ const SandboxedPreviewFrame = forwardRef<HTMLIFrameElement, Props>(
       html,
       refreshToken = 0,
       onRuntimeMetrics,
+      onRuntimeError,
       onLoad,
+      onError,
       ...props
     },
     forwardedRef
   ) {
     const iframeRef = useRef<HTMLIFrameElement | null>(null);
     const metricsCallbackRef = useRef(onRuntimeMetrics);
+    const runtimeErrorCallbackRef = useRef(onRuntimeError);
     metricsCallbackRef.current = onRuntimeMetrics;
+    runtimeErrorCallbackRef.current = onRuntimeError;
     const sandboxedDocument = useMemo(
       () =>
         createSandboxedPreviewDocument(
@@ -65,13 +70,29 @@ const SandboxedPreviewFrame = forwardRef<HTMLIFrameElement, Props>(
     );
 
     useEffect(() => {
+      let metricsReceived = false;
+      const timeoutId = window.setTimeout(() => {
+        if (metricsReceived || !metricsCallbackRef.current) return;
+        runtimeErrorCallbackRef.current?.(
+          "Runtime inspection did not respond within 8 seconds."
+        );
+      }, 8_000);
       const handleMessage = (event: MessageEvent) => {
         if (event.source !== iframeRef.current?.contentWindow) return;
         const message = parsePreviewToHostMessage(
           event.data,
           sandboxedDocument.nonce
         );
+        if (message?.type === "ready" && metricsCallbackRef.current) {
+          iframeRef.current?.contentWindow?.postMessage(
+            createRequestPreviewMetricsMessage(sandboxedDocument.nonce),
+            "*"
+          );
+          return;
+        }
         if (message?.type === "runtime-metrics") {
+          metricsReceived = true;
+          window.clearTimeout(timeoutId);
           metricsCallbackRef.current?.(message.payload);
         }
       };
@@ -83,7 +104,10 @@ const SandboxedPreviewFrame = forwardRef<HTMLIFrameElement, Props>(
           "*"
         );
       }
-      return () => window.removeEventListener("message", handleMessage);
+      return () => {
+        window.clearTimeout(timeoutId);
+        window.removeEventListener("message", handleMessage);
+      };
     }, [sandboxedDocument.nonce]);
 
     const requestRuntimeMetrics = useCallback(() => {
@@ -105,6 +129,12 @@ const SandboxedPreviewFrame = forwardRef<HTMLIFrameElement, Props>(
         onLoad={(event) => {
           requestRuntimeMetrics();
           onLoad?.(event);
+        }}
+        onError={(event) => {
+          runtimeErrorCallbackRef.current?.(
+            "The preview frame failed before runtime inspection completed."
+          );
+          onError?.(event);
         }}
       />
     );

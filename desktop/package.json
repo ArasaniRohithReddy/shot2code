@@ -1,7 +1,7 @@
 {
   "name": "shot2code-desktop",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "workspaces": [],
   "description": "Turn screenshots, mockups and screen recordings into clean code using AI",
   "author": "Arasani Rohith Reddy",
@@ -26,7 +26,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test update-lifecycle.test.js installer-preinstall.test.js backend-readiness.test.js backend-auth-restart.test.js zoom-controls.test.js window-state.test.js app-menu.test.js icon-assets.test.js stitch-assets.test.js stitch-sdk.test.js github-oauth.test.js feedback.test.js",
+    "test": "node --test update-lifecycle.test.js installer-preinstall.test.js backend-readiness.test.js backend-auth-restart.test.js zoom-controls.test.js window-state.test.js renderer-health.test.js app-menu.test.js icon-assets.test.js stitch-assets.test.js stitch-sdk.test.js github-oauth.test.js feedback.test.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --win nsis msi zip --publish never",
     "release": "electron-builder --win nsis msi zip --publish always"

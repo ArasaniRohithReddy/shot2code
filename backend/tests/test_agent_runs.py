@@ -14,6 +14,7 @@ from fs_logging.agent_runs import (
     AgentRunRecorder,
     get_agent_runs_db_path,
     get_agent_runs_directory,
+    safe_tool_arguments,
 )
 from llm import Llm
 
@@ -51,6 +52,33 @@ def _db_row(query: str, params: tuple[Any, ...] = ()) -> Optional[tuple[Any, ...
         return cursor.fetchone()
     finally:
         conn.close()
+
+
+def test_web_tool_arguments_are_reduced_before_logging() -> None:
+    assert safe_tool_arguments(
+        "read_web_page",
+        {
+            "url": "https://example.com/docs?token=secret",
+            "authorization": "secret",
+        },
+    ) == {"url": "https://example.com/docs"}
+    search = safe_tool_arguments(
+        "search_web",
+        {"query": "css grid", "apiKey": "secret", "extra": "secret"},
+    )
+    assert search == {
+        "query": "css grid",
+        "max_results": 3,
+        "recency": "any",
+        "include_domains": [],
+    }
+    assert "secret" not in json.dumps(search)
+    icons = safe_tool_arguments(
+        "search_icons",
+        {"query": "rounded home", "count": 99, "authorization": "secret"},
+    )
+    assert icons == {"query": "rounded home", "count": 6}
+    assert "secret" not in json.dumps(icons)
 
 
 @pytest.mark.asyncio

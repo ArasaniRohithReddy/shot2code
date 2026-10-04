@@ -65,16 +65,17 @@ jobs:
           "renderer files: $((Get-ChildItem "$desktop/renderer" -Recurse -File).Count)"
           "backend files:  $((Get-ChildItem "$desktop/backend-dist" -Recurse -File).Count)"
 
-      - name: Set version from tag
+      - name: Verify version matches tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         working-directory: desktop
         run: |
           $v = "${{ github.ref_name }}".TrimStart("v")
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          $pkg.version = $v
-          $pkg | ConvertTo-Json -Depth 20 | Set-Content package.json
-          "version set to $v"
+          $packageVersion = node -p "require('./package.json').version"
+          if ($packageVersion -ne $v) {
+            throw "Tag v$v does not match desktop/package.json version $packageVersion"
+          }
+          "version verified: $v"
 
       - name: Build installers
         working-directory: desktop
@@ -82,7 +83,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          npm install
+          npm ci
           # Never publish from CI. electron-builder skips re-uploading an
           # existing asset but still replaces latest.yml, which left releases
           # with a manifest describing a binary that was no longer there and

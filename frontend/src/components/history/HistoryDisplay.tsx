@@ -171,6 +171,152 @@ export function HistoryAncestryLinks({
   );
 }
 
+function formatHistoryDate(value: Date): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(value);
+}
+
+export function HistoryExpandedDetails({
+  item,
+  autoPlayVideo,
+}: {
+  item: RenderedHistoryItem;
+  autoPlayVideo?: boolean;
+}) {
+  const selectedVariant = item.variants[item.selectedVariantIndex];
+
+  return (
+    <div className="space-y-3 text-xs text-gray-600 dark:text-zinc-300">
+      <p>
+        Saved {formatHistoryDate(item.dateCreated)} · {item.variants.length}{" "}
+        option{item.variants.length === 1 ? "" : "s"}
+      </p>
+
+      {item.summary.length > 30 && (
+        <p className="break-words whitespace-pre-wrap">{item.summary}</p>
+      )}
+      {item.selectedElementTag && (
+        <p className="text-violet-700 dark:text-violet-300">
+          Target:{" "}
+          <code className="rounded bg-violet-100 px-1 py-0.5 font-mono text-[10px] dark:bg-violet-900/30">
+            &lt;{item.selectedElementTag}&gt;
+          </code>
+        </p>
+      )}
+
+      <ExpandedMedia item={item} autoPlayVideo={autoPlayVideo} />
+
+      {item.generationContext?.selectedModels.length ? (
+        <div>
+          <p className="font-semibold text-gray-700 dark:text-zinc-200">
+            Requested models
+          </p>
+          <p
+            className="notranslate mt-1 break-words"
+            translate="no"
+          >
+            {item.generationContext.selectedModels.join(", ")}
+          </p>
+        </div>
+      ) : null}
+
+      <div>
+        <p className="font-semibold text-gray-700 dark:text-zinc-200">
+          Saved options
+        </p>
+        <div className="mt-1 space-y-1">
+          {item.variants.map((variant, index) => (
+            <div
+              key={`${item.hash}-option-${index}`}
+              className={`rounded-md border px-2 py-1.5 ${
+                index === item.selectedVariantIndex
+                  ? "border-violet-300 bg-violet-50 dark:border-violet-700 dark:bg-violet-950/30"
+                  : "border-gray-200 bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800/60"
+              }`}
+            >
+              <p>
+                <span className="font-semibold">Option {index + 1}</span>
+                {index === item.selectedVariantIndex ? " · selected" : ""}
+                {" · "}
+                <span className="capitalize">{variant.status ?? "complete"}</span>
+              </p>
+              <p className="notranslate break-words" translate="no">
+                {variant.model ?? "Model not recorded"}
+              </p>
+              {variant.completedAt && (
+                <p>Completed {formatHistoryDate(new Date(variant.completedAt))}</p>
+              )}
+              {variant.errorMessage && (
+                <p className="text-red-700 dark:text-red-300">
+                  {variant.errorMessage}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {selectedVariant?.history.length ? (
+        <div>
+          <p className="font-semibold text-gray-700 dark:text-zinc-200">
+            Selected option conversation
+          </p>
+          <div className="mt-1 space-y-1.5">
+            {selectedVariant.history.map((message, index) => {
+              const attachmentCount =
+                message.imageAssetIds.length + message.videoAssetIds.length;
+              return (
+                <div
+                  key={`${item.hash}-message-${index}`}
+                  className="rounded-md bg-gray-50 px-2 py-1.5 dark:bg-zinc-800/60"
+                >
+                  <p className="font-semibold capitalize">{message.role}</p>
+                  <p className="mt-0.5 whitespace-pre-wrap break-words">
+                    {message.text || "(No text)"}
+                  </p>
+                  {attachmentCount > 0 && (
+                    <p className="mt-0.5 text-gray-500 dark:text-zinc-400">
+                      {attachmentCount} attachment
+                      {attachmentCount === 1 ? "" : "s"}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {selectedVariant?.agentEvents?.length ? (
+        <div>
+          <p className="font-semibold text-gray-700 dark:text-zinc-200">
+            Saved agent activity
+          </p>
+          <ul className="mt-1 space-y-1">
+            {selectedVariant.agentEvents.map((event) => (
+              <li
+                key={event.id}
+                className="rounded-md bg-gray-50 px-2 py-1.5 dark:bg-zinc-800/60"
+              >
+                <span className="font-semibold capitalize">{event.type}</span>
+                {event.toolName ? ` · ${event.toolName}` : ""}
+                {` · ${event.status}`}
+                {event.content ? (
+                  <p className="mt-0.5 whitespace-pre-wrap break-words">
+                    {event.content}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function HistoryDisplay() {
   const { commits, head, setHead } = useProjectStore();
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
@@ -205,8 +351,6 @@ export default function HistoryDisplay() {
         const versionNumber = item.version;
         const isActive = item.hash === head;
         const isExpanded = expandedHash === item.hash;
-        const hasMedia = item.images.length > 0 || item.videos.length > 0;
-
         return (
           <div
             key={item.hash}
@@ -275,7 +419,7 @@ export default function HistoryDisplay() {
                     </span>
                   )}
                 </div>
-                <p
+                <div
                   className={`text-sm mt-0.5 line-clamp-2 ${
                     isActive
                       ? "font-medium text-gray-900 dark:text-white"
@@ -292,7 +436,10 @@ export default function HistoryDisplay() {
                     </>
                   )}
                   {item.selectedVariantModel && (
-                    <p className="notranslate mt-1 text-xs text-slate-600 dark:text-slate-300" translate="no">
+                    <p
+                      className="notranslate mt-1 text-xs text-slate-600 dark:text-slate-300"
+                      translate="no"
+                    >
                       Model:{" "}
                       <span className="font-medium">
                         {item.selectedVariantModel}
@@ -300,47 +447,35 @@ export default function HistoryDisplay() {
                       · Option {item.selectedVariantNumber}
                     </p>
                   )}
-                </p>
+                </div>
               </div>
 
               {/* Expand button */}
-              {(hasMedia || item.summary.length > 30) && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setExpandedHash(isExpanded ? null : item.hash);
-                  }}
-                  aria-expanded={isExpanded}
-                  aria-label={
-                    isExpanded
-                      ? `Hide details for version ${versionNumber}`
-                      : `Show details for version ${versionNumber}`
-                  }
-                  className="pointer-events-auto shrink-0 flex h-11 w-11 items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-                >
-                  {isExpanded ? (
-                    <BsChevronDown className="w-3 h-3" aria-hidden="true" />
-                  ) : (
-                    <BsChevronRight className="w-3 h-3" aria-hidden="true" />
-                  )}
-                </button>
-              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpandedHash(isExpanded ? null : item.hash);
+                }}
+                aria-expanded={isExpanded}
+                aria-label={
+                  isExpanded
+                    ? `Hide details for version ${versionNumber}`
+                    : `Show details for version ${versionNumber}`
+                }
+                className="pointer-events-auto shrink-0 flex h-11 w-11 items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+              >
+                {isExpanded ? (
+                  <BsChevronDown className="w-3 h-3" aria-hidden="true" />
+                ) : (
+                  <BsChevronRight className="w-3 h-3" aria-hidden="true" />
+                )}
+              </button>
             </div>
 
             {/* Expanded details */}
             {isExpanded && (
               <div className="relative px-3 pb-3 pl-12">
-                {item.summary.length > 30 && (
-                  <p className="text-xs text-gray-600 dark:text-gray-300 break-words">
-                    {item.summary}
-                  </p>
-                )}
-                {item.selectedElementTag && (
-                  <p className="text-xs text-violet-700 dark:text-violet-300 mt-1">
-                    Target: <code className="font-mono text-[10px] bg-violet-100 dark:bg-violet-900/30 px-1 py-0.5 rounded">&lt;{item.selectedElementTag}&gt;</code>
-                  </p>
-                )}
-                <ExpandedMedia
+                <HistoryExpandedDetails
                   item={item}
                   autoPlayVideo={autoPlayHash === item.hash}
                 />

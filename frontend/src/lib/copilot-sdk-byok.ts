@@ -111,6 +111,25 @@ export const DEFAULT_COPILOT_SDK_BYOK_SETTINGS: CopilotSdkByokSettings = {
   azureApiVersion: null,
 };
 
+export const OLLAMA_LOCAL_BASE_URL = "http://localhost:11434/v1";
+
+export function withOllamaLocalPreset(
+  current: CopilotSdkByokSettings
+): CopilotSdkByokSettings {
+  return {
+    ...current,
+    enabled: true,
+    provider: "openai",
+    baseUrl: OLLAMA_LOCAL_BASE_URL,
+    apiKey: null,
+    bearerToken: null,
+    wireApi: null,
+    wireModel: null,
+    wireModels: [],
+    azureApiVersion: null,
+  };
+}
+
 export const BYOK_PROVIDER_LABELS: Record<ByokProvider, string> = {
   openai: "OpenAI-compatible",
   azure: "Azure OpenAI",

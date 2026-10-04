@@ -56,12 +56,15 @@ For a public HTTP(S) page it captures:
 - font families, type scale, spacing, radii, shadows, and motion;
 - component/landmark counts and basic accessible-name signals;
 - public asset references;
-- desktop 1440x900, tablet 768x1024, and mobile 390x844 screenshots;
+- scrollable full-page desktop, tablet, and mobile screenshots with actual
+  document/capture dimensions and explicit blank/truncation state;
 - an editable, copyable, downloadable `DESIGN.md`.
 
 The result is rendered evidence, not the original source code, a claim of asset
 ownership, or a WCAG conformance report. Private, loopback, link-local,
-metadata, and mixed public/private DNS destinations are refused.
+metadata, and mixed public/private DNS destinations are refused. Lazy-content
+scrolling is bounded; extreme pages are capped at 40,000px and 36 million
+pixels per screenshot rather than silently cut off.
 
 ![Completed design inspection for example.com showing extracted colors, summary metrics, and DESIGN.md actions.](assets/url-design-inspection.png)
 
@@ -105,6 +108,12 @@ Use **Import** to continue from code you already own:
 - choose a ZIP archive;
 - choose individual source files.
 
+The third import mode, **Built Storybook**, accepts a built folder, selected
+JSON files, ZIP, or public HTTPS build. It parses only `index.json` plus
+optional `manifests/components.json` and `manifests/docs.json` into compact
+component-library context. Story files, bundles, CSF, addons, decorators,
+loaders, play functions and `iframe.html` are never loaded or executed.
+
 The scanner parses text only. It rejects traversal paths, ignores dependency
 and build-output directories, enforces file/archive/text limits, and never
 loads configuration modules or runs install/build/application code.
@@ -127,7 +136,10 @@ Use **Figma** for a Figma file or selected-frame URL.
 1. In Settings, add a Figma personal access token with `file_content:read`.
 2. Paste the Figma design URL. A frame-specific link is best because it carries
    the selected node ID.
-3. Choose stack/models and select **Render Figma & Generate**.
+3. Optionally select **Preview Figma frames** to inspect the rendered evidence
+   without a model call.
+4. Choose stack/models and select **Render Figma & Generate**. Previewed frames
+   are reused rather than downloaded again.
 
 shot2code uses Figma's official REST endpoints to render frames. It also
 preserves original image fills and export-marked nodes as bounded local assets.
@@ -157,6 +169,18 @@ The repository archive enters the same never-execute scanner used by Import.
 Supported text source is normalized into project files; bounded PNG, JPEG, GIF,
 and WebP assets are persisted locally and remain available in Preview, History,
 chat refinements, and exports.
+
+The tab explains the two paths before opening:
+
+- Leave **First refinement instruction** blank to inspect and open locally with
+  no model request.
+- Add an instruction to run an immediate first edit after opening. The tab
+  shows the model selector for that edit, with update-run limits and the same
+  provider choices used by Chat, plus the selected design system.
+
+The repository's detected frontend stack is preserved. The current default
+stack is used only if inspection cannot detect one; the model picker does not
+silently convert the repository to another framework.
 
 ![Imported Spoon-Knife project open in shot2code with editing suggestions and a desktop preview.](assets/github-imported-project.png)
 

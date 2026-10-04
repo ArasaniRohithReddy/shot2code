@@ -5,6 +5,20 @@ export const PREVIEW_SANDBOX =
 
 const MAX_SELECTION_HTML_LENGTH = 12_000;
 const MAX_SELECTION_CONTEXT_LENGTH = 8_000;
+const MAX_RUNTIME_FINDINGS = 32;
+const MAX_RUNTIME_TEXT_LENGTH = 400;
+const MAX_RUNTIME_SOURCE_PATH_LENGTH = 512;
+
+const RUNTIME_RULE_IDS = new Set([
+  "runtime-horizontal-overflow",
+  "runtime-accessible-name",
+  "runtime-keyboard-focus",
+  "runtime-target-size",
+  "runtime-image-alt",
+  "runtime-image-load",
+  "runtime-heading-structure",
+  "runtime-main-landmark",
+]);
 
 export interface PreviewSelectionPayload {
   tagName: string;
@@ -16,10 +30,30 @@ export interface PreviewSelection extends PreviewSelectionPayload {
   previewId: string;
 }
 
+export type PreviewRuntimeSeverity = "error" | "warning" | "info";
+export type PreviewRuntimeCategory =
+  | "accessibility"
+  | "structure"
+  | "responsive";
+
+export interface PreviewRuntimeFinding {
+  ruleId: string;
+  severity: PreviewRuntimeSeverity;
+  category: PreviewRuntimeCategory;
+  message: string;
+  evidence: string;
+  guidance: string;
+  sourcePath?: string;
+}
+
 export interface PreviewRuntimeMetrics {
   viewportWidth: number;
   documentWidth: number;
   horizontalOverflow: boolean;
+  inspectedElementCount: number;
+  inspectionTruncated: boolean;
+  findingsTruncated: boolean;
+  findings: PreviewRuntimeFinding[];
 }
 
 export type PreviewToHostMessage =
@@ -77,6 +111,55 @@ function isValidTagName(value: unknown): value is string {
   );
 }
 
+function isBoundedRuntimeText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_RUNTIME_TEXT_LENGTH
+  );
+}
+
+function parsePreviewRuntimeFinding(
+  value: unknown
+): PreviewRuntimeFinding | null {
+  if (!isRecord(value)) return null;
+  const {
+    ruleId,
+    severity,
+    category,
+    message,
+    evidence,
+    guidance,
+    sourcePath,
+  } = value;
+  if (
+    typeof ruleId !== "string" ||
+    !RUNTIME_RULE_IDS.has(ruleId) ||
+    !["error", "warning", "info"].includes(String(severity)) ||
+    !["accessibility", "structure", "responsive"].includes(
+      String(category)
+    ) ||
+    !isBoundedRuntimeText(message) ||
+    !isBoundedRuntimeText(evidence) ||
+    !isBoundedRuntimeText(guidance) ||
+    (sourcePath !== undefined &&
+      (typeof sourcePath !== "string" ||
+        sourcePath.length === 0 ||
+        sourcePath.length > MAX_RUNTIME_SOURCE_PATH_LENGTH))
+  ) {
+    return null;
+  }
+  return {
+    ruleId,
+    severity: severity as PreviewRuntimeSeverity,
+    category: category as PreviewRuntimeCategory,
+    message,
+    evidence,
+    guidance,
+    ...(typeof sourcePath === "string" ? { sourcePath } : {}),
+  };
+}
+
 export function parsePreviewToHostMessage(
   value: unknown,
   expectedNonce: string
@@ -99,7 +182,15 @@ export function parsePreviewToHostMessage(
   }
 
   if (value.type === "runtime-metrics" && isRecord(value.payload)) {
-    const { viewportWidth, documentWidth, horizontalOverflow } = value.payload;
+    const {
+      viewportWidth,
+      documentWidth,
+      horizontalOverflow,
+      inspectedElementCount = 0,
+      inspectionTruncated = false,
+      findingsTruncated = false,
+      findings: rawFindings = [],
+    } = value.payload;
     if (
       typeof viewportWidth !== "number" ||
       !Number.isFinite(viewportWidth) ||
@@ -109,10 +200,20 @@ export function parsePreviewToHostMessage(
       !Number.isFinite(documentWidth) ||
       documentWidth < 0 ||
       documentWidth > 1_000_000 ||
-      typeof horizontalOverflow !== "boolean"
+      typeof horizontalOverflow !== "boolean" ||
+      typeof inspectedElementCount !== "number" ||
+      !Number.isInteger(inspectedElementCount) ||
+      inspectedElementCount < 0 ||
+      inspectedElementCount > 10_000 ||
+      typeof inspectionTruncated !== "boolean" ||
+      typeof findingsTruncated !== "boolean" ||
+      !Array.isArray(rawFindings) ||
+      rawFindings.length > MAX_RUNTIME_FINDINGS
     ) {
       return null;
     }
+    const findings = rawFindings.map(parsePreviewRuntimeFinding);
+    if (findings.some((finding) => finding === null)) return null;
     return {
       channel: PREVIEW_BRIDGE_CHANNEL,
       nonce: expectedNonce,
@@ -121,6 +222,10 @@ export function parsePreviewToHostMessage(
         viewportWidth,
         documentWidth,
         horizontalOverflow,
+        inspectedElementCount,
+        inspectionTruncated,
+        findingsTruncated,
+        findings: findings as PreviewRuntimeFinding[],
       },
     };
   }
@@ -215,11 +320,20 @@ function buildPreviewBridgeScript(nonce: string): string {
   const cursorId = "__s2c-select-cursor";
   const maxHtmlLength = ${MAX_SELECTION_HTML_LENGTH};
   const maxContextLength = ${MAX_SELECTION_CONTEXT_LENGTH};
+  const maxRuntimeFindings = ${MAX_RUNTIME_FINDINGS};
+  const maxRuntimeTextLength = ${MAX_RUNTIME_TEXT_LENGTH};
+  const maxRuntimeSourcePathLength = ${MAX_RUNTIME_SOURCE_PATH_LENGTH};
+  const maxRuntimeElements = 2500;
+  const minTargetSize = 24;
+  const metricsThrottleMs = 250;
   let enabled = false;
   let hovered = null;
   let selected = null;
   let metricsFrame = 0;
+  let metricsTimer = 0;
   let metricsEnabled = false;
+  let lastMetricsAt = 0;
+  let lastMetricsSignature = "";
 
   const isRecord = (value) =>
     typeof value === "object" && value !== null && !Array.isArray(value);
@@ -253,8 +367,202 @@ function buildPreviewBridgeScript(nonce: string): string {
     if (payload !== undefined) message.payload = payload;
     window.parent.postMessage(message, "*");
   };
-  const postRuntimeMetrics = () => {
-    metricsFrame = 0;
+  const normalizeRuntimeText = (value) =>
+    String(value || "").replace(/\\s+/g, " ").trim();
+  const truncateRuntimeText = (value, limit = maxRuntimeTextLength) => {
+    const normalized = normalizeRuntimeText(value);
+    return normalized.length <= limit
+      ? normalized
+      : normalized.slice(0, Math.max(0, limit - 3)) + "...";
+  };
+  const cleanRuntimeToken = (value) =>
+    String(value || "")
+      .replace(/[^A-Za-z0-9_-]/g, "_")
+      .slice(0, 32);
+  const describeRuntimeElement = (element) => {
+    const tag = element.tagName.toLowerCase();
+    const id = cleanRuntimeToken(element.id);
+    const classes = [];
+    for (let index = 0; index < Math.min(element.classList.length, 2); index += 1) {
+      const className = cleanRuntimeToken(element.classList.item(index));
+      if (className) classes.push(className);
+    }
+    return (
+      "<" +
+      tag +
+      (id ? "#" + id : "") +
+      classes.map((className) => "." + className).join("") +
+      ">"
+    );
+  };
+  const runtimeSourcePath = (element) => {
+    let current = element;
+    let depth = 0;
+    while (current && depth < 20) {
+      const path = current.getAttribute("data-shot2code-path");
+      if (path) return truncateRuntimeText(path, maxRuntimeSourcePathLength);
+      current = current.parentElement;
+      depth += 1;
+    }
+    return "";
+  };
+  const isBridgeElement = (element) =>
+    element.id === hoverId ||
+    element.id === selectionId ||
+    element.id === cursorId ||
+    Boolean(element.closest("#" + hoverId + ", #" + selectionId));
+  const isSemanticallyHidden = (element) => {
+    let current = element;
+    let depth = 0;
+    while (current && depth < 30) {
+      if (
+        current.hasAttribute("hidden") ||
+        current.getAttribute("aria-hidden") === "true"
+      ) {
+        return true;
+      }
+      const style = window.getComputedStyle(current);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse"
+      ) {
+        return true;
+      }
+      current = current.parentElement;
+      depth += 1;
+    }
+    return false;
+  };
+  const renderedRect = (element) => {
+    if (isBridgeElement(element) || isSemanticallyHidden(element)) return null;
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return rect;
+  };
+  const boundedElementText = (element) => {
+    if (!element) return "";
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const parts = [];
+    let node = walker.nextNode();
+    let visited = 0;
+    let length = 0;
+    while (node && visited < 40 && length < 240) {
+      const value = truncateRuntimeText(node.nodeValue || "", 240 - length);
+      if (value) {
+        parts.push(value);
+        length += value.length;
+      }
+      visited += 1;
+      node = walker.nextNode();
+    }
+    return truncateRuntimeText(parts.join(" "), 240);
+  };
+  const descendantAlternativeText = (element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT);
+    const parts = [];
+    let candidate = walker.nextNode();
+    let visited = 0;
+    while (candidate && visited < 100 && parts.length < 4) {
+      const tag = candidate.tagName.toLowerCase();
+      const type = (candidate.getAttribute("type") || "").toLowerCase();
+      if (tag === "img" || (tag === "input" && type === "image")) {
+        const alt = normalizeRuntimeText(candidate.getAttribute("alt"));
+        if (alt) parts.push(alt);
+      }
+      visited += 1;
+      candidate = walker.nextNode();
+    }
+    return truncateRuntimeText(parts.join(" "), 240);
+  };
+  const hasAccessibleName = (element) => {
+    if (normalizeRuntimeText(element.getAttribute("aria-label"))) return true;
+    const labelledBy = truncateRuntimeText(
+      element.getAttribute("aria-labelledby"),
+      512
+    )
+      .split(" ")
+      .filter(Boolean);
+    if (
+      labelledBy
+        .slice(0, 8)
+        .some((id) => boundedElementText(document.getElementById(id)))
+    ) {
+      return true;
+    }
+    if (element.labels) {
+      const labelParts = [];
+      for (
+        let index = 0;
+        index < Math.min(element.labels.length, 4);
+        index += 1
+      ) {
+        labelParts.push(boundedElementText(element.labels.item(index)));
+      }
+      if (normalizeRuntimeText(labelParts.join(" "))) return true;
+    }
+    if (normalizeRuntimeText(element.getAttribute("title"))) return true;
+
+    const tag = element.tagName.toLowerCase();
+    if (tag === "input") {
+      const type = (element.getAttribute("type") || "text").toLowerCase();
+      if (type === "image") {
+        return Boolean(normalizeRuntimeText(element.getAttribute("alt")));
+      }
+      if (["button", "submit", "reset"].includes(type)) {
+        if (normalizeRuntimeText(element.value)) return true;
+        return type === "submit" || type === "reset";
+      }
+      return Boolean(normalizeRuntimeText(element.getAttribute("placeholder")));
+    }
+    if (["select", "textarea"].includes(tag)) return false;
+
+    if (descendantAlternativeText(element)) return true;
+
+    const role = (element.getAttribute("role") || "").toLowerCase();
+    return (
+      ["button", "a", "summary"].includes(tag) ||
+      [
+        "button",
+        "link",
+        "checkbox",
+        "radio",
+        "switch",
+        "tab",
+        "menuitem",
+        "option",
+      ].includes(role)
+    )
+      ? Boolean(boundedElementText(element))
+      : false;
+  };
+  const isNativeInteractive = (element) => {
+    const tag = element.tagName.toLowerCase();
+    if (["button", "select", "textarea", "summary"].includes(tag)) return true;
+    if (tag === "a") return element.hasAttribute("href");
+    if (tag !== "input") return false;
+    return (element.getAttribute("type") || "text").toLowerCase() !== "hidden";
+  };
+  const interactiveSelector = [
+    "button",
+    "a[href]",
+    "input:not([type='hidden'])",
+    "select",
+    "textarea",
+    "summary",
+    "[role='button']",
+    "[role='link']",
+    "[role='checkbox']",
+    "[role='radio']",
+    "[role='switch']",
+    "[role='tab']",
+    "[role='menuitem']",
+    "[role='option']",
+    "[role='slider']",
+    "[role='textbox']",
+    "[contenteditable]:not([contenteditable='false'])",
+  ].join(",");
+  const collectRuntimeMetrics = () => {
     const root = document.documentElement;
     const body = document.body;
     const viewportWidth = Math.max(
@@ -266,14 +574,344 @@ function buildPreviewBridgeScript(nonce: string): string {
       Math.ceil(root ? root.scrollWidth : 0),
       Math.ceil(body ? body.scrollWidth : 0)
     );
-    post("runtime-metrics", {
+    const horizontalOverflow = documentWidth > viewportWidth + 1;
+    const collectedElements = [];
+    const elementWalker = document.createTreeWalker(
+      document.documentElement,
+      NodeFilter.SHOW_ELEMENT
+    );
+    let inspectedElement = elementWalker.currentNode;
+    while (
+      inspectedElement &&
+      collectedElements.length <= maxRuntimeElements
+    ) {
+      collectedElements.push(inspectedElement);
+      inspectedElement = elementWalker.nextNode();
+    }
+    const inspectionTruncated =
+      collectedElements.length > maxRuntimeElements;
+    const elements = collectedElements.slice(0, maxRuntimeElements);
+    const findings = [];
+    let findingsTruncated = false;
+    const addFinding = ({
+      ruleId,
+      severity,
+      category,
+      message,
+      evidence,
+      guidance,
+      element,
+    }) => {
+      if (findings.length >= maxRuntimeFindings) {
+        findingsTruncated = true;
+        return;
+      }
+      const finding = {
+        ruleId,
+        severity,
+        category,
+        message: truncateRuntimeText(message),
+        evidence: truncateRuntimeText(evidence),
+        guidance: truncateRuntimeText(guidance),
+      };
+      const sourcePath = element ? runtimeSourcePath(element) : "";
+      if (sourcePath) finding.sourcePath = sourcePath;
+      findings.push(finding);
+    };
+
+    if (horizontalOverflow) {
+      const overflowCandidates = [];
+      for (const element of elements) {
+        if (element === root || element === body || isBridgeElement(element)) {
+          continue;
+        }
+        const rect = renderedRect(element);
+        if (!rect) continue;
+        const leftExcess = Math.max(0, -rect.left);
+        const rightExcess = Math.max(0, rect.right - viewportWidth);
+        const excess = Math.max(leftExcess, rightExcess);
+        if (excess > 1) overflowCandidates.push({ element, rect, excess });
+      }
+      overflowCandidates
+        .sort((left, right) => right.excess - left.excess)
+        .slice(0, 4)
+        .forEach(({ element, rect, excess }) =>
+          addFinding({
+            ruleId: "runtime-horizontal-overflow",
+            severity: "warning",
+            category: "responsive",
+            message: "Rendered content extends beyond this viewport.",
+            evidence:
+              describeRuntimeElement(element) +
+              " spans x=" +
+              Math.round(rect.left) +
+              " to " +
+              Math.round(rect.right) +
+              " CSS px, " +
+              Math.ceil(excess) +
+              "px outside a " +
+              viewportWidth +
+              "px viewport. The document is " +
+              documentWidth +
+              "px wide.",
+            guidance:
+              "Use fluid sizing, wrapping, or a scoped scroll container; verify whether a two-dimensional layout exception is genuinely required.",
+            element,
+          })
+        );
+      if (overflowCandidates.length === 0) {
+        addFinding({
+          ruleId: "runtime-horizontal-overflow",
+          severity: "warning",
+          category: "responsive",
+          message: "The rendered document is wider than this viewport.",
+          evidence:
+            "The document is " +
+            documentWidth +
+            "px wide in a " +
+            viewportWidth +
+            "px viewport; no single bounded offender was identified.",
+          guidance:
+            "Inspect fixed widths, absolute positioning, transforms, and non-wrapping content at this viewport.",
+        });
+      }
+    }
+
+    const interactive = elements.filter(
+      (element) =>
+        !isBridgeElement(element) && element.matches(interactiveSelector)
+    );
+    const renderedTargets = [];
+    for (const element of interactive) {
+      const rect = renderedRect(element);
+      if (!rect) continue;
+      renderedTargets.push({ element, rect });
+      if (!hasAccessibleName(element)) {
+        addFinding({
+          ruleId: "runtime-accessible-name",
+          severity: "error",
+          category: "accessibility",
+          message: "A rendered interactive control has no detectable accessible name.",
+          evidence:
+            describeRuntimeElement(element) +
+            " has no label, non-empty ARIA name, title, or supported visible/native name in the rendered DOM.",
+          guidance:
+            "Prefer a native control with visible text or associate an accurate label with aria-label or aria-labelledby only when needed.",
+          element,
+        });
+      }
+      const role = (element.getAttribute("role") || "").toLowerCase();
+      const disabled =
+        element.hasAttribute("disabled") ||
+        element.getAttribute("aria-disabled") === "true";
+      const managedComposite = element.closest(
+        "[role='toolbar'], [role='menu'], [role='tablist'], [role='radiogroup'], [role='listbox'], [role='tree'], [role='grid']"
+      );
+      if (
+        !disabled &&
+        !managedComposite &&
+        !isNativeInteractive(element) &&
+        ["button", "link"].includes(role) &&
+        !element.hasAttribute("tabindex") &&
+        element.tabIndex < 0
+      ) {
+        addFinding({
+          ruleId: "runtime-keyboard-focus",
+          severity: "warning",
+          category: "accessibility",
+          message: "A custom interactive role is not reachable in the normal tab order.",
+          evidence:
+            describeRuntimeElement(element) +
+            ' uses role="' +
+            role +
+            '" with tabIndex ' +
+            element.tabIndex +
+            ".",
+          guidance:
+            "Use a native button or link when possible; otherwise provide keyboard focus and equivalent Enter/Space behavior.",
+          element,
+        });
+      }
+    }
+
+    for (const element of elements) {
+      if (element.tagName.toLowerCase() !== "img" || isBridgeElement(element)) {
+        continue;
+      }
+      const rect = renderedRect(element);
+      if (!rect) continue;
+      if (!element.hasAttribute("alt")) {
+        addFinding({
+          ruleId: "runtime-image-alt",
+          severity: "error",
+          category: "accessibility",
+          message: "A rendered image has no alt attribute.",
+          evidence: describeRuntimeElement(element) + " omits alt in the rendered DOM.",
+          guidance:
+            'Provide concise alternative text for informative images or alt="" for decorative images.',
+          element,
+        });
+      }
+      const requestedSource =
+        element.currentSrc || element.getAttribute("src") || "";
+      if (requestedSource && element.complete && element.naturalWidth === 0) {
+        addFinding({
+          ruleId: "runtime-image-load",
+          severity: "warning",
+          category: "accessibility",
+          message: "A rendered image failed to decode or load.",
+          evidence:
+            describeRuntimeElement(element) +
+            " is complete but has a natural width of 0 CSS pixels.",
+          guidance:
+            "Verify the image URL or local asset, MIME type, and fallback content without relying on the broken image icon.",
+          element,
+        });
+      }
+    }
+
+    const headings = elements.filter(
+      (element) =>
+        /^H[1-6]$/.test(element.tagName) &&
+        !isBridgeElement(element) &&
+        !isSemanticallyHidden(element)
+    );
+    if (headings.length === 0) {
+      addFinding({
+        ruleId: "runtime-heading-structure",
+        severity: "warning",
+        category: "structure",
+        message: "The rendered page has no exposed semantic heading.",
+        evidence: "No h1 through h6 is exposed in the inspected rendered DOM.",
+        guidance:
+          "Use semantic headings that describe each section; do not substitute styled generic elements.",
+      });
+    } else {
+      const firstLevel = Number(headings[0].tagName.slice(1));
+      if (firstLevel !== 1) {
+        addFinding({
+          ruleId: "runtime-heading-structure",
+          severity: "warning",
+          category: "structure",
+          message: "The rendered heading outline does not start with an h1.",
+          evidence:
+            describeRuntimeElement(headings[0]) +
+            " is the first exposed heading and is level " +
+            firstLevel +
+            ".",
+          guidance:
+            "Start the page hierarchy with a descriptive h1 and use levels to represent nested sections.",
+          element: headings[0],
+        });
+      }
+      for (let index = 1; index < headings.length; index += 1) {
+        const previousLevel = Number(headings[index - 1].tagName.slice(1));
+        const level = Number(headings[index].tagName.slice(1));
+        if (level <= previousLevel + 1) continue;
+        addFinding({
+          ruleId: "runtime-heading-structure",
+          severity: "warning",
+          category: "structure",
+          message: "The rendered heading outline skips a level.",
+          evidence:
+            describeRuntimeElement(headings[index]) +
+            " is h" +
+            level +
+            " after h" +
+            previousLevel +
+            ".",
+          guidance:
+            "Use heading levels to represent hierarchy without skipping intermediate levels.",
+          element: headings[index],
+        });
+      }
+    }
+
+    const mainLandmarks = elements.filter(
+      (element) =>
+        (element.tagName.toLowerCase() === "main" ||
+          (element.getAttribute("role") || "").toLowerCase() === "main") &&
+        !isBridgeElement(element) &&
+        !isSemanticallyHidden(element)
+    );
+    if (mainLandmarks.length !== 1) {
+      addFinding({
+        ruleId: "runtime-main-landmark",
+        severity: "warning",
+        category: "structure",
+        message:
+          mainLandmarks.length === 0
+            ? "The rendered page has no exposed main landmark."
+            : "The rendered page has multiple exposed main landmarks.",
+        evidence:
+          mainLandmarks.length === 0
+            ? "No <main> or role=main is exposed in the inspected rendered DOM."
+            : mainLandmarks.length +
+              " main landmarks are exposed: " +
+              mainLandmarks.slice(0, 4).map(describeRuntimeElement).join(", ") +
+              ".",
+        guidance:
+          "Expose one primary main landmark and keep repeated or nested main landmarks out of the accessibility tree.",
+        element: mainLandmarks[1] || mainLandmarks[0],
+      });
+    }
+
+    for (const { element, rect } of renderedTargets) {
+      if (rect.width >= minTargetSize && rect.height >= minTargetSize) continue;
+      const style = window.getComputedStyle(element);
+      if (
+        element.tagName.toLowerCase() === "a" &&
+        style.display === "inline"
+      ) {
+        continue;
+      }
+      addFinding({
+        ruleId: "runtime-target-size",
+        severity: "info",
+        category: "accessibility",
+        message: "A rendered pointer target is smaller than 24 by 24 CSS pixels.",
+        evidence:
+          describeRuntimeElement(element) +
+          " has rendered bounds of " +
+          Math.round(rect.width * 10) / 10 +
+          " by " +
+          Math.round(rect.height * 10) / 10 +
+          " CSS pixels. Spacing, inline, equivalent, user-agent, and essential exceptions require manual review.",
+        guidance:
+          "Increase the target to at least 24 by 24 CSS pixels or verify and document an applicable WCAG 2.5.8 exception and sufficient spacing.",
+        element,
+      });
+    }
+
+    return {
       viewportWidth,
       documentWidth,
-      horizontalOverflow: documentWidth > viewportWidth + 1,
-    });
+      horizontalOverflow,
+      inspectedElementCount: elements.length,
+      inspectionTruncated,
+      findingsTruncated,
+      findings,
+    };
+  };
+  const postRuntimeMetrics = () => {
+    metricsFrame = 0;
+    lastMetricsAt = Date.now();
+    const payload = collectRuntimeMetrics();
+    const signature = JSON.stringify(payload);
+    if (signature === lastMetricsSignature) return;
+    lastMetricsSignature = signature;
+    post("runtime-metrics", payload);
   };
   const queueRuntimeMetrics = () => {
-    if (!metricsEnabled || metricsFrame) return;
+    if (!metricsEnabled || metricsFrame || metricsTimer) return;
+    const wait = Math.max(0, metricsThrottleMs - (Date.now() - lastMetricsAt));
+    if (wait > 0) {
+      metricsTimer = window.setTimeout(() => {
+        metricsTimer = 0;
+        queueRuntimeMetrics();
+      }, wait);
+      return;
+    }
     metricsFrame = window.requestAnimationFrame(postRuntimeMetrics);
   };
   const enableRuntimeMetrics = () => {
@@ -288,10 +926,13 @@ function buildPreviewBridgeScript(nonce: string): string {
         const mutationObserver = new MutationObserver(queueRuntimeMetrics);
         mutationObserver.observe(document.documentElement, {
           attributes: true,
+          characterData: true,
           childList: true,
           subtree: true,
         });
       }
+      window.addEventListener("load", queueRuntimeMetrics, true);
+      window.addEventListener("error", queueRuntimeMetrics, true);
     }
     queueRuntimeMetrics();
   };

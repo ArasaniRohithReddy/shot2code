@@ -7,8 +7,14 @@ from free_images.tool import (
     FREE_IMAGE_SEARCH_TOOL_NAME,
     summarize_free_image_input,
 )
+from icon_search.tool import ICON_SEARCH_TOOL_NAME, summarize_icon_search_input
 from uploaded_assets.tools import summarize_save_assets_input
-from web_search.tool import WEB_SEARCH_TOOL_NAME, summarize_web_search_input
+from web_search.tool import (
+    READ_WEB_PAGE_TOOL_NAME,
+    WEB_SEARCH_TOOL_NAME,
+    summarize_page_fetch_input,
+    summarize_web_search_input,
+)
 
 
 def summarize_text(value: str, limit: int = 240) -> str:
@@ -108,10 +114,16 @@ def summarize_tool_input(tool_call: ToolCall, file_state: AgentFileState) -> Dic
     if tool_call.name == WEB_SEARCH_TOOL_NAME:
         return summarize_web_search_input(args)
 
+    if tool_call.name == READ_WEB_PAGE_TOOL_NAME:
+        return summarize_page_fetch_input(args)
+
     if tool_call.name == FREE_IMAGE_SEARCH_TOOL_NAME:
         # Query, count and orientation only. Nothing else a model put in the
         # arguments reaches the activity feed or the run log.
         return summarize_free_image_input(args)
+
+    if tool_call.name == ICON_SEARCH_TOOL_NAME:
+        return summarize_icon_search_input(args)
 
     if tool_call.name == "retrieve_option":
         return {

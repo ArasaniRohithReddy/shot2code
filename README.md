@@ -18,7 +18,7 @@ servers you explicitly enable and trust.
 <!-- Every image below has descriptive alt text; the summaries repeat the key
      detail so the gallery is usable without loading the images. -->
 
-The packaged v0.6.0 app has seven focused input tabs. See the
+The packaged v0.6.1 app has seven focused input tabs. See the
 [detailed input-tab guide](docs/INPUT-TABS.md) for prerequisites, limits,
 privacy boundaries, and the result each path creates.
 
@@ -91,6 +91,7 @@ Download the latest build from
 
 Because there is no signature to check, verify the download instead. Published
 SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
+[v0.6.1](docs/releases/v0.6.1/SHA256SUMS.txt),
 [v0.6.0](docs/releases/v0.6.0/SHA256SUMS.txt),
 [v0.5.2](docs/releases/v0.5.2/SHA256SUMS.txt),
 [v0.5.0](docs/releases/v0.5.0/SHA256SUMS.txt),
@@ -150,31 +151,44 @@ Other things it can do:
 - **History** — every generation is a commit you can step back through, and
   retried versions keep a link to the version they re-roll. Each version records
   the exact model/run identity, and Chat reconstructs both the user's prompts
-  and the saved assistant responses for the selected branch. Open History from the
+  and the saved assistant responses for the selected branch. Expanded versions
+  show requested models, every option and status, timings, errors, attachment
+  counts and branch/retry ancestry. Open History from the
   **History** button in the preview toolbar, the app rail, the tablet/mobile
   header, or with **Ctrl+4**.
 - **Projects are saved on your machine** — a local SQLite database
   (`history.sqlite3` under `%LOCALAPPDATA%\shot2code\`) keeps your projects,
   versions and prompts, so **Recent projects** can pick up where you left off.
+  Choose **Full history** there or inside project History to search every saved
+  project and inspect its complete timeline before opening it.
   Installing an update reuses that same database, so old projects remain
   available. Deleting a project removes it and its versions from the device.
 - **Screenshot preview** — the agent renders its own output in a headless
-  browser and visually checks its work. Settings shows whether it is available
-  and offers **Check again** after you install the browser, so you do not have
-  to restart the app.
+  browser and visually checks its work. A nearly blank render now returns
+  bounded console/page errors so the model can fix the real mount failure
+  instead of blindly retrying. Settings shows whether Chromium is available
+  and offers **Check again** without restarting the app.
 - **Responsive Review** — compare two to four real viewport widths at once,
-  measure horizontal overflow, and run a deterministic local semantic and
-  accessibility source audit. Filter/search findings, run a bounded no-tools AI
-  review with the option's recorded model, and send selected fixes directly
-  through Chat.
+  measure horizontal overflow, and combine deterministic source checks with
+  bounded per-frame runtime checks for names, keyboard focus, target size,
+  image alternatives/load failures, headings and landmarks. Filter by severity
+  and category, select the filtered view, keep other selections, isolate a
+  failed frame, export schema-v2 evidence, run a bounded no-tools AI review,
+  and send selected fixes directly through Chat.
 - **Design Inspector** — extract repeated colors, CSS variables, typography,
   spacing, radii, shadows, motion and component patterns from the composed
   preview, then download `DESIGN.md`, `SKILL.md`, or a palette PNG.
 - **Public website → `DESIGN.md`** — inspect a public URL in the bundled local
-  Chromium, capture desktop/tablet/mobile evidence, extract computed design
-  tokens, semantic and accessibility structure, and public asset references,
-  then copy/download the result or use it with the responsive screenshots for
-  generation. Private and loopback destinations are refused.
+  Chromium, scroll bounded lazy content, preview full-page desktop/tablet/mobile
+  captures with their actual dimensions, extract computed design tokens,
+  semantic/accessibility structure and public asset references, then
+  copy/download the result or use it for generation. Extreme page heights are
+  explicitly capped; private and loopback destinations are refused.
+- **Chat Tools inventory** — the composer shows the actual status of project
+  editing, preview verification, web search, page reading, public-domain
+  photos, generated images, localized icons, valid trusted MCP servers and
+  enabled Skills. It never turns on paid, external or write-capable access
+  silently.
 - **MCP tools for Copilot runtimes** — connect bounded stdio, HTTP or SSE
   servers. A server must be enabled and trusted, stays read-only unless write
   tools are explicitly allowed, and is never exposed to native OpenAI,
@@ -188,8 +202,9 @@ Other things it can do:
   shot2code does not enable shell execution.
 - **Figma import** — use a scoped personal access token with
   `file_content:read` to render Figma frames through the official REST API and
-  preserve original image fills plus export-marked nodes as reusable local
-  assets, or upload exported PNG/JPG/SVG files. Figma restricts both its
+  preview them before any model call, then preserve original image fills plus
+  export-marked nodes as reusable local assets, or upload exported PNG/JPG/SVG
+  files. Figma restricts both its
   desktop and hosted MCP servers to clients in the Figma MCP Catalog;
   shot2code does not advertise a connection Figma will reject. Figma REST does
   not provide production application source code, so the selected shot2code
@@ -208,6 +223,9 @@ Other things it can do:
   without executing any project code. Private repositories require a separate
   fine-grained token limited to that repository with `Contents: read`; the
   Copilot login is intentionally not reused for broader repository access.
+  Leave the first refinement blank to open locally with no model request, or
+  write an instruction and choose the model lineup shown in the tab for the
+  immediate first edit. The repository's detected stack is preserved.
 - **Paste screenshots into Chat** — use Ctrl+V/Cmd+V in the refinement
   composer to attach PNG, JPEG or WebP references through the same bounded
   update-image flow as the plus button.
@@ -219,6 +237,9 @@ Other things it can do:
 - **Existing-project import** — choose a folder, ZIP, or source files, review
   the detected stack and safe file counts, then use the result as compact design
   context or hand the normalized files to the editable project workflow.
+- **Built Storybook context** — choose a built folder, selected JSON files, ZIP
+  or public HTTPS build. Only `index.json` and optional component/docs manifests
+  are parsed as untrusted data; Storybook code and previews are never executed.
 - **Multi-screenshot modes** — choose whether screenshots are separate pages,
   responsive views, UI states, or supporting references. Separate pages is the
   default, and every screenshot must be represented.
@@ -418,6 +439,7 @@ You need **one** provider. GitHub Copilot is easiest because it needs no API key
 |---|---|---|
 | **GitHub Copilot** ⭐ | **Sign in with GitHub** in Settings, or `gh auth login` / `copilot` — needs an active Copilot subscription | Claude, GPT, Gemini and Grok through one sign-in |
 | **Copilot SDK BYOK** | One OpenAI-compatible, Azure OpenAI or Anthropic endpoint and its own credential | No Copilot subscription required; appears as a separate model group and never re-routes a native provider |
+| **Ollama (local)** | Install Ollama and a compatible model, then choose **Configure local Ollama** in the BYOK card | No paid API is required for local inference; you supply hardware and a model with image input plus tool calling |
 | Gemini | API key | Also powers asset extraction and **video input** |
 | Anthropic | API key | |
 | OpenAI | API key | |
@@ -540,6 +562,38 @@ Web image search is deliberately *not* used for this. A picture on a web page
 grants no reuse right, and presenting one as usable would be the most damaging
 thing this feature could do.
 
+### Localized icon search (currently keyless)
+
+**Settings → Iconify design add-on** adds the canonical `search_icons` tool to
+every model runtime. The query goes only to `api.iconify.design`; Iconify's
+public API currently accepts keyless requests, but it publishes no fixed public
+quota or SLA, so access and limits can change.
+
+shot2code downloads selected SVGs itself, refuses redirects, caps requests and
+bytes, removes scripts, event handlers, `foreignObject`, animation, external
+URLs and active content, then stores a deterministic local asset. Generated
+projects never hotlink Iconify and do not need `@iconify/react`.
+
+Automatic results are limited to a fixed permissive SPDX allowlist. Unknown,
+copyleft, share-alike, attribution-only and non-commercial collections are
+skipped. Every saved SVG embeds its icon id, collection, author, source,
+licence name/SPDX/URL and retrieval date. Iconify aggregates upstream metadata,
+so verify the linked source for commercial or high-risk use; a copyright
+licence also does not grant trademark rights for brand icons.
+
+### Tools in Chat
+
+The **Tools** control beside the refinement composer is an honest inventory,
+not a master bypass. It shows core project editing, Chromium preview status,
+web search, bounded page reading, Openverse photos, configured generated-image
+access, localized icons, valid enabled+trusted MCP servers (including whether
+write tools are allowed), and enabled Agent Skills.
+
+Use **Manage tools** to change consent in Settings. Search, page reading, free
+photos and icons work across model runtimes. MCP servers and Agent Skills are
+GitHub Copilot SDK capabilities, so native OpenAI, Anthropic and Gemini options
+remain isolated from them. No tool is enabled merely because its row is shown.
+
 
 ### Picking which models generate
 
@@ -595,6 +649,14 @@ OpenAI-compatible endpoint on `localhost` may be credentialless; every other
 endpoint needs its own. Base URLs must be `https` unless they point at loopback,
 and may not embed credentials. The SDK has no native Gemini BYOK provider.
 
+**Local Ollama quick setup.** The BYOK card can fill the OpenAI-compatible
+localhost endpoint `http://localhost:11434/v1` with one action. Local Ollama
+ignores API-key authentication, so no paid API is required for local inference.
+shot2code does not bundle Ollama or a model: install them separately, supply the
+hardware, and choose a model that supports both image input and tool calling.
+Ollama cloud services and each model's licence are separate. See
+[Ollama's OpenAI-compatibility documentation](https://docs.ollama.com/api/openai-compatibility).
+
 **Finding the models.** For an OpenAI-compatible connection, **Validate** asks
 the endpoint what it serves at `/models` and lists what comes back (bounded, and
 only ids it could actually select). Select several discovered ids to publish
@@ -649,6 +711,12 @@ The built-in Registry browser lists bounded HTTPS remote entries from the
 official Model Context Protocol Registry. Installing an entry never activates
 it: the user must still review it and separately enable and trust it.
 
+Agent Skills follow the same explicit model: imported local/public-GitHub
+folders are validated, stored locally and disabled by default. Enabling a skill
+offers its instructions/resources to Copilot subscription and SDK-BYOK runs;
+scripts remain inert resources and do not grant shell access. The Chat Tools
+inventory reports how many are enabled so a skill is not silently forgotten.
+
 ### Web search
 
 Off by default. When switched on, Settings adds a shot2code-owned `search_web`
@@ -695,11 +763,34 @@ research** for people who prefer it and have the entitlement. Only one search
 tool is enabled per session: when the canonical search is usable it is used
 instead of the built-in.
 
-#### Why page fetching is not offered
+### Bounded page reading
+
+Page reading is a **separate, off-by-default permission**. Turning on
+**Read public pages (all models)** adds shot2code's canonical `read_web_page`
+tool to native OpenAI, Anthropic and Gemini sessions and to both GitHub Copilot
+runtimes. Enabling web search does not enable page reading, and enabling page
+reading does not select a search provider.
+
+The model may request one public `http` or `https` URL without a query string.
+shot2code resolves and pins every address, refuses private/loopback/link-local/
+metadata/multicast results, accepts only standard ports, and revalidates up to
+three redirects. It sends no cookies, authorization header or browser
+credentials; it does not run JavaScript or load page subresources.
+
+Responses are limited to HTML/XHTML, plain text, Markdown or JSON, 512 KB of
+downloaded bytes and 16,000 extracted characters. Active HTML elements are
+removed before text extraction. Every result is labelled as untrusted
+third-party reference material, and the tool is limited to two reads per model
+turn and five per generation. A refused or failed request still spends a call
+because the network attempt may already have left the device. Activity and run
+logs retain only a query-free public URL summary, never arbitrary arguments.
+
+#### Why Copilot's built-in `web_fetch` remains blocked
 
 Copilot's runtime also ships a built-in `web_fetch` that opens a URL and
-returns the whole page. shot2code does not offer it, and that is a decision
-about what can be controlled rather than a preference:
+returns the whole page. shot2code still does not offer that built-in; the
+bounded canonical reader above is the replacement that the application can
+inspect before any model receives the result:
 
 - **Its output cannot be bounded.** A built-in tool's result is produced inside
   the Copilot runtime and handed to the model by the runtime. The SDK exposes
@@ -715,11 +806,10 @@ about what can be controlled rather than a preference:
 - **A built-in call is not counted**, so the per-turn and per-generation
   ceilings that bound `search_web` would not apply to it.
 
-What shot2code does instead is refuse: a deny-by-default permission handler is
-installed on **every** Copilot session — including one with no MCP servers —
-and any URL the runtime asks to open is denied with a reason naming the
-address. Settings says all of this next to the Copilot web-search switch rather
-than leaving a user to discover that the model will not open a link.
+The built-in route is refused by a deny-by-default permission handler installed
+on **every** Copilot session — including one with no MCP servers. When the
+separate page-reading setting is on, the model receives `read_web_page` instead;
+when it is off, no page-reading tool is available.
 
 This would change if the SDK let an application post-process a built-in result
 before the model sees it, or accepted a URL allowlist at session creation.
@@ -728,18 +818,26 @@ before the model sees it, or accepted a URL allowlist at session creation.
 
 The **Review** destination renders the current project at two to four actual CSS
 viewport widths at once. The defaults are 1440px, 768px and 390px; custom
-widths may range from 320px to 1920px. Each frame reports real horizontal
-overflow rather than estimating it from a screenshot.
+widths may range from 320px to 1920px. Each sandboxed frame reports bounded
+runtime evidence for horizontal overflow, accessible names, custom keyboard
+focus, 24px target-size advisories, image alternatives/load failures, heading
+structure and main landmarks. Inspection stops at 2,500 elements and 32
+findings per viewport.
 
-Beside the frames, a deterministic local audit checks generated source for
-semantic and accessibility problems. Results are bound to the version, option,
-source hash and viewport set, so changing any of them marks the report stale.
-Findings can be filtered and searched; selected fixes run against the exact
-reviewed version and option. An optional AI-assisted review uses the recorded
-model with **no tools, MCP, skills, web search or writes**, and may consume
-provider quota. JSON reports contain findings and safe relative file labels,
-not source code or credentials. This is an automated review, not WCAG
-certification.
+Beside the frames, a deterministic source audit checks semantic and
+accessibility patterns. Findings carry Accessibility, Structure, Responsive or
+Document categories plus source/runtime provenance and viewport evidence.
+Severity/category/query filters and filtered select-all do not discard hidden
+selections. A failed/timed-out frame is isolated, runtime coverage stays
+explicit, and source plus other viewport results remain available.
+
+Results are bound to the version, option, source hash and viewport set, so the
+health summary explains exactly why a report is stale or partial. An optional
+AI-assisted review uses the recorded model with **no tools, MCP, skills, web
+search or writes**, and may consume provider quota. Schema-v2 JSON reports
+contain findings, coverage and safe relative file labels—not source or
+credentials. Automated checks are useful signals, not WCAG certification;
+manual keyboard, screen-reader, zoom and interaction testing remains required.
 
 ## Running from source
 

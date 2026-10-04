@@ -41,6 +41,7 @@ const {
   WINDOW_STATE_FILE_NAME,
   createWindowStateStore,
 } = require("./window-state");
+const { createRendererHealthGuard } = require("./renderer-health");
 
 const untrustedPreloadPath = path.join(__dirname, "untrusted-preload.js");
 
@@ -58,6 +59,7 @@ const isManagedInstall =
 
 let backendProcess = null;
 let mainWindow = null;
+let rendererHealthGuard = null;
 let windowStateStore = null;
 let splashWindow = null;
 let logStream = null;
@@ -543,11 +545,51 @@ function createWindow() {
   mainWindow.webContents.on("render-process-gone", (_e, details) => {
     log(`renderer process gone: ${JSON.stringify(details)}`);
   });
+  mainWindow.webContents.on("preload-error", (_e, _preloadPath, error) => {
+    log(`renderer preload failed: ${error?.name || "Error"}`);
+  });
+  mainWindow.on("unresponsive", () => {
+    log("renderer window became unresponsive");
+  });
+  mainWindow.on("responsive", () => {
+    log("renderer window became responsive again");
+  });
   mainWindow.webContents.on("console-message", (_e, level, message, line, sourceId) => {
     if (message === "ResizeObserver loop completed with undelivered notifications.") {
       return;
     }
     if (level >= 2) log(`renderer console [${level}] ${message} (${sourceId}:${line})`);
+  });
+
+  rendererHealthGuard = createRendererHealthGuard({
+    inspect: () =>
+      mainWindow.webContents.executeJavaScript(
+        `({
+          readyState: document.readyState,
+          rootChildren: document.getElementById("root")?.childElementCount || 0,
+          bodyTextLength: (document.body?.innerText || "").trim().length
+        })`,
+        true
+      ),
+    reload: () => mainWindow.webContents.reload(),
+    showFallback: () =>
+      mainWindow.webContents.executeJavaScript(
+        `document.body.innerHTML = \`
+          <main style="min-height:100vh;display:grid;place-items:center;padding:32px;background:#f8fafc;color:#172033;font:16px/1.6 system-ui,sans-serif">
+            <section style="max-width:560px;border:1px solid #cbd5e1;border-radius:16px;background:white;padding:28px">
+              <h1 style="margin:0 0 12px;font-size:24px">shot2code could not draw this window</h1>
+              <p style="margin:0 0 20px;color:#526078">The renderer stayed blank after one automatic reload. Your projects remain stored locally.</p>
+              <button id="shot2code-renderer-reload" style="min-height:44px;border:0;border-radius:8px;background:#6d28d9;color:white;padding:0 18px;font-weight:700;cursor:pointer">Reload shot2code</button>
+            </section>
+          </main>\`;
+          document.getElementById("shot2code-renderer-reload")
+            ?.addEventListener("click", () => location.reload());`,
+        true
+      ),
+    log,
+  });
+  mainWindow.webContents.on("did-finish-load", () => {
+    rendererHealthGuard?.onDidFinishLoad();
   });
   installZoomControls(mainWindow.webContents, {
     onZoom: ({ command, factor }) => {
@@ -594,6 +636,8 @@ function createWindow() {
   }
 
   mainWindow.on("closed", () => {
+    rendererHealthGuard?.dispose();
+    rendererHealthGuard = null;
     mainWindow = null;
     windowStateStore?.dispose();
     windowStateStore = null;

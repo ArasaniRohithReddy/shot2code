@@ -432,6 +432,20 @@ class TestConfigurationParsing:
         assert settings.is_usable is False
         assert "keyless" in (settings.unusable_reason or "")
 
+    def test_page_reading_is_a_separate_usable_tool_without_search(self) -> None:
+        settings = parse_web_search_settings(
+            {
+                "webSearch": {
+                    "enabled": False,
+                    "pageFetchEnabled": True,
+                }
+            }
+        )
+
+        assert settings.is_usable is False
+        assert settings.page_fetch_enabled is True
+        assert settings.has_any_tool is True
+
     def test_an_unknown_provider_is_refused(self) -> None:
         with pytest.raises(WebSearchConfigError):
             parse_web_search_settings(
@@ -492,6 +506,17 @@ class TestSecretHandling:
         assert TAVILY_KEY not in str(payload)
         assert payload["hasApiKey"] is True
         assert payload["endpoint"] == "https://api.tavily.com/search"
+        assert payload["pageFetchEnabled"] is False
+
+    def test_page_limits_are_exposed_without_a_credential(self) -> None:
+        payload = WebSearchSettings(page_fetch_enabled=True).safe_metadata()
+
+        assert payload["pageFetchEnabled"] is True
+        assert payload["maxPageBytes"] == 512 * 1024
+        assert payload["maxPageTextChars"] == 16_000
+        assert payload["maxPageFetchesPerTurn"] == 2
+        assert payload["maxPageFetchesPerGeneration"] == 5
+        assert TAVILY_KEY not in str(payload)
 
     def test_the_exa_summary_never_carries_the_key(self) -> None:
         assert EXA_KEY not in str(keyed("exa").safe_metadata())

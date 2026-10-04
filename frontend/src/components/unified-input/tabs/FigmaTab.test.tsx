@@ -29,6 +29,7 @@ describe("Figma input tab", () => {
     expect(html).toContain("Import from Figma");
     expect(html).toContain("REST frame import");
     expect(html).toContain("Figma MCP Catalog");
+    expect(html).toContain("Preview Figma frames");
     expect(html).toContain("Render Figma &amp; Generate");
     expect(html).toContain("does not provide a general REST client SDK");
   });

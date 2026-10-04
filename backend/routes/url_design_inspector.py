@@ -14,10 +14,12 @@ import aiohttp
 from aiohttp.abc import AbstractResolver
 from fastapi import APIRouter, HTTPException
 from playwright.async_api import (
+    Page,
     Route,
     TimeoutError as PlaywrightTimeoutError,
     ViewportSize,
 )
+from preview_screenshot.diagnostics import png_is_nearly_blank
 from pydantic import BaseModel, Field
 
 from free_images.download import ImageDownloadRejected, resolve_public_addresses
@@ -32,6 +34,11 @@ MAX_INSPECT_RESOURCE_BYTES = 8 * 1024 * 1024
 INSPECTION_TIMEOUT_SECONDS = 60
 PAGE_TIMEOUT_MS = 20_000
 SETTLE_MS = 600
+RESPONSIVE_SETTLE_MS = 250
+MAX_FULL_PAGE_HEIGHT = 40_000
+MAX_SCREENSHOT_PIXELS = 36_000_000
+MAX_LAZY_SCROLL_STEPS = 18
+LAZY_SCROLL_SETTLE_MS = 75
 VIEWPORTS: dict[str, ViewportSize] = {
     "desktop": {"width": 1440, "height": 900},
     "tablet": {"width": 768, "height": 1024},
@@ -100,6 +107,108 @@ def validate_public_website_url(raw_url: str) -> str:
 
 def _png_data_url(data: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+
+
+def _bounded_capture_height(width: int, document_height: int) -> int:
+    pixel_height = max(1, MAX_SCREENSHOT_PIXELS // max(1, width))
+    return max(1, min(document_height, MAX_FULL_PAGE_HEIGHT, pixel_height))
+
+
+async def _document_height(page: Page) -> int:
+    value = await page.evaluate(
+        """
+        () => Math.max(
+          document.documentElement?.scrollHeight || 0,
+          document.body?.scrollHeight || 0,
+          document.documentElement?.offsetHeight || 0,
+          document.body?.offsetHeight || 0,
+          window.innerHeight || 0
+        )
+        """
+    )
+    return max(1, int(value) if isinstance(value, (int, float)) else 1)
+
+
+async def _warm_lazy_content(
+    page: Page,
+    *,
+    capture_height: int,
+    viewport_height: int,
+) -> None:
+    distance = max(0, capture_height - viewport_height)
+    if distance <= 0:
+        return
+    steps = min(
+        MAX_LAZY_SCROLL_STEPS,
+        max(1, (distance + viewport_height - 1) // viewport_height),
+    )
+    try:
+        for index in range(1, steps + 1):
+            y = round(distance * index / steps)
+            await page.evaluate("(top) => window.scrollTo(0, top)", y)
+            await page.wait_for_timeout(LAZY_SCROLL_SETTLE_MS)
+    finally:
+        await page.evaluate("() => window.scrollTo(0, 0)")
+        await page.wait_for_timeout(RESPONSIVE_SETTLE_MS)
+
+
+async def _capture_responsive_screenshot(
+    page: Page,
+    viewport: ViewportSize,
+) -> tuple[bytes, dict[str, Any]]:
+    await page.set_viewport_size(viewport)
+    await page.wait_for_timeout(RESPONSIVE_SETTLE_MS)
+    document_height = await _document_height(page)
+    capture_height = _bounded_capture_height(viewport["width"], document_height)
+    await _warm_lazy_content(
+        page,
+        capture_height=capture_height,
+        viewport_height=viewport["height"],
+    )
+    document_height = await _document_height(page)
+    capture_height = _bounded_capture_height(viewport["width"], document_height)
+    truncated = document_height > capture_height
+
+    if truncated:
+        image: bytes = await page.screenshot(
+            type="png",
+            clip={
+                "x": 0,
+                "y": 0,
+                "width": viewport["width"],
+                "height": capture_height,
+            },
+        )
+    else:
+        image = await page.screenshot(type="png", full_page=True)
+
+    blank = png_is_nearly_blank(image)
+    if blank:
+        await page.wait_for_timeout(500)
+        image = (
+            await page.screenshot(
+                type="png",
+                clip={
+                    "x": 0,
+                    "y": 0,
+                    "width": viewport["width"],
+                    "height": capture_height,
+                },
+            )
+            if truncated
+            else await page.screenshot(type="png", full_page=True)
+        )
+        blank = png_is_nearly_blank(image)
+
+    return image, {
+        "width": viewport["width"],
+        "viewportHeight": viewport["height"],
+        "documentHeight": document_height,
+        "captureHeight": capture_height,
+        "fullPage": not truncated,
+        "truncated": truncated,
+        "blank": blank,
+    }
 
 
 _INSPECTION_SCRIPT = """
@@ -340,14 +449,17 @@ async def inspect_public_website(url: str) -> dict[str, Any]:
                 raise ValueError("The website did not return inspectable design data.")
             result = cast(dict[str, Any], raw)
             screenshots: dict[str, str] = {}
+            screenshot_metadata: dict[str, dict[str, Any]] = {}
             for name, viewport in VIEWPORTS.items():
-                await page.set_viewport_size(viewport)
-                await page.wait_for_timeout(250)
-                screenshots[name] = _png_data_url(
-                    await page.screenshot(type="png", full_page=False)
+                image, metadata = await _capture_responsive_screenshot(
+                    page,
+                    viewport,
                 )
+                screenshots[name] = _png_data_url(image)
+                screenshot_metadata[name] = metadata
             result["url"] = final_url
             result["screenshots"] = screenshots
+            result["screenshotMetadata"] = screenshot_metadata
             result["requestCount"] = budget.request_count
             return result
     finally:

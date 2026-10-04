@@ -25,6 +25,8 @@ from web_search.config import EMPTY_WEB_SEARCH, WebSearchSettings
 from web_search.tool import WebSearchRuntime
 from free_images.config import EMPTY_FREE_IMAGE_SEARCH, FreeImageSearchSettings
 from free_images.tool import FreeImageSearchRuntime
+from icon_search.config import EMPTY_ICON_SEARCH, IconSearchSettings
+from icon_search.tool import IconSearchRuntime
 from image_generation.settings import ImageGenerationSettings
 
 
@@ -80,6 +82,7 @@ class AgentEngine:
         web_search: Optional[WebSearchSettings] = None,
         image_settings: Optional[ImageGenerationSettings] = None,
         free_image_search: Optional[FreeImageSearchSettings] = None,
+        icon_search: Optional[IconSearchSettings] = None,
     ):
         self.send_message = send_message
         self.variant_index = variant_index
@@ -94,6 +97,7 @@ class AgentEngine:
         self.integrations = integrations or EMPTY_INTEGRATIONS
         self.web_search_settings = web_search or EMPTY_WEB_SEARCH
         self.free_image_settings = free_image_search or EMPTY_FREE_IMAGE_SEARCH
+        self.icon_search_settings = icon_search or EMPTY_ICON_SEARCH
         self.image_settings = image_settings
         self.should_generate_images = should_generate_images
         self.copilot_web_search_enabled = copilot_web_search_enabled
@@ -118,13 +122,18 @@ class AgentEngine:
             # and a retry starts from a clean count.
             web_search=(
                 WebSearchRuntime(settings=self.web_search_settings)
-                if self.web_search_settings.is_usable
+                if self.web_search_settings.has_any_tool
                 else None
             ),
             # One budget per engine here too, and no credential to carry.
             free_image_search=(
                 FreeImageSearchRuntime(settings=self.free_image_settings)
                 if self.free_image_settings.is_usable
+                else None
+            ),
+            icon_search=(
+                IconSearchRuntime(settings=self.icon_search_settings)
+                if self.icon_search_settings.is_usable
                 else None
             ),
         )
@@ -306,6 +315,8 @@ class AgentEngine:
                 self.tool_runtime.web_search.start_turn()
             if self.tool_runtime.free_image_search is not None:
                 self.tool_runtime.free_image_search.start_turn()
+            if self.tool_runtime.icon_search is not None:
+                self.tool_runtime.icon_search.start_turn()
 
             async def on_event(event: StreamEvent) -> None:
                 if self.recorder is not None:
@@ -448,6 +459,7 @@ class AgentEngine:
             copilot_web_search_enabled=self.copilot_web_search_enabled,
             web_search=self.web_search_settings,
             free_image_search=self.free_image_settings,
+            icon_search=self.icon_search_settings,
             image_settings=self.image_settings,
             # Only ever set when the selection itself asked for the BYOK runtime.
             byok_connection=byok_connection,

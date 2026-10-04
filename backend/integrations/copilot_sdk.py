@@ -101,8 +101,9 @@ COPILOT_BUILTIN_WEB_FETCH_SUPPORTED = False
 COPILOT_WEB_FETCH_DISABLED_REASON = (
     "Copilot's built-in web_fetch returns the full contents of a page straight "
     "to the model, and the SDK gives shot2code no way to bound, label or "
-    "budget that text before the model reads it. Use web search (all models), "
-    "whose results are capped and marked as untrusted."
+    "budget that text before the model reads it. Use shot2code's canonical "
+    "search_web tool, or explicitly enable its bounded read_web_page tool; "
+    "both label public-web text as untrusted before a model receives it."
 )
 
 # Built-in tools shot2code will never add to a session's ToolSet, whatever the

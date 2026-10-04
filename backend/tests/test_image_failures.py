@@ -222,7 +222,8 @@ async def test_generate_images_reports_failure_when_every_prompt_fails(
         "image_generation.generation.generate_one", always_rate_limited
     )
 
-    result = await _runtime().execute(
+    runtime = _runtime()
+    result = await runtime.execute(
         ToolCall(
             id="t",
             name="generate_images",
@@ -238,6 +239,43 @@ async def test_generate_images_reports_failure_when_every_prompt_fails(
     # No success-shaped empty URLs.
     assert all(item["url"] is None for item in result.result["images"])
     assert all(item["status"] == "error" for item in result.result["images"])
+
+    repeated = await runtime.execute(
+        ToolCall(
+            id="t2",
+            name="generate_images",
+            arguments={"prompts": ["try the same provider again"]},
+        )
+    )
+    assert repeated.ok is False
+    assert repeated.result["errorCode"] == "image_generation_blocked_for_run"
+    assert "search_free_images" in repeated.result["error"]
+
+
+@pytest.mark.asyncio
+async def test_missing_image_credentials_trip_the_run_circuit_breaker() -> None:
+    runtime = AgentToolRuntime(
+        file_state=AgentFileState(),
+        should_generate_images=True,
+        openai_api_key=None,
+        openai_base_url=None,
+        image_settings=ImageGenerationSettings(
+            provider="replicate",
+            replicate_api_key=None,
+        ),
+    )
+
+    first = await runtime.execute(
+        ToolCall(id="first", name="generate_images", arguments={"prompts": ["a"]})
+    )
+    second = await runtime.execute(
+        ToolCall(id="second", name="generate_images", arguments={"prompts": ["b"]})
+    )
+
+    assert first.ok is False
+    assert first.result["errorCategory"] == "credentials"
+    assert second.ok is False
+    assert second.result["errorCode"] == "image_generation_blocked_for_run"
 
 
 @pytest.mark.asyncio

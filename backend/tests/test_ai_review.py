@@ -51,4 +51,11 @@ async def test_ai_review_uses_no_tools_and_returns_bounded_findings(
     assert captured["canonical_tools_override"] == []
     assert captured["copilot_web_search_enabled"] is False
     assert captured["copilot_skills_enabled"] is False
+    assert captured["should_generate_images"] is False
+    assert captured["should_extract_assets"] is False
+    assert captured["replicate_api_key"] is None
+    assert captured["integrations"].active_mcp_servers == ()
+    system_message = captured["prompt_messages"][0]["content"]
+    assert isinstance(system_message, str)
+    assert "do not call tools" in system_message.lower()
     assert result.findings[0].title == "Fixed width"

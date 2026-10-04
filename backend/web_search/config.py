@@ -67,9 +67,20 @@ MAX_TOTAL_CHARS = 4_000
 MAX_SEARCHES_PER_TURN = 3
 MAX_SEARCHES_PER_GENERATION = 10
 
+# Bounded page reading is a separate explicit capability. It does not inherit
+# the web-search switch: search snippets and page bodies have different privacy
+# and context-size consequences, so one opt-in must never imply the other.
+MAX_PAGE_URL_CHARS = 2_048
+MAX_PAGE_BYTES = 512 * 1024
+MAX_PAGE_TEXT_CHARS = 16_000
+MAX_PAGE_FETCHES_PER_TURN = 2
+MAX_PAGE_FETCHES_PER_GENERATION = 5
+MAX_PAGE_REDIRECTS = 3
+
 # One request, one deadline. No retries: a slow search must not extend a
 # generation, and a repeat is the model's decision to make.
 REQUEST_TIMEOUT_SECONDS = 12.0
+PAGE_FETCH_TIMEOUT_SECONDS = 12.0
 
 MAX_API_KEY_LENGTH = 256
 
@@ -181,6 +192,11 @@ class WebSearchSummary:
     max_results: int = MAX_RESULTS
     max_searches_per_turn: int = MAX_SEARCHES_PER_TURN
     max_searches_per_generation: int = MAX_SEARCHES_PER_GENERATION
+    page_fetch_enabled: bool = False
+    max_page_bytes: int = MAX_PAGE_BYTES
+    max_page_text_chars: int = MAX_PAGE_TEXT_CHARS
+    max_page_fetches_per_turn: int = MAX_PAGE_FETCHES_PER_TURN
+    max_page_fetches_per_generation: int = MAX_PAGE_FETCHES_PER_GENERATION
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -195,6 +211,11 @@ class WebSearchSummary:
             "maxResults": self.max_results,
             "maxSearchesPerTurn": self.max_searches_per_turn,
             "maxSearchesPerGeneration": self.max_searches_per_generation,
+            "pageFetchEnabled": self.page_fetch_enabled,
+            "maxPageBytes": self.max_page_bytes,
+            "maxPageTextChars": self.max_page_text_chars,
+            "maxPageFetchesPerTurn": self.max_page_fetches_per_turn,
+            "maxPageFetchesPerGeneration": self.max_page_fetches_per_generation,
         }
 
 
@@ -211,6 +232,7 @@ class WebSearchSettings:
     provider: WebSearchProvider = "tavily"
     access_mode: WebSearchAccessMode = "api-key"
     api_key: str | None = None
+    page_fetch_enabled: bool = False
 
     @property
     def provider_label(self) -> str:
@@ -243,6 +265,10 @@ class WebSearchSettings:
     def is_usable(self) -> bool:
         return self.unusable_reason is None
 
+    @property
+    def has_any_tool(self) -> bool:
+        return self.is_usable or self.page_fetch_enabled
+
     def summary(self) -> WebSearchSummary:
         return WebSearchSummary(
             enabled=self.enabled,
@@ -253,6 +279,7 @@ class WebSearchSettings:
             endpoint=self.endpoint,
             usable=self.is_usable,
             reason=self.unusable_reason,
+            page_fetch_enabled=self.page_fetch_enabled,
         )
 
     def safe_metadata(self) -> dict[str, Any]:
@@ -320,6 +347,10 @@ def parse_web_search_settings(params: object) -> WebSearchSettings:
         return EMPTY_WEB_SEARCH
 
     enabled = _clean_bool(block.get("enabled"), "webSearch.enabled")
+    page_fetch_enabled = _clean_bool(
+        block.get("pageFetchEnabled"),
+        "webSearch.pageFetchEnabled",
+    )
     provider = _parse_provider(block.get("provider"))
     access_mode = _parse_access_mode(block.get("accessMode"))
     api_key = _parse_api_key(block.get("apiKey"))
@@ -331,6 +362,7 @@ def parse_web_search_settings(params: object) -> WebSearchSettings:
         # A keyless connection deliberately drops any saved key so the request
         # cannot accidentally be keyed after the user asked for the trial.
         api_key=None if access_mode == "keyless" else api_key,
+        page_fetch_enabled=page_fetch_enabled,
     )
 
 
@@ -370,4 +402,5 @@ def merge_web_search_api_key(
         provider=settings.provider,
         access_mode=settings.access_mode,
         api_key=key,
+        page_fetch_enabled=settings.page_fetch_enabled,
     )

@@ -11,11 +11,76 @@ in this file; see the git history for those changes.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-05
+
+Released as [shot2code v0.6.1](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.6.1).
+Checksums: [docs/releases/v0.6.1/SHA256SUMS.txt](docs/releases/v0.6.1/SHA256SUMS.txt).
+
+### Added
+
+- **Local Ollama quick setup.** Copilot SDK BYOK can now configure
+  `http://localhost:11434/v1` as a credential-free local OpenAI-compatible
+  endpoint with one action. Ollama and its models remain separately installed;
+  users supply hardware and must choose a model with image input and tool
+  calling.
+- **Bounded page reading for every model runtime.** A separately opted-in
+  `read_web_page` tool can read public HTML, text, Markdown and JSON through
+  shot2code's own SSRF, redirect, MIME, byte, text and call budgets. The
+  Copilot runtime's unbounded built-in `web_fetch` remains blocked.
+- **Full history across local projects.** Recent projects and project History
+  can open a searchable all-project browser with every version, option, model,
+  prompt, assistant response, status, timing, error and retry/branch link.
+- **Built Storybook metadata import.** Import a built folder, selected JSON
+  files, ZIP or public HTTPS build as compact component-library context.
+  shot2code reads only `index.json` and optional component/docs manifests;
+  stories, bundles, CSF, addons, loaders, play functions and `iframe.html` are
+  never loaded or executed.
+- **Keyless localized icon search.** An opt-in provider-neutral `search_icons`
+  tool uses Iconify's fixed public API, filters automatic results to a
+  permissive SPDX allowlist, strips active SVG content and external references,
+  embeds licence/source provenance, and saves local project assets.
+- **Chat tool inventory.** The composer now shows which editing, preview, web,
+  page-reading, public-domain photo, generated-image, icon, MCP and Skill
+  capabilities are ready, off, unavailable or write-capable, with a direct
+  path to Settings.
+- **Full-page input previews.** Website inspection now scrolls lazy content and
+  captures bounded full-page desktop, tablet and mobile evidence with actual
+  dimensions and explicit blank/truncation metadata. Figma can preview rendered
+  frames before any model call and reuses that evidence for generation.
+
+### Changed
+
+- The GitHub repository tab now shows the model selector used by an optional
+  first refinement, clearly distinguishes local open from model-assisted edit,
+  exposes its design-system choice, and explains that the detected repository
+  stack is preserved.
+- Review now combines source checks with bounded per-viewport runtime evidence,
+  category/severity filters, filtered select-all, explicit partial/stale
+  coverage, frame isolation, a health summary and schema-v2 JSON reports.
+- A failed image provider now trips a per-generation circuit breaker for
+  credential, billing, quota, permission, model and configuration failures,
+  preventing repeated paid/provider calls and directing the model to
+  public-domain photos, sanitized icons, extracted assets, CSS or SVG.
+
+### Fixed
+
+- Preview verification returns bounded console/page diagnostics when generated
+  code renders nearly blank, and React generation guidance now forbids invalid
+  unquoted CSS custom-property keys and `var(...)` values in style objects.
+- A top-level Electron renderer that stays empty after load is reloaded once;
+  if it remains blank, shot2code shows a recovery screen instead of an
+  unexplained white window.
+- The release workflow now verifies the tag against
+  `desktop/package.json` rather than rewriting that file through PowerShell.
+
 ### Documentation
 
 - Added a screenshot-led guide for all seven input tabs and refreshed every
   public application capture from the packaged build, including website design
   inspection, GitHub import, Review, MCP and BYOK states.
+- Aligned product-site and generated-guide screenshots to one full-width,
+  centered, uncropped evidence system with browser checks for paired baselines,
+  mobile reflow and 200% text.
 
 ## [0.6.0] - 2026-10-04
 

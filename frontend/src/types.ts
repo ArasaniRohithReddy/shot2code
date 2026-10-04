@@ -21,6 +21,10 @@ import type {
   FreeImageSearchSettings,
   FreeImageSearchWirePayload,
 } from "./lib/free-image-search";
+import type {
+  IconSearchSettings,
+  IconSearchWirePayload,
+} from "./lib/icon-search";
 
 export enum EditorTheme {
   ESPRESSO = "espresso",
@@ -115,6 +119,8 @@ export interface Settings {
    * by default, because it sends the model's query to a third party.
    */
   freeImageSearch: FreeImageSearchSettings;
+  /** Fixed-origin, sanitized Iconify SVG search. Off until explicitly enabled. */
+  iconSearch: IconSearchSettings;
 }
 
 export interface DesignSystem {
@@ -227,6 +233,7 @@ export type FullGenerationSettings = CodeGenerationParams &
     | "webSearch"
     | "imageGeneration"
     | "freeImageSearch"
+    | "iconSearch"
     | "screenshotOneApiKey"
     | "figmaAccessToken"
     | "stitchApiKey"
@@ -267,4 +274,6 @@ export type FullGenerationSettings = CodeGenerationParams &
     imageGeneration: ImageGenerationWirePayload;
     /** No credential, so this block is identical everywhere it appears. */
     freeImageSearch: FreeImageSearchWirePayload;
+    /** Separate consent for fixed-origin, sanitized SVG icon search. */
+    iconSearch: IconSearchWirePayload;
   };

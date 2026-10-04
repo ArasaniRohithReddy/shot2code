@@ -17,6 +17,9 @@
 
 import { containsControlCharacters } from "./utils";
 
+export const WEB_SEARCH_TOOL_NAME = "search_web";
+export const READ_WEB_PAGE_TOOL_NAME = "read_web_page";
+
 export type WebSearchProvider = "tavily" | "exa";
 /**
  * How the provider is reached.
@@ -46,6 +49,11 @@ export const WEB_SEARCH_MAX_PER_TURN = 3;
 export const WEB_SEARCH_MAX_PER_GENERATION = 10;
 export const WEB_SEARCH_MAX_API_KEY_LENGTH = 256;
 export const WEB_SEARCH_TIMEOUT_SECONDS = 12;
+export const PAGE_FETCH_MAX_BYTES = 512 * 1024;
+export const PAGE_FETCH_MAX_TEXT_CHARS = 16_000;
+export const PAGE_FETCH_MAX_PER_TURN = 2;
+export const PAGE_FETCH_MAX_PER_GENERATION = 5;
+export const PAGE_FETCH_TIMEOUT_SECONDS = 12;
 
 export interface WebSearchProviderInfo {
   id: WebSearchProvider;
@@ -121,6 +129,8 @@ export interface WebSearchSettings {
   accessMode: WebSearchAccessMode;
   /** Backend-only credential. Never written to history or a snapshot. */
   apiKey: string | null;
+  /** Separate opt-in for bounded full-page text. Search never implies this. */
+  pageFetchEnabled: boolean;
 }
 
 export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
@@ -128,6 +138,7 @@ export const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
   provider: "tavily",
   accessMode: "api-key",
   apiKey: null,
+  pageFetchEnabled: false,
 };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -182,6 +193,7 @@ export function normalizeWebSearchSettings(raw: unknown): WebSearchSettings {
       accessMode === "keyless" || !rawKey
         ? null
         : rawKey.slice(0, WEB_SEARCH_MAX_API_KEY_LENGTH),
+    pageFetchEnabled: raw.pageFetchEnabled === true,
   };
 }
 
@@ -213,6 +225,7 @@ export interface WebSearchWirePayload {
   enabled: boolean;
   provider: WebSearchProvider;
   accessMode: WebSearchAccessMode;
+  pageFetchEnabled: boolean;
   apiKey?: string;
 }
 
@@ -232,6 +245,7 @@ export function toWebSearchWirePayload(
     enabled: settings.enabled,
     provider: settings.provider,
     accessMode: settings.accessMode,
+    pageFetchEnabled: settings.pageFetchEnabled,
   };
   if (
     includeSecrets &&
@@ -257,6 +271,11 @@ export interface WebSearchSummary {
   maxResults: number;
   maxSearchesPerTurn: number;
   maxSearchesPerGeneration: number;
+  pageFetchEnabled: boolean;
+  maxPageBytes: number;
+  maxPageTextChars: number;
+  maxPageFetchesPerTurn: number;
+  maxPageFetchesPerGeneration: number;
 }
 
 export function parseWebSearchSummary(raw: unknown): WebSearchSummary | null {
@@ -278,6 +297,20 @@ export function parseWebSearchSummary(raw: unknown): WebSearchSummary | null {
     maxSearchesPerGeneration: count(
       raw.maxSearchesPerGeneration,
       WEB_SEARCH_MAX_PER_GENERATION
+    ),
+    pageFetchEnabled: raw.pageFetchEnabled === true,
+    maxPageBytes: count(raw.maxPageBytes, PAGE_FETCH_MAX_BYTES),
+    maxPageTextChars: count(
+      raw.maxPageTextChars,
+      PAGE_FETCH_MAX_TEXT_CHARS
+    ),
+    maxPageFetchesPerTurn: count(
+      raw.maxPageFetchesPerTurn,
+      PAGE_FETCH_MAX_PER_TURN
+    ),
+    maxPageFetchesPerGeneration: count(
+      raw.maxPageFetchesPerGeneration,
+      PAGE_FETCH_MAX_PER_GENERATION
     ),
   };
 }

@@ -1,7 +1,8 @@
 import base64
 from typing import Any, Dict
 
-from preview_screenshot import capture_preview_screenshot
+from preview_screenshot import capture_preview_evidence
+from preview_screenshot.diagnostics import sanitize_runtime_message
 
 from agent.state import AgentFileState
 from agent.tools.types import ToolExecutionResult, ToolMultimodalPart
@@ -33,11 +34,12 @@ async def run_screenshot_preview(
     multimodal_parts: list[ToolMultimodalPart] = []
     try:
         for viewport in PREVIEW_VIEWPORTS:
-            image_bytes = await capture_preview_screenshot(
+            evidence = await capture_preview_evidence(
                 file_state.content,
                 device=viewport,
                 full_page=True,
             )
+            image_bytes = evidence.image
             display_name = f"preview_{viewport}.png"
             image_part_index = len(multimodal_parts)
             encoded_image = base64.b64encode(image_bytes).decode("ascii")
@@ -51,9 +53,18 @@ async def run_screenshot_preview(
                     "image_bytes": len(image_bytes),
                     # Inlined for the UI thumbnail only — never stored as an asset.
                     "image_url": data_url,
+                    "nearly_blank": evidence.nearly_blank,
+                    "console_error_count": len(evidence.console_errors),
+                    "page_error_count": len(evidence.page_errors),
                     "status": "ok",
                 }
             )
+            screenshots[-1]["diagnostics"] = {
+                "body_text_chars": evidence.body_text_chars,
+                "rendered_elements": evidence.rendered_elements,
+                "console_errors": list(evidence.console_errors),
+                "page_errors": list(evidence.page_errors),
+            }
             multimodal_parts.append(
                 ToolMultimodalPart(
                     display_name=display_name,
@@ -62,18 +73,34 @@ async def run_screenshot_preview(
                 )
             )
     except Exception as exc:
-        print(f"Preview screenshot failed: {exc}")
+        print(f"Preview screenshot failed: {type(exc).__name__}")
+        message = sanitize_runtime_message(exc)
         return ToolExecutionResult(
             ok=False,
-            result={"error": f"Screenshot failed: {exc}"},
+            result={"error": f"Screenshot failed: {message}"},
             summary={"error": "Screenshot failed"},
         )
 
+    problematic = [
+        screenshot
+        for screenshot in screenshots
+        if screenshot["nearly_blank"]
+        or screenshot["console_error_count"]
+        or screenshot["page_error_count"]
+    ]
+    content = (
+        "Full-page desktop and mobile screenshots of the current preview are "
+        "attached."
+    )
+    if problematic:
+        content += (
+            " One or more previews were nearly blank or reported browser "
+            "runtime errors. Fix the diagnostics below before treating the "
+            "render as complete."
+        )
+
     result: Dict[str, Any] = {
-        "content": (
-            "Full-page desktop and mobile screenshots of the current preview "
-            "are attached."
-        ),
+        "content": content,
         "details": {
             "screenshots": [
                 {
@@ -82,6 +109,8 @@ async def run_screenshot_preview(
                     "image_part_index": screenshot["image_part_index"],
                     "image_display_name": screenshot["image_display_name"],
                     "image_bytes": screenshot["image_bytes"],
+                    "nearly_blank": screenshot["nearly_blank"],
+                    "diagnostics": screenshot["diagnostics"],
                 }
                 for screenshot in screenshots
             ],
@@ -89,6 +118,7 @@ async def run_screenshot_preview(
     }
     summary: Dict[str, Any] = {
         "screenshots": screenshots,
+        "previewIssues": len(problematic),
         "status": "ok",
     }
     return ToolExecutionResult(

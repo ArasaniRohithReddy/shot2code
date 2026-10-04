@@ -47,6 +47,7 @@ DEFERRED_ROUTE_GROUPS = (
             "routes.url_design_inspector",
             "routes.export",
             "routes.project_context",
+            "routes.storybook_context",
         ),
         (
             "/api/design-assets",
@@ -55,6 +56,7 @@ DEFERRED_ROUTE_GROUPS = (
             "/api/screenshot",
             "/api/export",
             "/api/project-context",
+            "/api/storybook-context",
         ),
     ),
     (

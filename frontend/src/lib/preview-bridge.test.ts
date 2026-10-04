@@ -41,6 +41,11 @@ describe("preview sandbox document", () => {
     );
     expect(result.html).toContain("window.parent.postMessage");
     expect(result.html).toContain("request-runtime-metrics");
+    expect(result.html).toContain("runtime-accessible-name");
+    expect(result.html).toContain("runtime-keyboard-focus");
+    expect(result.html).toContain("runtime-target-size");
+    expect(result.html).toContain("runtime-image-load");
+    expect(result.html).toContain("maxRuntimeElements = 2500");
     expect(result.html).toContain('href.startsWith("#")');
     expect(result.html).toContain("scrollIntoView");
     expect(result.html).not.toContain("window.parent.document");
@@ -108,6 +113,20 @@ describe("preview message validation", () => {
         viewportWidth: 390,
         documentWidth: 642,
         horizontalOverflow: true,
+        inspectedElementCount: 24,
+        inspectionTruncated: false,
+        findingsTruncated: false,
+        findings: [
+          {
+            ruleId: "runtime-horizontal-overflow",
+            severity: "warning",
+            category: "responsive",
+            message: "Rendered content extends beyond this viewport.",
+            evidence: "<div.hero> extends 252px beyond the viewport.",
+            guidance: "Use fluid sizing and wrapping.",
+            sourcePath: "src/Hero.tsx",
+          },
+        ],
       },
     };
 
@@ -130,5 +149,78 @@ describe("preview message validation", () => {
         NONCE
       )
     ).toBeNull();
+    expect(
+      parsePreviewToHostMessage(
+        {
+          ...metrics,
+          payload: {
+            ...metrics.payload,
+            findings: [
+              {
+                ...metrics.payload.findings[0],
+                ruleId: "runtime-arbitrary-code",
+              },
+            ],
+          },
+        },
+        NONCE
+      )
+    ).toBeNull();
+    expect(
+      parsePreviewToHostMessage(
+        {
+          ...metrics,
+          payload: {
+            ...metrics.payload,
+            findings: Array.from({ length: 33 }, () =>
+              metrics.payload.findings[0]
+            ),
+          },
+        },
+        NONCE
+      )
+    ).toBeNull();
+    expect(
+      parsePreviewToHostMessage(
+        {
+          ...metrics,
+          payload: {
+            ...metrics.payload,
+            findings: [
+              {
+                ...metrics.payload.findings[0],
+                evidence: "x".repeat(401),
+              },
+            ],
+          },
+        },
+        NONCE
+      )
+    ).toBeNull();
+  });
+
+  it("keeps legacy overflow-only metrics compatible with an empty finding set", () => {
+    expect(
+      parsePreviewToHostMessage(
+        {
+          channel: PREVIEW_BRIDGE_CHANNEL,
+          nonce: NONCE,
+          type: "runtime-metrics",
+          payload: {
+            viewportWidth: 768,
+            documentWidth: 768,
+            horizontalOverflow: false,
+          },
+        },
+        NONCE
+      )
+    ).toMatchObject({
+      payload: {
+        inspectedElementCount: 0,
+        inspectionTruncated: false,
+        findingsTruncated: false,
+        findings: [],
+      },
+    });
   });
 });

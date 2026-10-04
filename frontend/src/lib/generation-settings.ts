@@ -8,6 +8,7 @@ export type GenerationSettings = Omit<
   | "githubRepositoryToken"
   | "imageGeneration"
   | "freeImageSearch"
+  | "iconSearch"
 >;
 
 /**
@@ -19,8 +20,9 @@ export type GenerationSettings = Omit<
  * decides whether a credential is included. Spreading the settings object
  * would smuggle every provider's key into every request regardless.
  *
- * `freeImageSearch` holds no credential, but is rebuilt the same way so every
- * feature block reaches the backend through exactly one code path.
+ * `freeImageSearch` and `iconSearch` hold no credential, but are rebuilt
+ * the same way so every feature block reaches the backend through exactly one
+ * code path.
  */
 export function toGenerationSettings(settings: Settings): GenerationSettings {
   const {
@@ -30,6 +32,7 @@ export function toGenerationSettings(settings: Settings): GenerationSettings {
     githubRepositoryToken: _githubRepositoryToken,
     imageGeneration: _imageGeneration,
     freeImageSearch: _freeImageSearch,
+    iconSearch: _iconSearch,
     ...generationSettings
   } = settings;
   void _screenshotOneApiKey;
@@ -38,5 +41,6 @@ export function toGenerationSettings(settings: Settings): GenerationSettings {
   void _githubRepositoryToken;
   void _imageGeneration;
   void _freeImageSearch;
+  void _iconSearch;
   return generationSettings;
 }

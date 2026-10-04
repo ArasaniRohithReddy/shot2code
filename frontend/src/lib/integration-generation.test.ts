@@ -36,6 +36,10 @@ import {
   toFreeImageSearchWirePayload,
 } from "./free-image-search";
 import {
+  DEFAULT_ICON_SEARCH_SETTINGS,
+  toIconSearchWirePayload,
+} from "./icon-search";
+import {
   DEFAULT_IMAGE_GENERATION_SETTINGS,
   stripImageGenerationSecrets,
   toImageGenerationWirePayload,
@@ -138,6 +142,7 @@ function settingsFixture(): Settings {
       openAiImageApiKey: IMAGE_ENDPOINT_KEY,
     },
     freeImageSearch: { ...DEFAULT_FREE_IMAGE_SEARCH_SETTINGS, enabled: true },
+    iconSearch: { ...DEFAULT_ICON_SEARCH_SETTINGS, enabled: true },
   };
 }
 
@@ -165,6 +170,7 @@ function generationParams(
     webSearch,
     imageGeneration,
     freeImageSearch,
+    iconSearch,
     ...directSettings
   } = settings;
   void copilotSdkByok;
@@ -172,6 +178,7 @@ function generationParams(
   void webSearch;
   void imageGeneration;
   void freeImageSearch;
+  void iconSearch;
   return {
     ...directSettings,
     generationType: "create",
@@ -185,6 +192,7 @@ function generationParams(
     webSearch: integrations.webSearch,
     imageGeneration: toImageGenerationWirePayload(settings.imageGeneration),
     freeImageSearch: toFreeImageSearchWirePayload(settings.freeImageSearch),
+    iconSearch: toIconSearchWirePayload(settings.iconSearch),
     ...(overrides.retryModels
       ? { retryModelSelections: buildModelSelections(overrides.retryModels) }
       : {}),
@@ -350,6 +358,15 @@ describe("the WebSocket generation payload", () => {
     expect(image.provider).toBe("cloudflare");
     expect(image.cloudflareApiToken).toBe(CLOUDFLARE_TOKEN);
     expect(image.openAiImageApiKey).toBe(IMAGE_ENDPOINT_KEY);
+  });
+
+  test("Iconify consent travels only in its rebuilt keyless block", () => {
+    const settings = settingsFixture();
+    const spreadable = toGenerationSettings(settings) as Record<string, unknown>;
+    expect(spreadable).not.toHaveProperty("iconSearch");
+
+    const payload = sendAndCapture(generationParams(settings));
+    expect(payload.iconSearch).toEqual({ enabled: true });
   });
 
   test("choosing another image provider leaves the Replicate key alone", () => {

@@ -4,7 +4,8 @@ When ``PROMPT_REPORTS_ENABLED`` is on, every agent run (one variant of a UI
 generation, or one eval task) records everything it does:
 
 - every LLM call: full request payload, assembled response, token usage, cost
-- every tool call: full arguments, full result, duration
+- every tool call: arguments, full result, duration (credential-shaped web
+  research arguments are reduced to their safe activity summaries)
 - every streamed delta (thinking/assistant/tool-args) with timestamps
 - the final HTML plus a snapshot of the assets it references
 
@@ -43,6 +44,17 @@ from llm import MODEL_PROVIDER, Llm
 from costs.pricing import MODEL_PRICING
 from costs.token_usage import TokenUsage
 from fs_logging.prompt_reports import get_run_logs_directory, to_serializable
+from free_images.tool import (
+    FREE_IMAGE_SEARCH_TOOL_NAME,
+    summarize_free_image_input,
+)
+from icon_search.tool import ICON_SEARCH_TOOL_NAME, summarize_icon_search_input
+from web_search.tool import (
+    READ_WEB_PAGE_TOOL_NAME,
+    WEB_SEARCH_TOOL_NAME,
+    summarize_page_fetch_input,
+    summarize_web_search_input,
+)
 
 if TYPE_CHECKING:
     from agent.providers.base import StreamEvent
@@ -50,6 +62,36 @@ if TYPE_CHECKING:
 
 AGENT_RUNS_DIRNAME = "agent_runs"
 RUN_ID_PATTERN = re.compile(r"^run_\d{8}_\d{6}_[0-9a-f]{8}$")
+_BOUNDED_WEB_TOOLS = frozenset(
+    {
+        WEB_SEARCH_TOOL_NAME,
+        READ_WEB_PAGE_TOOL_NAME,
+        FREE_IMAGE_SEARCH_TOOL_NAME,
+        ICON_SEARCH_TOOL_NAME,
+    }
+)
+
+
+def safe_tool_arguments(name: str, arguments: object) -> object:
+    """Reduce web-tool arguments before a run log can persist them."""
+    if name not in _BOUNDED_WEB_TOOLS:
+        return arguments
+    parsed: object = arguments
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+        except ValueError:
+            parsed = {}
+    args: dict[str, Any] = (
+        cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+    )
+    if name == WEB_SEARCH_TOOL_NAME:
+        return summarize_web_search_input(args)
+    if name == READ_WEB_PAGE_TOOL_NAME:
+        return summarize_page_fetch_input(args)
+    if name == FREE_IMAGE_SEARCH_TOOL_NAME:
+        return summarize_free_image_input(args)
+    return summarize_icon_search_input(args)
 
 # Refs to assets the backend serves itself, with or without a host prefix.
 _LOCAL_ASSET_URL_RE = re.compile(
@@ -458,8 +500,11 @@ class AgentRunRecorder:
                 )
             else:
                 args = event.tool_arguments
-                args_text = args if isinstance(args, str) else json.dumps(
-                    to_serializable(args), ensure_ascii=False
+                safe_args = safe_tool_arguments(event.tool_name or "", args)
+                args_text = (
+                    safe_args
+                    if isinstance(safe_args, str)
+                    else json.dumps(to_serializable(safe_args), ensure_ascii=False)
                 )
                 # OpenAI streams *cumulative* argument snapshots; record only
                 # the unseen suffix so the JSONL replays without O(n^2) bloat.
@@ -547,7 +592,11 @@ class AgentRunRecorder:
                     "assistant_text": assistant_text,
                     "thinking_text": "".join(self._thinking_buffer),
                     "tool_calls": [
-                        {"id": c.id, "name": c.name, "arguments": c.arguments}
+                        {
+                            "id": c.id,
+                            "name": c.name,
+                            "arguments": safe_tool_arguments(c.name, c.arguments),
+                        }
                         for c in tool_calls
                     ],
                 },
@@ -592,7 +641,9 @@ class AgentRunRecorder:
                     "tool_event_id": tool_event_id,
                     "tool_call_id": tool_call.id,
                     "name": tool_call.name,
-                    "arguments": tool_call.arguments,
+                    "arguments": safe_tool_arguments(
+                        tool_call.name, tool_call.arguments
+                    ),
                 },
             )
         except Exception as exc:

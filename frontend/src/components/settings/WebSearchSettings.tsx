@@ -1,9 +1,20 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { LuAlertTriangle, LuCheck, LuExternalLink, LuLoader } from "react-icons/lu";
+import {
+  LuAlertTriangle,
+  LuBookOpen,
+  LuCheck,
+  LuExternalLink,
+  LuLoader,
+} from "react-icons/lu";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import {
   ALLOWANCE_CAVEAT,
+  PAGE_FETCH_MAX_BYTES,
+  PAGE_FETCH_MAX_PER_GENERATION,
+  PAGE_FETCH_MAX_PER_TURN,
+  PAGE_FETCH_MAX_TEXT_CHARS,
+  PAGE_FETCH_TIMEOUT_SECONDS,
   WEB_SEARCH_MAX_PER_GENERATION,
   WEB_SEARCH_MAX_PER_TURN,
   WEB_SEARCH_MAX_RESULTS,
@@ -51,6 +62,7 @@ export default function WebSearchSettings({
   copilotBuiltInEnabled,
 }: WebSearchSettingsProps) {
   const enabledId = useId();
+  const pageFetchId = useId();
   const providerId = useId();
   const keylessId = useId();
   const apiKeyId = useId();
@@ -105,7 +117,7 @@ export default function WebSearchSettings({
     >
       <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
         <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-          Web search (all models)
+          Web research (all models)
         </h2>
       </div>
 
@@ -152,6 +164,52 @@ export default function WebSearchSettings({
               per turn and {WEB_SEARCH_MAX_PER_GENERATION} per generation, with
               a {WEB_SEARCH_TIMEOUT_SECONDS}-second timeout and no redirects.
             </p>
+          </div>
+        </div>
+
+        <div className="border-t border-gray-100 pt-4 dark:border-zinc-700">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <label
+                htmlFor={pageFetchId}
+                className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-zinc-300"
+              >
+                <LuBookOpen className="h-4 w-4" aria-hidden="true" />
+                Allow bounded page reading
+              </label>
+              <p className={HELP_CLASS}>
+                Adds a shot2code-owned{" "}
+                <code className="font-mono">read_web_page</code> tool to every
+                selected model. Search snippets do not enable it automatically.
+                It needs no Tavily or Exa key.
+              </p>
+            </div>
+            <Switch
+              id={pageFetchId}
+              checked={settings.pageFetchEnabled}
+              onCheckedChange={(checked) =>
+                update((current) => ({
+                  ...current,
+                  pageFetchEnabled: checked,
+                }))
+              }
+              aria-label="Allow bounded page reading"
+            />
+          </div>
+          <div
+            data-testid="page-fetch-boundary"
+            className="mt-3 rounded-md border border-cyan-200 bg-cyan-50/70 p-3 text-xs leading-5 text-cyan-950 dark:border-cyan-900/70 dark:bg-cyan-950/20 dark:text-cyan-100"
+          >
+            A page URL leaves this device only when a model calls the tool.
+            shot2code accepts public HTTP/HTTPS pages on standard ports, follows
+            at most three revalidated redirects, sends no cookies or
+            authorization, reads at most{" "}
+            {Math.round(PAGE_FETCH_MAX_BYTES / 1024)} KB and returns at most{" "}
+            {PAGE_FETCH_MAX_TEXT_CHARS.toLocaleString()} characters. Every page
+            is labelled untrusted and capped at {PAGE_FETCH_MAX_PER_TURN} reads
+            per turn, {PAGE_FETCH_MAX_PER_GENERATION} per generation and a{" "}
+            {PAGE_FETCH_TIMEOUT_SECONDS}-second timeout. Credential-bearing and
+            query-string URLs are refused.
           </div>
         </div>
 

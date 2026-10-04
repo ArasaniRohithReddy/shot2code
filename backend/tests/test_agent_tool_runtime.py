@@ -7,6 +7,7 @@ import pytest
 from agent.state import AgentFileState
 from agent.tools.runtime import AgentToolRuntime
 from agent.tools.types import ToolCall
+from preview_screenshot import ScreenshotEvidence
 from uploaded_assets import persist_data_url_as_temporary_asset
 
 
@@ -389,12 +390,22 @@ async def test_screenshot_preview_returns_image_part(
         html: str,
         device: str = "desktop",
         full_page: bool = True,
-    ) -> bytes:
+    ) -> ScreenshotEvidence:
         captured.append({"html": html, "device": device, "full_page": full_page})
-        return f"{device}-png-bytes".encode("ascii")
+        return ScreenshotEvidence(
+            image=f"{device}-png-bytes".encode("ascii"),
+            nearly_blank=device == "desktop",
+            body_text_chars=0 if device == "desktop" else 12,
+            rendered_elements=1 if device == "desktop" else 4,
+            console_errors=(
+                ("ReferenceError: App is not defined",)
+                if device == "desktop"
+                else ()
+            ),
+        )
 
     monkeypatch.setattr(
-        "agent.tools.screenshot_preview.capture_preview_screenshot", fake_capture
+        "agent.tools.screenshot_preview.capture_preview_evidence", fake_capture
     )
     runtime = AgentToolRuntime(
         file_state=AgentFileState(path="index.html", content="<main>hi</main>"),
@@ -424,6 +435,13 @@ async def test_screenshot_preview_returns_image_part(
             "image_part_index": 0,
             "image_display_name": "preview_desktop.png",
             "image_bytes": len(b"desktop-png-bytes"),
+            "nearly_blank": True,
+            "diagnostics": {
+                "body_text_chars": 0,
+                "rendered_elements": 1,
+                "console_errors": ["ReferenceError: App is not defined"],
+                "page_errors": [],
+            },
         },
         {
             "viewport": "mobile",
@@ -431,9 +449,18 @@ async def test_screenshot_preview_returns_image_part(
             "image_part_index": 1,
             "image_display_name": "preview_mobile.png",
             "image_bytes": len(b"mobile-png-bytes"),
+            "nearly_blank": False,
+            "diagnostics": {
+                "body_text_chars": 12,
+                "rendered_elements": 4,
+                "console_errors": [],
+                "page_errors": [],
+            },
         },
     ]
     assert result.summary["status"] == "ok"
+    assert result.summary["previewIssues"] == 1
+    assert "runtime errors" in result.result["content"]
     screenshots = cast(list[dict[str, Any]], result.summary["screenshots"])
     # Previews are inlined as data URLs for the UI, not persisted as assets.
     desktop_url = cast(str, screenshots[0]["image_url"])
@@ -468,11 +495,11 @@ async def test_screenshot_preview_reports_capture_failure(
         html: str,
         device: str = "desktop",
         full_page: bool = True,
-    ) -> bytes:
+    ) -> ScreenshotEvidence:
         raise Exception("boom")
 
     monkeypatch.setattr(
-        "agent.tools.screenshot_preview.capture_preview_screenshot", failing_capture
+        "agent.tools.screenshot_preview.capture_preview_evidence", failing_capture
     )
     runtime = AgentToolRuntime(
         file_state=AgentFileState(path="index.html", content="<main>hi</main>"),

@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -17,36 +18,45 @@ import {
 } from "react-icons/lu";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import {
+  AUDIT_CATEGORY_LABELS,
   DEFAULT_REVIEW_VIEWPORTS,
   REVIEW_MAX_VIEWPORTS,
   REVIEW_MIN_VIEWPORTS,
   REVIEW_VIEWPORTS_STORAGE_KEY,
   buildFixFindingsInstruction,
+  buildReviewRuntimeSnapshot,
+  classifyAuditCategories,
   classifyAuditFindings,
   createReviewBinding,
   createReviewViewportPreset,
-  formatHorizontalOverflowMessage,
   filterReviewFindings,
+  formatHorizontalOverflowMessage,
+  getReviewStaleReasons,
   getReviewViewportDimensions,
   isReviewRunStale,
   normalizeReviewViewportPresets,
   serializeReviewReport,
+  summarizeReviewHealth,
+  updateFilteredFindingSelection,
   validateReviewWidth,
-  type ReviewRun,
   type ReviewBinding,
+  type ReviewCategoryFilter,
+  type ReviewRun,
+  type ReviewRuntimeFrameState,
   type ReviewSeverityFilter,
 } from "../../lib/review";
 import {
   auditComposedPreviewSource,
+  type AuditCategory,
   type AuditFinding,
   type AuditSeverity,
 } from "../../lib/source-audit";
-import type { PreviewRuntimeMetrics } from "../../lib/preview-bridge";
 import { requestAiReview, type AiReviewFinding } from "../../lib/ai-review";
 import type { Settings } from "../../types";
 import { Button } from "../ui/button";
 import SandboxedPreviewFrame from "./SandboxedPreviewFrame";
 import DesignInspectorPanel from "./DesignInspectorPanel";
+import ReviewFrameBoundary from "./ReviewFrameBoundary";
 
 interface Props {
   active: boolean;
@@ -84,6 +94,28 @@ function severityClasses(severity: AuditSeverity): string {
   return "border-blue-300 bg-blue-50 text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100";
 }
 
+const AUDIT_CATEGORIES: AuditCategory[] = [
+  "accessibility",
+  "structure",
+  "responsive",
+  "document",
+];
+
+function healthSummaryClasses(
+  state: ReturnType<typeof summarizeReviewHealth>["state"]
+): string {
+  if (state === "needs-attention") {
+    return "border-red-300 bg-red-50 text-red-950 dark:border-red-900 dark:bg-red-950/30 dark:text-red-100";
+  }
+  if (state === "warnings" || state === "stale" || state === "partial") {
+    return "border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
+  }
+  if (state === "healthy") {
+    return "border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100";
+  }
+  return "border-blue-200 bg-blue-50 text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100";
+}
+
 function FindingCard({
   finding,
   selected,
@@ -116,6 +148,14 @@ function FindingCard({
             <code className="break-all rounded bg-black/5 px-1.5 py-0.5 text-[11px] font-semibold dark:bg-white/10">
               {finding.ruleId}
             </code>
+            <span className="rounded bg-black/5 px-1.5 py-0.5 text-[11px] font-semibold dark:bg-white/10">
+              {AUDIT_CATEGORY_LABELS[finding.category]}
+            </span>
+            <span className="rounded bg-black/5 px-1.5 py-0.5 text-[11px] font-semibold dark:bg-white/10">
+              {finding.origin === "runtime"
+                ? `Runtime · ${finding.viewportWidth}px`
+                : "Source"}
+            </span>
           </span>
           <span className="mt-1 block text-sm font-semibold">
             {finding.message}
@@ -174,8 +214,8 @@ function ReviewWorkspace({
   );
   const [customWidth, setCustomWidth] = useState("");
   const [widthError, setWidthError] = useState<string | null>(null);
-  const [runtimeMetrics, setRuntimeMetrics] = useState<
-    Record<string, PreviewRuntimeMetrics>
+  const [runtimeFrames, setRuntimeFrames] = useState<
+    Record<string, ReviewRuntimeFrameState>
   >({});
   const [run, setRun] = useState<ReviewRun | null>(null);
   const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(
@@ -186,7 +226,10 @@ function ReviewWorkspace({
   );
   const [severityFilter, setSeverityFilter] =
     useState<ReviewSeverityFilter>("all");
+  const [categoryFilter, setCategoryFilter] =
+    useState<ReviewCategoryFilter>("all");
   const [findingQuery, setFindingQuery] = useState("");
+  const selectFilteredRef = useRef<HTMLInputElement>(null);
   const [aiFindings, setAiFindings] = useState<AiReviewFinding[]>([]);
   const [selectedAiFindingIds, setSelectedAiFindingIds] = useState<Set<number>>(
     () => new Set()
@@ -211,6 +254,20 @@ function ReviewWorkspace({
     [codeHash, commitHash, variantIndex, viewportWidths]
   );
   const stale = isReviewRunStale(run, currentBinding);
+  const staleReasons = useMemo(
+    () => (run ? getReviewStaleReasons(run.binding, currentBinding) : []),
+    [currentBinding, run]
+  );
+  const staleReasonText =
+    staleReasons.length <= 1
+      ? staleReasons[0] ?? "bound target"
+      : `${staleReasons.slice(0, -1).join(", ")} and ${
+          staleReasons[staleReasons.length - 1]
+        }`;
+  const healthSummary = useMemo(
+    () => summarizeReviewHealth(run, stale),
+    [run, stale]
+  );
   const selectedFindings = useMemo(
     () =>
       run?.findings.filter((finding) =>
@@ -223,10 +280,17 @@ function ReviewWorkspace({
       filterReviewFindings(
         run?.findings ?? [],
         severityFilter,
+        categoryFilter,
         findingQuery
       ),
-    [findingQuery, run, severityFilter]
+    [categoryFilter, findingQuery, run, severityFilter]
   );
+  const filteredSelectedCount = filteredFindings.filter((finding) =>
+    selectedFindingIds.has(finding.id)
+  ).length;
+  const allFilteredSelected =
+    filteredFindings.length > 0 &&
+    filteredSelectedCount === filteredFindings.length;
 
   useEffect(() => {
     if (JSON.stringify(storedPresets) !== JSON.stringify(presets)) {
@@ -235,16 +299,27 @@ function ReviewWorkspace({
   }, [presets, setStoredPresets, storedPresets]);
 
   useEffect(() => {
-    setRuntimeMetrics({});
+    setRuntimeFrames({});
   }, [currentBinding.codeHash, refreshToken, viewportSignature]);
+
+  useEffect(() => {
+    if (!active) setRuntimeFrames({});
+  }, [active]);
+
+  useEffect(() => {
+    if (selectFilteredRef.current) {
+      selectFilteredRef.current.indeterminate =
+        filteredSelectedCount > 0 && !allFilteredSelected;
+    }
+  }, [allFilteredSelected, filteredSelectedCount]);
 
   useEffect(() => {
     if (run && stale) {
       setAnnouncement(
-        "Review results are stale because the code, version, option, or viewport set changed."
+        `Review results are stale because the ${staleReasonText} changed.`
       );
     }
-  }, [run, stale]);
+  }, [run, stale, staleReasonText]);
 
   const addViewport = (event: React.FormEvent) => {
     event.preventDefault();
@@ -274,26 +349,43 @@ function ReviewWorkspace({
   };
 
   const runAudit = useCallback(() => {
-    const findings = auditComposedPreviewSource({
+    const artifactPath = sourcePath ?? "composed-preview.html";
+    const sourceFindings = auditComposedPreviewSource({
       html,
       sourcePath,
       viewportWidths,
     });
+    const runtime = buildReviewRuntimeSnapshot(
+      presets,
+      runtimeFrames,
+      artifactPath
+    );
+    const findings = [...sourceFindings, ...runtime.findings];
     const nextRun: ReviewRun = {
       binding: currentBinding,
       createdAt: new Date().toISOString(),
-      artifactPath: sourcePath ?? "composed-preview.html",
+      artifactPath,
       findings,
       counts: classifyAuditFindings(findings),
+      categoryCounts: classifyAuditCategories(findings),
+      runtimeViewports: runtime.viewports,
     };
+    const readyViewports = runtime.viewports.filter(
+      (viewport) => viewport.status === "ready"
+    ).length;
     setRun(nextRun);
-    setSelectedFindingIds(
-      new Set(findings.map((finding) => finding.id))
-    );
+    setSelectedFindingIds(new Set(findings.map((finding) => finding.id)));
     setAnnouncement(
-      `Review complete: ${nextRun.counts.error} errors, ${nextRun.counts.warning} warnings, and ${nextRun.counts.info} informational findings.`
+      `Review complete: ${nextRun.counts.error} errors, ${nextRun.counts.warning} warnings, ${nextRun.counts.info} informational findings, and ${readyViewports} of ${runtime.viewports.length} runtime viewports captured.`
     );
-  }, [currentBinding, html, sourcePath, viewportWidths]);
+  }, [
+    currentBinding,
+    html,
+    presets,
+    runtimeFrames,
+    sourcePath,
+    viewportWidths,
+  ]);
 
   const toggleFinding = (id: string, selected: boolean) => {
     setSelectedFindingIds((current) => {
@@ -466,18 +558,41 @@ function ReviewWorkspace({
             {active &&
               presets.map((preset) => {
                 const dimensions = getReviewViewportDimensions(preset.width);
-                const metrics = runtimeMetrics[preset.id];
-                const overflowMessage = formatHorizontalOverflowMessage(
-                  preset.width,
-                  metrics
-                );
+                const frameState = runtimeFrames[preset.id];
+                const metrics =
+                  frameState?.status === "ready"
+                    ? frameState.metrics
+                    : undefined;
+                const frameError =
+                  frameState?.status === "error"
+                    ? frameState.message
+                    : null;
+                const inspectionCapped =
+                  metrics?.inspectionTruncated === true ||
+                  metrics?.findingsTruncated === true;
+                const overflowMessage = frameError
+                  ? `${preset.width}px runtime inspection unavailable: ${frameError}`
+                  : `${formatHorizontalOverflowMessage(
+                      preset.width,
+                      metrics
+                    )}${
+                      inspectionCapped
+                        ? " Runtime evidence was capped; review the generated page manually for additional issues."
+                        : ""
+                    }`;
                 const hasOverflow = metrics?.horizontalOverflow === true;
+                const runtimeFindingCount = metrics?.findings.length ?? 0;
+                const markFrameError = (message: string) =>
+                  setRuntimeFrames((current) => ({
+                    ...current,
+                    [preset.id]: { status: "error", message },
+                  }));
                 return (
                   <article
                     key={preset.id}
                     style={{ width: `${dimensions.width + 2}px` }}
                     className={`flex-none overflow-hidden rounded-lg border bg-white shadow-sm dark:bg-zinc-900 ${
-                      hasOverflow
+                      frameError || hasOverflow
                         ? "border-red-500 dark:border-red-500"
                         : "border-gray-300 dark:border-zinc-700"
                     }`}
@@ -496,7 +611,7 @@ function ReviewWorkspace({
                         </span>
                         <span
                           className={`inline-flex items-center gap-1 text-xs font-semibold ${
-                            hasOverflow
+                            frameError || hasOverflow
                               ? "text-red-700 dark:text-red-300"
                               : metrics
                                 ? "text-emerald-700 dark:text-emerald-300"
@@ -504,9 +619,9 @@ function ReviewWorkspace({
                           }`}
                           title={overflowMessage}
                           aria-label={overflowMessage}
-                          data-testid={`overflow-status-${preset.width}`}
+                          data-testid={`runtime-status-${preset.width}`}
                         >
-                          {hasOverflow ? (
+                          {frameError || hasOverflow ? (
                             <LuAlertTriangle
                               className="h-4 w-4"
                               aria-hidden="true"
@@ -519,11 +634,17 @@ function ReviewWorkspace({
                           ) : (
                             <LuInfo className="h-4 w-4" aria-hidden="true" />
                           )}
-                          {hasOverflow
-                            ? "Overflow"
-                            : metrics
-                              ? "Fits"
-                              : "Checking"}
+                          {frameError
+                            ? "Unavailable"
+                            : hasOverflow
+                              ? `Overflow · ${runtimeFindingCount}${
+                                  inspectionCapped ? " · capped" : ""
+                                }`
+                              : metrics
+                                ? `Checked · ${runtimeFindingCount}${
+                                    inspectionCapped ? " · capped" : ""
+                                  }`
+                                : "Checking"}
                         </span>
                       </div>
                       <button
@@ -543,39 +664,54 @@ function ReviewWorkspace({
                         <LuTrash2 className="h-4 w-4" aria-hidden="true" />
                       </button>
                     </header>
-                    <SandboxedPreviewFrame
-                      html={html}
-                      refreshToken={refreshToken}
-                      title={`${preset.label} preview at ${dimensions.width} pixels`}
-                      data-testid={`review-frame-${preset.width}`}
-                      data-review-width={preset.width}
-                      loading="eager"
-                      className="block border-0 bg-white"
-                      style={{
-                        width: `${dimensions.width}px`,
-                        height: `${dimensions.height}px`,
-                      }}
-                      onRuntimeMetrics={(nextMetrics) =>
-                        setRuntimeMetrics((current) => {
-                          const previous = current[preset.id];
-                          if (
-                            previous &&
-                            previous.viewportWidth ===
-                              nextMetrics.viewportWidth &&
-                            previous.documentWidth ===
-                              nextMetrics.documentWidth &&
-                            previous.horizontalOverflow ===
-                              nextMetrics.horizontalOverflow
-                          ) {
-                            return current;
-                          }
-                          return {
-                            ...current,
-                            [preset.id]: nextMetrics,
-                          };
-                        })
-                      }
-                    />
+                    {frameError && (
+                      <div
+                        role="status"
+                        className="border-b border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200"
+                      >
+                        Runtime checks unavailable: {frameError} The preview and
+                        other viewport results remain available.
+                      </div>
+                    )}
+                    <ReviewFrameBoundary
+                      key={`${codeHash}:${refreshToken}:${preset.id}`}
+                      height={dimensions.height}
+                      onError={markFrameError}
+                    >
+                      <SandboxedPreviewFrame
+                        html={html}
+                        refreshToken={refreshToken}
+                        title={`${preset.label} preview at ${dimensions.width} pixels`}
+                        data-testid={`review-frame-${preset.width}`}
+                        data-review-width={preset.width}
+                        loading="eager"
+                        className="block border-0 bg-white"
+                        style={{
+                          width: `${dimensions.width}px`,
+                          height: `${dimensions.height}px`,
+                        }}
+                        onRuntimeError={markFrameError}
+                        onRuntimeMetrics={(nextMetrics) =>
+                          setRuntimeFrames((current) => {
+                            const previous = current[preset.id];
+                            if (
+                              previous?.status === "ready" &&
+                              JSON.stringify(previous.metrics) ===
+                                JSON.stringify(nextMetrics)
+                            ) {
+                              return current;
+                            }
+                            return {
+                              ...current,
+                              [preset.id]: {
+                                status: "ready",
+                                metrics: nextMetrics,
+                              },
+                            };
+                          })
+                        }
+                      />
+                    </ReviewFrameBoundary>
                   </article>
                 );
               })}
@@ -583,17 +719,17 @@ function ReviewWorkspace({
         </section>
 
         <aside
-          aria-labelledby="source-audit-heading"
+          aria-labelledby="local-review-heading"
           className="min-w-0 bg-white dark:bg-zinc-950 lg:min-h-0 lg:overflow-y-auto"
         >
           <div className="p-3 sm:p-4">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <h2
-                  id="source-audit-heading"
+                  id="local-review-heading"
                   className="text-sm font-semibold text-gray-950 dark:text-zinc-50"
                 >
-                  Automated source audit
+                  Automated local review
                 </h2>
                 <p className="mt-1 break-words text-xs text-gray-600 dark:text-zinc-300">
                   Local composed artifact:{" "}
@@ -614,11 +750,26 @@ function ReviewWorkspace({
 
             <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
               <span className="font-semibold">
-                Automated source audit only—not WCAG certification.
+                Automated checks only—not WCAG certification.
               </span>{" "}
-              It checks the composed preview source locally. Runtime/framework
-              DOM may differ, so combine this with keyboard, screen-reader, and
-              browser testing.
+              Review combines static source checks with bounded, read-only DOM
+              measurements from each sandboxed viewport. Accessible-name,
+              keyboard-path, and target-size checks are conservative signals;
+              confirm results with
+              keyboard, screen-reader, zoom, and interaction testing.
+            </div>
+
+            <div
+              className={`mt-3 rounded-lg border p-3 text-xs ${healthSummaryClasses(
+                healthSummary.state
+              )}`}
+              role="status"
+              data-testid="review-health-summary"
+            >
+              <strong className="block text-sm">{healthSummary.title}</strong>
+              <span className="mt-1 block leading-5">
+                {healthSummary.detail}
+              </span>
             </div>
 
             {run && (
@@ -637,8 +788,8 @@ function ReviewWorkspace({
                         className="mt-0.5 h-4 w-4 shrink-0"
                         aria-hidden="true"
                       />
-                      Results are stale. Code, version, option, or viewport set
-                      changed; rerun before fixing or exporting.
+                      Results are stale because the {staleReasonText}
+                      changed. Rerun before fixing or exporting.
                     </span>
                   ) : (
                     <span>
@@ -730,6 +881,34 @@ function ReviewWorkspace({
                   </button>
                 </div>
 
+                <div
+                  className="mt-2 grid grid-cols-2 gap-2"
+                  aria-label="Finding categories"
+                >
+                  {AUDIT_CATEGORIES.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() =>
+                        setCategoryFilter((current) =>
+                          current === category ? "all" : category
+                        )
+                      }
+                      aria-pressed={categoryFilter === category}
+                      className={`flex min-h-11 items-center justify-between rounded-lg border px-3 text-left text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                        categoryFilter === category
+                          ? "border-violet-500 bg-violet-50 text-violet-900 dark:bg-violet-950/30 dark:text-violet-100"
+                          : "border-gray-200 text-gray-700 dark:border-zinc-800 dark:text-zinc-200"
+                      }`}
+                    >
+                      <span>{AUDIT_CATEGORY_LABELS[category]}</span>
+                      <span className="tabular-nums">
+                        {run.categoryCounts[category]}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
                 {run.findings.length > 0 && (
                   <label className="relative mt-3 block">
                     <span className="sr-only">Search audit findings</span>
@@ -771,19 +950,26 @@ function ReviewWorkspace({
 
                 {run.findings.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedFindingIds(
-                          new Set(
-                            filteredFindings.map((finding) => finding.id)
+                    <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-3 text-xs font-semibold text-violet-700 hover:bg-violet-50 focus-within:ring-2 focus-within:ring-violet-500 dark:text-violet-300 dark:hover:bg-violet-950/30">
+                      <input
+                        ref={selectFilteredRef}
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        disabled={filteredFindings.length === 0}
+                        onChange={(event) =>
+                          setSelectedFindingIds((current) =>
+                            updateFilteredFindingSelection(
+                              current,
+                              filteredFindings,
+                              event.target.checked
+                            )
                           )
-                        )
-                      }
-                      className="min-h-11 rounded-lg px-3 text-xs font-semibold text-violet-700 hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-violet-300 dark:hover:bg-violet-950/30"
-                    >
-                      Select visible ({filteredFindings.length})
-                    </button>
+                        }
+                        className="h-5 w-5 accent-violet-600"
+                      />
+                      Select filtered ({filteredSelectedCount}/
+                      {filteredFindings.length})
+                    </label>
                     <button
                       type="button"
                       onClick={() =>
@@ -817,7 +1003,7 @@ function ReviewWorkspace({
                   <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
                     <span className="flex items-center gap-2 font-semibold">
                       <LuCheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                      No findings from these deterministic checks.
+                      No findings from the completed deterministic checks.
                     </span>
                     <p className="mt-1 text-xs">
                       This does not certify accessibility; test the runtime
@@ -847,8 +1033,9 @@ function ReviewWorkspace({
 
             {!run && (
               <div className="mt-3 rounded-lg border border-dashed border-gray-300 p-4 text-center text-sm text-gray-600 dark:border-zinc-700 dark:text-zinc-300">
-                Run the deterministic local checks to classify source findings
-                for this version, option, code hash, and viewport set.
+                Run the deterministic local checks to classify source and
+                rendered-viewport findings for this version, option, code hash,
+                and viewport set.
               </div>
             )}
           </div>

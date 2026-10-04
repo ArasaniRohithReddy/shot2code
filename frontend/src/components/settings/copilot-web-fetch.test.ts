@@ -1,5 +1,6 @@
 /**
- * Copilot's built-in `web_fetch`: the UI must say it is off, and why.
+ * Copilot's built-in `web_fetch`: the UI must say it is off, why, and point
+ * at shot2code's bounded canonical replacement.
  *
  * The backend decision lives in `backend/integrations/copilot_sdk.py`
  * (`COPILOT_BUILTIN_WEB_FETCH_SUPPORTED = False`). A user who cannot see that
@@ -56,7 +57,9 @@ describe("the web_fetch disclosure", () => {
   });
 
   it("points at the supported alternative", () => {
-    expect(block()).toContain("Web search (all models)");
+    expect(block()).toContain("Bounded page reading");
+    expect(block()).toContain("Web research");
+    expect(block()).toContain("caps bytes and text");
   });
 
   it("states that URL requests during a run are denied", () => {

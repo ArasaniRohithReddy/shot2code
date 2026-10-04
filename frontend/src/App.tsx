@@ -37,6 +37,11 @@ import {
   normalizeFreeImageSearchSettings,
 } from "./lib/free-image-search";
 import {
+  DEFAULT_ICON_SEARCH_SETTINGS,
+  normalizeIconSearchSettings,
+  toIconSearchWirePayload,
+} from "./lib/icon-search";
+import {
   DEFAULT_IMAGE_GENERATION_SETTINGS,
   normalizeImageGenerationSettings,
   toImageGenerationWirePayload,
@@ -68,6 +73,7 @@ import { useEscapeToExitSelectMode } from "./components/select-and-edit/useEscap
 import Sidebar from "./components/sidebar/Sidebar";
 import IconStrip from "./components/sidebar/IconStrip";
 import HistoryDisplay from "./components/history/HistoryDisplay";
+import FullHistoryDialog from "./components/history/FullHistoryDialog";
 import PreviewPane, {
   type PreviewTab,
 } from "./components/preview/PreviewPane";
@@ -205,6 +211,7 @@ function App() {
       webSearch: DEFAULT_WEB_SEARCH_SETTINGS,
       imageGeneration: DEFAULT_IMAGE_GENERATION_SETTINGS,
       freeImageSearch: DEFAULT_FREE_IMAGE_SEARCH_SETTINGS,
+      iconSearch: DEFAULT_ICON_SEARCH_SETTINGS,
     },
     "setting"
   );
@@ -241,6 +248,7 @@ function App() {
   }, []);
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isFullHistoryOpen, setIsFullHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [mobilePane, setMobilePane] = useState<"preview" | "chat">("preview");
   // Deliberately not persisted: opening a project always lands on "preview"
@@ -604,6 +612,9 @@ function App() {
       // No credential in this one, so there is nothing to strip from it.
       freeImageSearch: toFreeImageSearchWirePayload(
         normalizeFreeImageSearchSettings(settings.freeImageSearch)
+      ),
+      iconSearch: toIconSearchWirePayload(
+        normalizeIconSearchSettings(settings.iconSearch)
       ),
       ...(generationContext.isAssetExtractionEnabled === undefined
         ? {}
@@ -1620,14 +1631,24 @@ function App() {
             </h2>
             <div className="flex items-center">
               {isHistoryOpen && (
-                <button
-                  type="button"
-                  onClick={openConversation}
-                  className="flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                >
-                  <LuChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                  Back to chat
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsFullHistoryOpen(true)}
+                    className="flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-violet-300 dark:hover:bg-violet-950/30"
+                  >
+                    <LuHistory className="h-3.5 w-3.5" aria-hidden="true" />
+                    All projects
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openConversation}
+                    className="flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                  >
+                    <LuChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                    Back to chat
+                  </button>
+                </>
               )}
               <button
                 type="button"
@@ -1651,13 +1672,24 @@ function App() {
                   <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400">
                     History
                   </h2>
-                  <button
-                    onClick={() => setIsHistoryOpen(false)}
-                    className="flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs text-gray-600 transition-colors hover:text-gray-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-                  >
-                    <LuChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                    Back to chat
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsFullHistoryOpen(true)}
+                      className="flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 dark:text-violet-300 dark:hover:bg-violet-950/30"
+                    >
+                      <LuHistory className="h-3.5 w-3.5" aria-hidden="true" />
+                      All projects
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsHistoryOpen(false)}
+                      className="flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs text-gray-600 transition-colors hover:text-gray-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    >
+                      <LuChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                      Back to chat
+                    </button>
+                  </div>
                 </div>
                 <HistoryDisplay />
               </div>
@@ -1701,6 +1733,11 @@ function App() {
                       generationType: "update",
                       inputMode: "image",
                     },
+                  }}
+                  settings={settings}
+                  onOpenSettings={() => {
+                    setIsSettingsOpen(true);
+                    setIsHistoryOpen(false);
                   }}
                   historyError={projectHistory.historyError}
                   onOpenHistory={() => {
@@ -1789,6 +1826,7 @@ function App() {
                 onOpenProject={projectHistory.openProject}
                 onDeleteProject={projectHistory.deleteProject}
                 onNewProject={() => openStartPane("upload")}
+                onFullHistory={() => setIsFullHistoryOpen(true)}
               />
             )}
 
@@ -1825,6 +1863,11 @@ function App() {
         open={isHelpOpen}
         onOpenChange={setIsHelpOpen}
         initialTab={helpTab}
+      />
+      <FullHistoryDialog
+        open={isFullHistoryOpen}
+        onOpenChange={setIsFullHistoryOpen}
+        onOpenProject={projectHistory.openProject}
       />
     </div>
   );
