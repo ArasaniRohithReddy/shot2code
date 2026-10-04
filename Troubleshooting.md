@@ -1,5 +1,9 @@
 # Troubleshooting
 
+For setup and expected behavior specific to **Upload, URL, Text, Import, Figma,
+GitHub, and Stitch**, see the screenshot-led
+[input-tab guide](docs/INPUT-TABS.md).
+
 ## Installing the app
 
 **"Windows protected your PC" when running the installer**

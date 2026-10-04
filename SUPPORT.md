@@ -15,6 +15,7 @@ the extra keys some features need.
 |---|---|
 | Fix an install, startup or sign-in problem | [Troubleshooting.md](Troubleshooting.md) |
 | Understand a feature or an export strategy | [README.md](README.md) |
+| Choose or troubleshoot an input tab | [docs/INPUT-TABS.md](docs/INPUT-TABS.md) |
 | Run it from source, or run the tests | [CONTRIBUTING.md](CONTRIBUTING.md) and [TESTING.md](TESTING.md) |
 | See what changed in a release | [CHANGELOG.md](CHANGELOG.md) and [Releases](https://github.com/ArasaniRohithReddy/shot2code/releases) |
 | Verify a download | [docs/releases/](docs/releases/) |

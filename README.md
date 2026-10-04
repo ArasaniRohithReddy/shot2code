@@ -5,34 +5,68 @@
 [![Platform: Windows 10/11 x64](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078d4)](#install)
 [![Changelog](https://img.shields.io/badge/changelog-keep%20a%20changelog-e05735)](CHANGELOG.md)
 
-Turn screenshots, mockups, designs and screen recordings into clean, working
-code — using AI, on your own machine.
+Turn screenshots, public websites, written briefs, existing code, Figma/Stitch
+designs and GitHub frontends into editable web projects — on your own machine.
 
 shot2code is a **desktop app for Windows**. The app, project history and
 credentials live on your machine; generation data goes only to the model
 provider or endpoint you explicitly select, and MCP tools run only through
 servers you explicitly enable and trust.
 
-## Screenshots
+## Seven ways to start
 
 <!-- Every image below has descriptive alt text; the summaries repeat the key
      detail so the gallery is usable without loading the images. -->
 
-The responsive Review workspace renders the synthetic Northwind Analytics
-project at real CSS widths and audits its generated source locally:
+The packaged v0.6.0 app has seven focused input tabs. See the
+[detailed input-tab guide](docs/INPUT-TABS.md) for prerequisites, limits,
+privacy boundaries, and the result each path creates.
 
-![shot2code Review at 1920 by 1008. Chat and two generated options sit beside the responsive Review workspace. A real-width Northwind Analytics desktop frame is visible with the local automated source audit, summary counts and selected findings.](docs/assets/review-workspace-og-light.png)
+| Upload | URL |
+| --- | --- |
+| ![Light-theme shot2code Upload tab with a large screenshot or video drop zone and React plus Tailwind generation controls.](docs/assets/input-upload.png) | ![shot2code URL tab with example.com entered, local Chromium inspection guidance, and capture controls.](docs/assets/input-url.png) |
+| Screenshots, related screens, exported SVG, or one short video. | Inspect a public site's design locally, or capture it through ScreenshotOne. |
 
-Provider configuration in the light and dark themes:
+| Text | Import |
+| --- | --- |
+| ![shot2code Text tab with a prompt field, example prompts, stack selection, and generation actions.](docs/assets/input-text.png) | ![shot2code Import tab showing HTML paste mode, stack selection, a first-edit instruction, and model controls.](docs/assets/input-import.png) |
+| Generate from a written brief and optional saved design system. | Paste HTML or safely inspect a folder, ZIP, or selected source files. |
 
-| MCP tools and native menu | Copilot SDK BYOK |
+| Figma | GitHub |
+| --- | --- |
+| ![shot2code Figma tab explaining scoped REST import and Figma MCP catalog restrictions.](docs/assets/input-figma.png) | ![shot2code GitHub tab with the public Spoon-Knife repository URL and repository permission guidance.](docs/assets/input-github.png) |
+| Render selected frames and preserve image fills/export-marked nodes through scoped REST access. | Open a public or explicitly authorized private frontend without executing repository code. |
+
+| Stitch |
+| --- |
+| ![shot2code Stitch tab showing Stitch only and Convert to selected stack output modes.](docs/assets/input-stitch.png) |
+| Open Stitch's localized project directly, or explicitly convert it through selected models. |
+
+The URL and GitHub paths also produce useful local-first outcomes without a
+code-generation provider:
+
+| Website design inspection | Imported GitHub project |
+| --- | --- |
+| ![Completed design inspection for example.com showing extracted colors, summary metrics, and DESIGN.md actions.](docs/assets/url-design-inspection.png) | ![Imported Spoon-Knife project open in shot2code with editing suggestions and a desktop preview.](docs/assets/github-imported-project.png) |
+| Copy/download `DESIGN.md`, or use it with desktop, tablet, and mobile screenshots. | Continue in Preview, Code, Review, Chat, History, and export. |
+
+## What happens after an input
+
+The current Review workspace renders the synthetic Northwind Analytics project
+at real CSS widths and audits its composed source locally:
+
+![shot2code Review workspace at 1920 by 1008 in the light theme, with Chat context, a Northwind Analytics preview, and local source-audit findings.](docs/assets/review-workspace-og-light.png)
+
+Current integration settings in the light and dark themes:
+
+| MCP trust and write controls | Copilot SDK BYOK |
 |---|---|
-| ![shot2code at 1440 by 900 in the light theme. Settings shows the Demo component library MCP server as active and read-only, with Enabled and Trusted on and write tools off. The native View menu is open with workspace and zoom commands.](docs/assets/mcp-menu-light.png) | ![shot2code at 1440 by 900 in the dark theme. The GitHub Copilot SDK BYOK card is enabled for a generic OpenAI-compatible endpoint, with a synthetic base URL, a fully masked dedicated key and a custom endpoint model.](docs/assets/byok-settings-dark.png) |
+| ![shot2code MCP Servers settings at 1440 by 900 in the light theme, showing a disabled and untrusted Demo component library draft with write tools off and the safety guidance visible.](docs/assets/mcp-menu-light.png) | ![shot2code Settings at 1440 by 900 in the dark theme, showing Copilot SDK BYOK switched off and described as separate from direct provider keys.](docs/assets/byok-settings-dark.png) |
 
 At 768×1024, Review becomes a single-column workspace while keeping Preview,
 Chat and History as separate destinations:
 
-![shot2code Review at 768 by 1024. The responsive top navigation, Review controls, real-width Northwind Analytics frame and local source-audit panel reflow into a tablet layout without horizontal page overflow.](docs/assets/review-workspace-tablet.png)
+![shot2code Review at 768 by 1024, with compact navigation, responsive Review controls, the local audit summary, and warning findings reflowed into one column.](docs/assets/review-workspace-tablet.png)
 
 ## Install
 
@@ -90,6 +124,10 @@ a Figma/Stitch design, a GitHub frontend repository, a text description, or a
 screen recording, and it generates or opens a working project. It
 produces several variants in parallel so you can pick the best one, then refine
 it by describing what to change.
+
+The [input-tab guide](docs/INPUT-TABS.md) explains Upload, URL, Text, Import,
+Figma, GitHub, and Stitch step by step, including credentials, limits, privacy,
+and what each path opens.
 
 Supported output stacks:
 

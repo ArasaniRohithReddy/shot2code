@@ -11,6 +11,12 @@ in this file; see the git history for those changes.
 
 ## [Unreleased]
 
+### Documentation
+
+- Added a screenshot-led guide for all seven input tabs and refreshed every
+  public application capture from the packaged build, including website design
+  inspection, GitHub import, Review, MCP and BYOK states.
+
 ## [0.6.0] - 2026-10-04
 
 Released as [shot2code v0.6.0](https://github.com/ArasaniRohithReddy/shot2code/releases/tag/v0.6.0).

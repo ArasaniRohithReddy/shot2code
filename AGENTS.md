@@ -419,6 +419,11 @@ folder/ZIP scanner.
 - Refinement-chat clipboard images use the same update-image pipeline as the
   file picker: PNG/JPEG/WebP, 10 MB each, five images per turn, with duplicate
   removal. A text-only paste must remain a normal textarea paste.
+- User-facing input changes must update `README.md`, `docs/INPUT-TABS.md` and
+  the matching packaged-app PNG under `docs/assets/`. The documented tabs are
+  Upload, URL, Text, Import, Figma, GitHub and Stitch; video belongs to Upload.
+  Captures use no live credential or private data and must stay synchronized
+  with the public `app-releases` product page and guide.
 
 ## Desktop app
 

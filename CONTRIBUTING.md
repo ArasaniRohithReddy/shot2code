@@ -180,8 +180,8 @@ Full local packaging commands are in [docs/RELEASING.md](docs/RELEASING.md).
   welcome but not required.
 - **Add or update tests** for behaviour changes. Bug fixes should come with a
   test that fails without the fix.
-- **Update the docs you invalidate** — `README.md`, `TESTING.md`,
-  `Troubleshooting.md`, `AGENTS.md`, `design-docs/` — and add a bullet to the
+- **Update the docs you invalidate** — `README.md`, `docs/INPUT-TABS.md`,
+  `TESTING.md`, `Troubleshooting.md`, `AGENTS.md`, `design-docs/` — and add a bullet to the
   `## [Unreleased]` section of [CHANGELOG.md](CHANGELOG.md) for anything a user
   would notice.
 - **Paste the commands you ran** and their outcome. State clearly if you could

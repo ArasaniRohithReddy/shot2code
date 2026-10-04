@@ -165,6 +165,9 @@ It records backend startup, renderer load failures, crashes and console errors.
 - Touched Figma, Stitch, GitHub import, website inspection, pasted screenshots
   or asset persistence: run the targeted tests above plus the complete backend,
   frontend and desktop suites
+- Touched an input tab or its labels: update `docs/INPUT-TABS.md`, refresh the
+  matching `docs/assets/input-*.png` capture from the packaged app, verify the
+  PNG dimensions and inspect it for credentials/private data
 - Touched both: all of the above
 
 Anything that changes how the UI is loaded (routing, asset paths, `window.open`)

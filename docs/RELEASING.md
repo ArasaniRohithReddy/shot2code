@@ -175,6 +175,27 @@ Do these against the built artifacts, not a dev server:
   administrator-managed.
 - Uninstall cleanly.
 
+### Refresh the public screenshots
+
+Capture from the packaged build with an isolated, credential-free profile.
+`docs/assets/` and the public release hub must carry the same current images:
+
+- seven input tabs at 1426×893:
+  `input-upload.png`, `input-url.png`, `input-text.png`, `input-import.png`,
+  `input-figma.png`, `input-github.png`, `input-stitch.png`;
+- completed input outcomes at 1426×893:
+  `url-design-inspection.png`, `github-imported-project.png`;
+- workspace/settings evidence:
+  `review-workspace-og-light.png` (1920×1008),
+  `mcp-menu-light.png` and `byok-settings-dark.png` (1440×900),
+  `review-workspace-tablet.png` (768×1024).
+
+Use only the synthetic Northwind Analytics fixture, `https://example.com`, and
+`octocat/Spoon-Knife`. No real key or account is permitted. Verify dimensions,
+alt text, sensitive-data absence, and `object-fit: contain`; then update
+README.md, `docs/INPUT-TABS.md`, the public product page and its generated
+guides together.
+
 ## 6. Tag, publish, upload
 
 ```powershell
