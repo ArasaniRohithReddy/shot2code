@@ -84,7 +84,14 @@ DEFERRED_ROUTE_GROUPS = (
     ),
 )
 
-optional_startup_tasks = OptionalStartupTasks()
+# The packaged shell starts polling health as soon as it spawns the frozen
+# backend. Chromium/SDK process creation can briefly monopolize a Windows event
+# loop while antivirus scans new binaries, so let core health and initial
+# history restore win that race before optional discovery begins.
+OPTIONAL_DISCOVERY_START_DELAY_SECONDS = 5.0
+optional_startup_tasks = OptionalStartupTasks(
+    start_delay_seconds=OPTIONAL_DISCOVERY_START_DELAY_SECONDS
+)
 deferred_route_loaders: list[DeferredRouteLoader] = []
 for group_name, module_names, path_prefixes in DEFERRED_ROUTE_GROUPS:
     loader = DeferredRouteLoader(module_names, name=group_name)

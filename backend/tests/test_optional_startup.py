@@ -7,6 +7,10 @@ import main
 from optional_startup import OptionalStartupTasks
 
 
+def test_packaged_optional_discovery_waits_for_core_health() -> None:
+    assert main.OPTIONAL_DISCOVERY_START_DELAY_SECONDS >= 5
+
+
 @pytest.mark.asyncio
 async def test_hanging_optional_work_does_not_block_scheduling() -> None:
     started = asyncio.Event()
