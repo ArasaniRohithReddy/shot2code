@@ -42,20 +42,21 @@ privacy boundaries, and the result each path creates.
 | ![shot2code Stitch tab showing Stitch only and Convert to selected stack output modes.](docs/assets/input-stitch.png) |
 | Open Stitch's localized project directly, or explicitly convert it through selected models. |
 
-The URL and GitHub paths also produce useful local-first outcomes without a
-code-generation provider:
+URL, GitHub and Built Storybook also produce useful local-first outcomes
+without a code-generation provider:
 
-| Website design inspection | Imported GitHub project |
-| --- | --- |
-| ![Completed design inspection for example.com showing extracted colors, summary metrics, and DESIGN.md actions.](docs/assets/url-design-inspection.png) | ![Imported Spoon-Knife project open in shot2code with editing suggestions and a desktop preview.](docs/assets/github-imported-project.png) |
-| Copy/download `DESIGN.md`, or use it with desktop, tablet, and mobile screenshots. | Continue in Preview, Code, Review, Chat, History, and export. |
+| Website design inspection | Imported GitHub project | Built Storybook metadata |
+| --- | --- | --- |
+| ![Completed design inspection for example.com showing extracted colors, summary metrics, and full-page responsive previews.](docs/assets/url-design-inspection.png) | ![Imported Spoon-Knife project open in shot2code with editing suggestions and a desktop preview.](docs/assets/github-imported-project.png) | ![shot2code Built Storybook import mode with fixed JSON-only metadata sources and execution boundaries.](docs/assets/import-storybook.png) |
+| Copy/download `DESIGN.md`, or use it with full-page desktop, tablet, and mobile screenshots. | Continue in Preview, Code, Review, Chat, History, and export. | Add component-library context without executing stories, bundles, addons, loaders, play functions, or `iframe.html`. |
 
 ## What happens after an input
 
-The current Review workspace renders the synthetic Northwind Analytics project
-at real CSS widths and audits its composed source locally:
+The current Review workspace renders the imported public Spoon-Knife project at
+real CSS widths and audits its composed source plus bounded runtime evidence
+locally:
 
-![shot2code Review workspace at 1920 by 1008 in the light theme, with Chat context, a Northwind Analytics preview, and local source-audit findings.](docs/assets/review-workspace-og-light.png)
+![shot2code Review workspace at 1920 by 1008 in the light theme, with Chat context, the Spoon-Knife preview, and a completed local audit with runtime coverage.](docs/assets/review-workspace-og-light.png)
 
 Current integration settings in the light and dark themes:
 
@@ -63,10 +64,25 @@ Current integration settings in the light and dark themes:
 |---|---|
 | ![shot2code MCP Servers settings at 1440 by 900 in the light theme, showing a disabled and untrusted Demo component library draft with write tools off and the safety guidance visible.](docs/assets/mcp-menu-light.png) | ![shot2code Settings at 1440 by 900 in the dark theme, showing Copilot SDK BYOK switched off and described as separate from direct provider keys.](docs/assets/byok-settings-dark.png) |
 
-At 768×1024, Review becomes a single-column workspace while keeping Preview,
-Chat and History as separate destinations:
+Current local and provider-neutral add-ons:
 
-![shot2code Review at 768 by 1024, with compact navigation, responsive Review controls, the local audit summary, and warning findings reflowed into one column.](docs/assets/review-workspace-tablet.png)
+| Local Ollama preset | Bounded page reading |
+|---|---|
+| ![shot2code Settings at 1440 by 900 showing the local Ollama preset inside the additive Copilot SDK BYOK card.](docs/assets/ollama-settings-light.png) | ![shot2code Settings at 1440 by 900 in the dark theme showing separately consented bounded page reading and its public-only URL, byte, text, call, and timeout limits.](docs/assets/page-reader-settings-dark.png) |
+
+| Localized Iconify assets | Chat tool inventory |
+|---|---|
+| ![shot2code Settings at 1440 by 900 showing the Iconify design add-on, fixed origin, SVG sanitization, licence filtering, provenance, and trademark warning.](docs/assets/iconify-settings-light.png) | ![shot2code Chat at 1440 by 900 showing project editing, preview verification, web, image, Iconify, MCP, and Agent Skills readiness without enabling them implicitly.](docs/assets/chat-tools-light.png) |
+
+| Full history | Expanded project History |
+|---|---|
+| ![shot2code Full history at 1440 by 900 showing searchable local projects and a read-only project version summary.](docs/assets/full-history-light.png) | ![shot2code project History at 1440 by 900 showing the saved model identity and selected version before returning to Chat.](docs/assets/history-expanded-light.png) |
+
+The shipped desktop window intentionally has a 900-pixel minimum width. At
+900×1024, Review becomes a single-column workspace while keeping Preview, Chat
+and History as separate destinations:
+
+![shot2code Review at 900 by 1024, with compact navigation, responsive Review controls, a completed local audit, and warning findings reflowed into one column.](docs/assets/review-workspace-tablet.png)
 
 ## Install
 
@@ -102,7 +118,7 @@ SHA-256 checksums live in [`docs/releases/`](docs/releases/) —
 [v0.3.0](docs/releases/v0.3.0/SHA256SUMS.txt):
 
 ```powershell
-Get-FileHash .\shot2code-0.6.0-x64.exe -Algorithm SHA256
+Get-FileHash .\shot2code-<version>-x64.exe -Algorithm SHA256
 ```
 
 First launch takes about a minute while the bundled backend starts. Later
@@ -217,7 +233,9 @@ Other things it can do:
   Stitch is not described as a general image backend or guaranteed-free
   provider because its official SDK publishes neither capability. The dedicated
   Stitch tab defaults to **Stitch only**, which opens those files directly and
-  calls no second model provider; **Convert to selected stack** is explicit.
+  calls no second model provider; **Convert to selected stack** is explicit and
+  shows a dedicated model picker. When no provider is ready, the picker remains
+  visible as **Configure models** instead of disappearing.
 - **GitHub repository import** — paste a public repository URL to inspect its
   text source, frontend stack, components, tokens and bounded image assets
   without executing any project code. Private repositories require a separate

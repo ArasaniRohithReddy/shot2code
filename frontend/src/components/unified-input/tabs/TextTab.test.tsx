@@ -5,6 +5,7 @@ jest.mock("../../../config", () => ({
 import { renderToStaticMarkup } from "react-dom/server";
 import { Stack } from "../../../lib/stacks";
 import StitchGenerationStatus from "./StitchGenerationStatus";
+import { GenerationModelSelection } from "./TextTab";
 import { usesDirectStitchOutput } from "./stitch-output-mode";
 
 describe("Stitch generation status", () => {
@@ -40,6 +41,22 @@ describe("Stitch generation status", () => {
         usesDirectStitchOutput(false, "convert", Stack.HTML_CSS)
       ).toBe(true);
     });
+  });
+
+  it("labels the conversion picker and keeps it visible when no provider is ready", () => {
+    const html = renderToStaticMarkup(
+      <GenerationModelSelection
+        stitchOnly
+        modelSelector={{
+          selectedModels: [],
+          setSelectedModels: jest.fn(),
+        }}
+      />
+    );
+
+    expect(html).toContain("Models for conversion");
+    expect(html).toContain("vision-capable models");
+    expect(html).toContain("Configure models");
   });
 
   it("marks earlier steps as complete when output is downloading", () => {

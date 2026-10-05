@@ -8,6 +8,7 @@ import type {
 import { createProjectHistoryPersistence } from "./history-persistence";
 import {
   buildHistoryProjectSnapshot,
+  projectHistoryForDisplay,
   type ProjectHistorySnapshotState,
 } from "./project-history";
 import { Stack } from "./stacks";
@@ -57,6 +58,33 @@ function snapshotState(title = "Project"): ProjectHistorySnapshotState {
     commits: { [draft.hash]: draft },
     head: draft.hash,
     latestCommitHash: draft.hash,
+  };
+}
+
+function importedSnapshotState(): ProjectHistorySnapshotState {
+  const commit: Commit = {
+    hash: "imported",
+    parentHash: null,
+    dateCreated: createdAt,
+    isCommitted: false,
+    selectedVariantIndex: 0,
+    type: "code_create",
+    inputs: null,
+    variants: [
+      {
+        code: "<main>Imported</main>",
+        history: [],
+        status: "complete",
+        completedAt: createdAt.getTime() + 1_000,
+        stack: Stack.HTML_TAILWIND,
+      },
+    ],
+  };
+  return {
+    ...snapshotState("Imported page"),
+    commits: { [commit.hash]: commit },
+    head: commit.hash,
+    latestCommitHash: commit.hash,
   };
 }
 
@@ -360,6 +388,32 @@ describe("project history persistence", () => {
     expect(restored.projectTitle).toBe("Restarted project");
     expect(restored.head).toBe("draft");
     expect(restored.commits.draft.variants[0].code).toBe("<main>Draft</main>");
+  });
+
+  it("keeps a first imported version visible in Full History after later saves", async () => {
+    const client = createClient();
+    const persistence = createProjectHistoryPersistence({ client });
+    const state = importedSnapshotState();
+
+    await persistence.saveMilestone(state, "status");
+    await persistence.saveMilestone(state, "final");
+
+    const stored = await client.getProject(state.projectId);
+    const displayProject = projectHistoryForDisplay(stored);
+    expect(displayProject.commitCount).toBe(1);
+    expect(displayProject.variantCount).toBe(1);
+    expect(displayProject.commits).toEqual([
+      expect.objectContaining({
+        id: "imported",
+        versionType: "code_create",
+        variants: [
+          expect.objectContaining({
+            currentContent: "<main>Imported</main>",
+            status: "complete",
+          }),
+        ],
+      }),
+    ]);
   });
 
   it("cancels a pending save before deleting the same project", async () => {

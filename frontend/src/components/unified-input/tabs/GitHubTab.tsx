@@ -210,9 +210,9 @@ export default function GitHubTab({
                 Models for the first refinement
               </p>
               <p className="mt-0.5 text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                Used only when the instruction above is not empty. If no picker
-                appears, add a model provider in Settings; the repository can
-                still open locally.
+                Used only when the instruction above is not empty. If no
+                provider is ready, open the picker to see what to configure in
+                Settings; the repository can still open locally.
               </p>
             </div>
             <ModelSelector

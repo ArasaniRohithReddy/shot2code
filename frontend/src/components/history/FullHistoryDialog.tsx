@@ -6,6 +6,10 @@ import {
   LuSearch,
 } from "react-icons/lu";
 import { getHistoryProject } from "../../lib/history-client";
+import {
+  getHistoryProjectDisplayCounts,
+  projectHistoryForDisplay,
+} from "../../lib/project-history";
 import type {
   HistoryCommit,
   HistoryJsonValue,
@@ -66,6 +70,10 @@ function versionLabel(commit: HistoryCommit): string {
 
 function optionLabel(variant: HistoryVariant): string {
   return `Option ${variant.index + 1}`;
+}
+
+function countLabel(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
 function VersionDetails({
@@ -211,7 +219,8 @@ export function FullHistoryProjectDetails({
   project: HistoryProject;
   onOpenProject: (projectId: string) => Promise<boolean>;
 }) {
-  const ordered = [...project.commits].sort(
+  const displayProject = projectHistoryForDisplay(project);
+  const ordered = [...displayProject.commits].sort(
     (left, right) => left.createdAt.getTime() - right.createdAt.getTime()
   );
   const versionById = new Map(
@@ -226,8 +235,9 @@ export function FullHistoryProjectDetails({
             {project.title}
           </h3>
           <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-            {project.stack?.replace(/_/g, " ") ?? "Stack not recorded"} ·{" "}
-            {project.commitCount} versions · {project.variantCount} options
+            {displayProject.stack?.replace(/_/g, " ") ?? "Stack not recorded"} ·{" "}
+            {countLabel(displayProject.commitCount, "version")} ·{" "}
+            {countLabel(displayProject.variantCount, "option")}
           </p>
           <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
             Created {formatTimestamp(project.createdAt)} · updated{" "}
@@ -368,27 +378,30 @@ export default function FullHistoryDialog({
                   No saved project matches this search.
                 </p>
               ) : (
-                filtered.map((project) => (
-                  <button
-                    key={project.id}
-                    type="button"
-                    onClick={() => setSelectedId(project.id)}
-                    className={`w-full rounded-lg px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
-                      selectedId === project.id
-                        ? "bg-violet-100 text-violet-950 dark:bg-violet-900/40 dark:text-violet-50"
-                        : "hover:bg-gray-100 dark:hover:bg-zinc-800"
-                    }`}
-                  >
-                    <span className="block truncate text-sm font-medium">
-                      {project.title}
-                    </span>
-                    <span className="mt-0.5 flex items-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
-                      <LuClock3 className="h-3 w-3" aria-hidden="true" />
-                      {formatTimestamp(project.updatedAt)} ·{" "}
-                      {project.commitCount} versions
-                    </span>
-                  </button>
-                ))
+                filtered.map((project) => {
+                  const counts = getHistoryProjectDisplayCounts(project);
+                  return (
+                    <button
+                      key={project.id}
+                      type="button"
+                      onClick={() => setSelectedId(project.id)}
+                      className={`w-full rounded-lg px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                        selectedId === project.id
+                          ? "bg-violet-100 text-violet-950 dark:bg-violet-900/40 dark:text-violet-50"
+                          : "hover:bg-gray-100 dark:hover:bg-zinc-800"
+                      }`}
+                    >
+                      <span className="block truncate text-sm font-medium">
+                        {project.title}
+                      </span>
+                      <span className="mt-0.5 flex items-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
+                        <LuClock3 className="h-3 w-3" aria-hidden="true" />
+                        {formatTimestamp(project.updatedAt)} ·{" "}
+                        {countLabel(counts.versionCount, "version")}
+                      </span>
+                    </button>
+                  );
+                })
               )}
             </div>
           </aside>

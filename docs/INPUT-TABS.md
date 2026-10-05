@@ -114,6 +114,8 @@ optional `manifests/components.json` and `manifests/docs.json` into compact
 component-library context. Story files, bundles, CSF, addons, decorators,
 loaders, play functions and `iframe.html` are never loaded or executed.
 
+![shot2code Built Storybook import mode with built-folder, selected-JSON, ZIP, and public-HTTPS choices plus the fixed JSON-only execution boundary.](assets/import-storybook.png)
+
 The scanner parses text only. It rejects traversal paths, ignores dependency
 and build-output directories, enforces file/archive/text limits, and never
 loads configuration modules or runs install/build/application code.
@@ -201,7 +203,10 @@ The dedicated tab has two explicit modes:
   stylesheets, nested CSS assets/fonts, `srcset`, and available `DESIGN.md`
   directly. No second AI provider is called.
 - **Convert to selected stack** sends the imported Stitch evidence through the
-  selected shot2code model lineup. Provider quota may apply.
+  selected shot2code model lineup. The tab shows a labelled **Models for
+  conversion** picker, filters the catalog to image-capable choices, and keeps a
+  **Configure models** control visible when no provider is ready. Provider quota
+  may apply.
 
 The bundled SDK needs a Stitch API key in Settings. The key is capture-only and
 does not enter model prompts or project History. Downloaded assets pass public

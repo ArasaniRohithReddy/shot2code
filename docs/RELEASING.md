@@ -199,14 +199,15 @@ Capture from the packaged build with an isolated, credential-free profile.
   `input-upload.png`, `input-url.png`, `input-text.png`, `input-import.png`,
   `input-figma.png`, `input-github.png`, `input-stitch.png`;
 - completed input outcomes at 1426×893:
-  `url-design-inspection.png`, `github-imported-project.png`;
+  `url-design-inspection.png`, `github-imported-project.png`,
+  `import-storybook.png`;
 - workspace/settings evidence:
   `review-workspace-og-light.png` (1920×1008),
   `mcp-menu-light.png` and `byok-settings-dark.png` (1440×900),
   `ollama-settings-light.png`, `page-reader-settings-dark.png`,
   `iconify-settings-light.png`, `chat-tools-light.png`,
   `full-history-light.png`, `history-expanded-light.png` (1440×900), and
-  `review-workspace-tablet.png` (768×1024).
+  `review-workspace-tablet.png` (900×1024, the shipped desktop minimum width).
 
 Use only the synthetic Northwind Analytics fixture, `https://example.com`, and
 `octocat/Spoon-Knife`. No real key or account is permitted. Verify dimensions,

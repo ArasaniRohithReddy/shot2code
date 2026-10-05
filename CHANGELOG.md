@@ -54,6 +54,9 @@ Checksums: [docs/releases/v0.6.1/SHA256SUMS.txt](docs/releases/v0.6.1/SHA256SUMS
   first refinement, clearly distinguishes local open from model-assisted edit,
   exposes its design-system choice, and explains that the detected repository
   stack is preserved.
+- The Stitch conversion path now shows a labelled model picker at the point of
+  use, keeps the control visible when provider setup is incomplete, and filters
+  the catalog to image-capable models for the generated screenshot.
 - Review now combines source checks with bounded per-viewport runtime evidence,
   category/severity filters, filtered select-all, explicit partial/stale
   coverage, frame isolation, a health summary and schema-v2 JSON reports.
@@ -74,6 +77,9 @@ Checksums: [docs/releases/v0.6.1/SHA256SUMS.txt](docs/releases/v0.6.1/SHA256SUMS
   Chromium warming plus Copilot authentication/model discovery run on isolated
   worker event loops. First-run process scanning can no longer starve
   `/api/health`, History or Settings and create a false backend timeout.
+- Full history now materializes the separately persisted active draft for
+  display, so a first local HTML/project import remains one version with its
+  saved options before and after a renderer restart.
 - The release workflow now verifies the tag against
   `desktop/package.json` rather than rewriting that file through PowerShell.
 

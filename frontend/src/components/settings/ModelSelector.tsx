@@ -71,8 +71,6 @@ function ModelSelector({
   });
 
   const hasProviders = catalog.providers.some((provider) => provider.available);
-  // Nothing to choose from and nothing saved: stay out of the way.
-  if (!hasProviders && selected.length === 0) return null;
 
   const toggle = (value: string) =>
     setSelectedModels(
@@ -81,7 +79,12 @@ function ModelSelector({
         : [...selected, value]
     );
 
-  const label = describeSelection(selected, catalog);
+  const label =
+    !hasProviders && selected.length === 0
+      ? isLoading
+        ? "Loading models…"
+        : "Configure models"
+      : describeSelection(selected, catalog);
   const scope = mcpRuntimeScope(
     { copilotSdkByok, mcpServers },
     selected,

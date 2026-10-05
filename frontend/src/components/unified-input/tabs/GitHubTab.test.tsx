@@ -38,7 +38,7 @@ describe("GitHub repository input tab", () => {
     expect(html).toContain("Design system for the first refinement");
     expect(html).toContain("local repository opening remains unchanged");
     expect(html).toContain("Used only when the instruction above is not empty");
-    expect(html).toContain("add a model provider in Settings");
+    expect(html).toContain("open the picker to see what to configure");
     expect(html).toContain("Leave this blank to inspect and open");
     expect(html).toContain("Inspect &amp; Open Repository");
   });

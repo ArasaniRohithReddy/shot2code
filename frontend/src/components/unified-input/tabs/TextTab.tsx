@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { LuLoader2 } from "react-icons/lu";
+import { LuBrain, LuLoader2 } from "react-icons/lu";
 import { Button } from "../../ui/button";
 import { Textarea } from "../../ui/textarea";
 import toast from "react-hot-toast";
@@ -51,6 +51,37 @@ const EXAMPLE_PROMPTS = [
   "A mobile fitness app dashboard with workout plan, progress ring, and quick-start buttons",
   "A music streaming app with now-playing, recommended playlists, and recent listens",
 ];
+
+export function GenerationModelSelection({
+  modelSelector,
+  stitchOnly,
+}: {
+  modelSelector: ModelSelectorProps;
+  stitchOnly: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="min-w-0">
+        <p className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-zinc-200">
+          <LuBrain className="h-4 w-4" aria-hidden="true" />
+          {stitchOnly ? "Models for conversion" : "Models"}
+        </p>
+        <p className="mt-0.5 max-w-sm text-xs leading-5 text-gray-500 dark:text-zinc-400">
+          {stitchOnly
+            ? "Choose vision-capable models for the Stitch screenshot. Each selected model creates one option; an empty selection uses the configured fallback lineup."
+            : "Choose which models create the initial options for this text prompt."}
+        </p>
+      </div>
+      <ModelSelector
+        {...modelSelector}
+        planContext={{
+          generationType: "create",
+          inputMode: stitchOnly ? "image" : "text",
+        }}
+      />
+    </div>
+  );
+}
 
 function TextTab({
   doCreate,
@@ -319,7 +350,12 @@ function TextTab({
                   setStack={setStack}
                   designSystem={designSystem}
                 />
-                {modelSelector && <ModelSelector {...modelSelector} />}
+                {modelSelector && (
+                  <GenerationModelSelection
+                    modelSelector={modelSelector}
+                    stitchOnly={stitchOnly}
+                  />
+                )}
               </>
             )}
 

@@ -1240,6 +1240,162 @@ function appMetadata(project: HistoryProject | HistoryProjectSummary): UnknownRe
   return isRecord(value) ? value : {};
 }
 
+function draftCommitFromProject(
+  project: HistoryProject | HistoryProjectSummary
+): Commit | null {
+  const metadata = appMetadata(project);
+  return parseDraftCommit(
+    metadata.draft_commit,
+    parseAssets(metadata.assets_by_id)
+  );
+}
+
+function historyInputDate(
+  value: Date | string | null | undefined,
+  fallback: Date
+): Date {
+  if (value instanceof Date) return value;
+  if (typeof value !== "string") return fallback;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+}
+
+function nullableHistoryInputDate(
+  value: Date | string | null | undefined
+): Date | null {
+  if (value === null || value === undefined) return null;
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function draftCommitToHistoryCommit(
+  project: HistoryProject,
+  draft: Commit
+): HistoryCommit {
+  const metadata = appMetadata(project);
+  const assetsById = parseAssets(metadata.assets_by_id);
+  const input = commitToHistoryVersion(draft, {
+    projectId: project.id,
+    projectTitle: project.title,
+    projectCreatedAt: project.createdAt,
+    projectStack:
+      project.stack && STACKS.has(project.stack)
+        ? (project.stack as Stack)
+        : Stack.HTML_TAILWIND,
+    inputMode: INPUT_MODES.has(project.inputMode ?? "")
+      ? (project.inputMode as InputMode)
+      : "image",
+    referenceImages: [],
+    initialPrompt: stringValue(metadata.initial_prompt) ?? "",
+    multiScreenshotMode: "pages",
+    assetsById,
+    commits: { [draft.hash]: draft },
+    head: draft.hash,
+    latestCommitHash: draft.hash,
+  });
+  const createdAt = historyInputDate(input.createdAt, draft.dateCreated);
+
+  return {
+    id: input.id,
+    commitHash: input.commitHash ?? null,
+    parentCommitId: input.parentCommitId ?? null,
+    retryOfCommitId: input.retryOfCommitId ?? null,
+    versionType: input.versionType ?? draft.type,
+    inputs: input.inputs ?? {},
+    promptMetadata: input.promptMetadata ?? {},
+    metadata: input.metadata ?? {},
+    createdAt,
+    prompts: (input.prompts ?? []).map((prompt, position) => ({
+      id: prompt.id ?? `${input.id}:prompt:${position}`,
+      position,
+      role: prompt.role ?? "user",
+      kind: prompt.kind ?? draft.type,
+      content: prompt.content,
+      metadata: prompt.metadata ?? {},
+      createdAt: historyInputDate(prompt.createdAt, createdAt),
+    })),
+    variants: (input.variants ?? []).map((variant) => {
+      const variantCreatedAt = historyInputDate(variant.createdAt, createdAt);
+      return {
+        index: variant.index,
+        model: variant.model ?? null,
+        status: variant.status ?? "complete",
+        code: variant.code ?? null,
+        currentContent: variant.currentContent ?? null,
+        createdAt: variantCreatedAt,
+        startedAt: nullableHistoryInputDate(variant.startedAt),
+        completedAt: nullableHistoryInputDate(variant.completedAt),
+        durationMs: variant.durationMs ?? null,
+        error: variant.error ?? null,
+        metadata: variant.metadata ?? {},
+        ...(variant.projectData ? { projectData: variant.projectData } : {}),
+        messages: (variant.messages ?? []).map((message, position) => ({
+          id:
+            message.id ??
+            `${input.id}:${variant.index}:message:${position}`,
+          position,
+          role: message.role,
+          content: message.content ?? null,
+          media: message.media ?? [],
+          metadata: message.metadata ?? {},
+          createdAt: historyInputDate(message.createdAt, variantCreatedAt),
+        })),
+      };
+    }),
+    childCommitIds: [],
+  };
+}
+
+export function getHistoryProjectDisplayCounts(
+  project: HistoryProject | HistoryProjectSummary
+): { versionCount: number; variantCount: number } {
+  const draft = draftCommitFromProject(project);
+  return {
+    versionCount: project.commitCount + (draft ? 1 : 0),
+    variantCount: project.variantCount + (draft?.variants.length ?? 0),
+  };
+}
+
+export function projectHistoryForDisplay(
+  project: HistoryProject
+): HistoryProject {
+  const draft = draftCommitFromProject(project);
+  if (!draft || project.commits.some((commit) => commit.id === draft.hash)) {
+    return project;
+  }
+
+  const commits = [
+    ...project.commits.map((commit) => ({ ...commit })),
+    draftCommitToHistoryCommit(project, draft),
+  ].sort(
+    (left, right) => left.createdAt.getTime() - right.createdAt.getTime()
+  );
+  const children = new Map<string, string[]>();
+  const rootCommitIds: string[] = [];
+  for (const commit of commits) {
+    children.set(commit.id, []);
+  }
+  for (const commit of commits) {
+    if (commit.parentCommitId && children.has(commit.parentCommitId)) {
+      children.get(commit.parentCommitId)?.push(commit.id);
+    } else {
+      rootCommitIds.push(commit.id);
+    }
+  }
+  const counts = getHistoryProjectDisplayCounts(project);
+
+  return {
+    ...project,
+    commitCount: counts.versionCount,
+    variantCount: counts.variantCount,
+    rootCommitIds,
+    commits: commits.map((commit) => ({
+      ...commit,
+      childCommitIds: children.get(commit.id) ?? [],
+    })),
+  };
+}
+
 function applyActiveSelection(
   commits: Record<string, Commit>,
   metadata: UnknownRecord
@@ -1389,13 +1545,10 @@ export function restoreHistoryProject(
   };
 }
 
-function hasDraft(summary: HistoryProjectSummary): boolean {
-  return isRecord(appMetadata(summary).draft_commit);
-}
-
 export function toRecentHistoryProject(
   project: HistoryProjectSummary | HistoryProject
 ): RecentHistoryProject {
+  const counts = getHistoryProjectDisplayCounts(project);
   return {
     id: project.id,
     title:
@@ -1404,7 +1557,7 @@ export function toRecentHistoryProject(
     inputMode: project.inputMode,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
-    versionCount: project.commitCount + (hasDraft(project) ? 1 : 0),
+    versionCount: counts.versionCount,
   };
 }
 

@@ -210,4 +210,72 @@ describe("FullHistoryProjectDetails", () => {
 
     expect(html).toContain(">Edit<");
   });
+
+  it("shows a persisted mutable import as the current Full History version", () => {
+    const imported = project();
+    imported.title = "Imported landing page";
+    imported.commitCount = 0;
+    imported.variantCount = 0;
+    imported.headCommitId = null;
+    imported.selectedCommitId = null;
+    imported.selectedVariantIndex = null;
+    imported.rootCommitIds = [];
+    imported.commits = [];
+    imported.metadata = {
+      shot2code: {
+        schema_version: 1,
+        latest_commit_hash: "imported",
+        selected_commit_hash: "imported",
+        draft_commit: {
+          hash: "imported",
+          parent_hash: null,
+          retry_of_hash: null,
+          generation_context: null,
+          date_created: "2026-10-04T12:00:00.000Z",
+          type: "code_create",
+          selected_variant_index: 0,
+          inputs: null,
+          variants: [
+            {
+              code: "<main>Imported landing page</main>",
+              files: {
+                "index.html": {
+                  path: "index.html",
+                  content: "<main>Imported landing page</main>",
+                  language: "html",
+                  type: "markup",
+                },
+              },
+              entry_point: "index.html",
+              active_file_path: "index.html",
+              generation_target_path: null,
+              history: [],
+              request_started_at: null,
+              completed_at: 1799064000000,
+              status: "complete",
+              error_message: null,
+              thinking: null,
+              thinking_start_time: null,
+              thinking_duration: null,
+              agent_events: [],
+              model: null,
+              stack: "html_tailwind",
+            },
+          ],
+        },
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <FullHistoryProjectDetails
+        project={imported}
+        onOpenProject={jest.fn().mockResolvedValue(true)}
+      />
+    );
+
+    expect(html).toContain("1 version");
+    expect(html).toContain("1 option");
+    expect(html).toContain(">Imported<");
+    expect(html).toContain("entry index.html");
+  });
 });
